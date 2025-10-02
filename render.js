@@ -1,17 +1,6 @@
 // ==============================================
 // PDF Sentence Highlighter + Piper TTS (Local WASM)
-// ==============================================
-//
-// Rewritten from EdgeTTS-only version to use Piper (ProperPiperTTS).
-// Removed all EdgeTTS streaming logic. Prefetch/caching/fades retained.
-// Word highlighting is approximate (heuristic) because Piper JS wrapper
-// does not expose real word boundary timings.
-//
-// Refactor:
-//  - Concurrency-limited background synthesis
-//  - Cooperative yielding to keep UI responsive
-//  - Only start generating audio AFTER user presses Play
-//
+// Modernized toolbar support (Font Awesome button icons).
 // ==============================================
 
 /* -------------------- CONFIG: ACCESSIBILITY -------------------- */
@@ -67,11 +56,11 @@ async function safeDecodeAudioData(arrayBuffer) {
 
 function analyzeAudioBuffer(buffer) {
     if (!buffer) return;
-    console.log("=== AUDIO DIAGNOSTIC ===");
-    console.log("Duration (s):", buffer.duration);
-    console.log("Sample Rate:", buffer.sampleRate);
-    console.log("Channels:", buffer.numberOfChannels);
-    console.log("Length (samples):", buffer.length);
+    // console.log("=== AUDIO DIAGNOSTIC ===");
+    // console.log("Duration (s):", buffer.duration);
+    // console.log("Sample Rate:", buffer.sampleRate);
+    // console.log("Channels:", buffer.numberOfChannels);
+    // console.log("Length (samples):", buffer.length);
 }
 
 /* -------------------- CONFIG: PDF -------------------- */
@@ -87,16 +76,17 @@ const LINE_GAP_THRESHOLD = 1.6;
 
 /* -------------------- CONFIG: TTS PREFETCH -------------------- */
 const PREFETCH_AHEAD = 1;
+const PIPER_VOICES = ["en_US-hfc_female-medium", "pt_BR-faber-medium"];
 
 /* -------------------- PIPER SETTINGS -------------------- */
-const DEFAULT_PIPER_VOICE = "en_US-hfc_female-medium";
+const DEFAULT_PIPER_VOICE = PIPER_VOICES[0];
 let CURRENT_SPEED = 1.0;
 
 /* -------------------- DOM ELEMENTS -------------------- */
 const languageSelect = document.getElementById("language-select");
 const voiceSelect = document.getElementById("voice-select");
 const canvas = document.getElementById("pdf-canvas");
-const ctx = canvas.getContext("2d");
+const ctx = canvas?.getContext("2d");
 const btnNextSentence = document.getElementById("next-sentence");
 const btnPrevSentence = document.getElementById("prev-sentence");
 const btnPlayToggle = document.getElementById("play-toggle");
@@ -200,28 +190,22 @@ async function ensurePiper(voice) {
     }
 }
 
-/* -------------------- VOICE LIST -------------------- */
-const PIPER_VOICES = ["en_US-hfc_female-medium"];
-
 function initVoices() {
-    console.log(piperInstance.availableVoices);
-    if (languageSelect) {
-        languageSelect.innerHTML = "";
-        const opt = document.createElement("option");
-        opt.value = "en";
-        opt.textContent = "en";
-        languageSelect.appendChild(opt);
-    }
     if (voiceSelect) {
         voiceSelect.innerHTML = "";
+        const allVoices = piperInstance.availableVoices;
         PIPER_VOICES.forEach((v) => {
             const option = document.createElement("option");
             option.value = v;
-            option.textContent = v;
+            option.textContent = allVoices[v];
             voiceSelect.appendChild(option);
         });
         voiceSelect.value = DEFAULT_PIPER_VOICE;
     }
+    const micIcon = document.getElementById("mic-icon");
+    micIcon.classList.remove("fa-spinner");
+    micIcon.classList.remove("fa-spin");
+    micIcon.classList.add("fa-microphone");
 }
 
 /* -------------------- QUEUE MANAGER -------------------- */
@@ -233,7 +217,7 @@ class TTSQueueManager {
         this.inFlight = new Set();
     }
     add(sentenceIndex, priority = false) {
-        if (!generationEnabled) return; // não enfileira antes do play
+        if (!generationEnabled) return;
         const s = sentences[sentenceIndex];
         if (!s) return;
         if (s.audioReady || s.audioInProgress) return;
@@ -283,34 +267,70 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 /* ================== LOAD PDF ================== */
 export async function loadPDF(file = null) {
     try {
-        let loadingTask;
+        // Se não houver arquivo enviado, tenta recuperar progresso salvo
         if (!file) {
-            loadingTask = pdfjsLib.getDocument(PDF_URL);
-        } else {
-            const arrayBuffer = await file.arrayBuffer();
-            loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+            const saved = JSON.parse(localStorage.getItem("pdfReaderProgress") || "{}");
+            if (!saved.pdf || typeof saved.sentenceIndex !== "number") {
+                alert("No PDF loaded and no saved progress found. Please select a PDF to continue.");
+                return; // retorna sem carregar nada
+            }
+            // Carrega PDF salvo anteriormente
+            file = saved.fileData ? new Blob([Uint8Array.from(saved.fileData)]) : null;
+            if (!file) {
+                alert("Saved PDF data not found. Please re-select the PDF file.");
+                return;
+            }
+        }
+
+        // Se é um arquivo enviado, limpa caches
+        if (file) {
             pagesCache.clear();
             viewportDisplayByPage.clear();
             fullPageRenderCache.clear();
             audioCache.clear();
         }
+
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
         pdf = await loadingTask.promise;
+
         if (!pdf.numPages) throw new Error("PDF has no pages.");
+
+        // Pré-processa páginas
         for (let p = 1; p <= pdf.numPages; p++) await preprocessPage(p);
+
+        // Constrói sentenças
         buildSentences();
-        await renderSentence(0);
+
+        // Recupera índice salvo
+        let startIndex = 0;
+        try {
+            const saved = JSON.parse(localStorage.getItem("pdfReaderProgress") || "{}");
+            if (saved.pdf === (file.name || "") && typeof saved.sentenceIndex === "number") {
+                startIndex = clamp(saved.sentenceIndex, 0, sentences.length - 1);
+            }
+        } catch (e) {
+            console.warn("Error restoring saved progress:", e);
+        }
+
+        await renderSentence(startIndex);
         showInfo(`Total sentences: ${sentences.length}`);
         updatePlayButton();
-        // NÃO faz prefetch aqui (somente após Play)
         ensureFullPageRendered(1);
     } catch (e) {
         console.error(e);
         showInfo("Error: " + e.message);
     }
-    piperInstance = new window.ProperPiperTTS(DEFAULT_PIPER_VOICE);
-    await piperInstance.init();
 
-    initVoices();
+    // Inicializa Piper TTS
+    try {
+        piperInstance = new window.ProperPiperTTS(DEFAULT_PIPER_VOICE);
+        await piperInstance.init();
+        await piperInstance.getAvailableVoices();
+        initVoices();
+    } catch (e) {
+        console.warn("Error initializing Piper:", e);
+    }
 }
 
 /* ================== PREPROCESS PAGE ================== */
@@ -488,8 +508,8 @@ async function renderSentence(idx) {
     updateSubtitlePreview(sentence);
     updatePlayButton();
 
-    // Prefetch só se já começou a geração (após Play)
     schedulePrefetch();
+    saveProgress();
 }
 
 function highlightSentence(sentence, offsetYDisplay) {
@@ -510,7 +530,7 @@ function highlightSentence(sentence, offsetYDisplay) {
 /* ================== NAVIGATION ================== */
 function nextSentence(manual = true) {
     if (currentSentenceIndex < sentences.length - 1) {
-        stopPlayback(true); // garante pausar ao clicar Next
+        stopPlayback(true);
         if (manual) autoAdvanceActive = false;
         renderSentence(currentSentenceIndex + 1);
     }
@@ -533,19 +553,68 @@ function normalizeText(raw) {
 }
 
 /* ================== BUILD PIPER AUDIO ================== */
+function formatTextToSpeech(text) {
+    if (!text) return "";
+
+    // 1. Remove content inside parentheses
+    text = text.replace(/\([^)]*\)/g, "");
+
+    // 2. Remove content inside square brackets
+    text = text.replace(/\[[^\]]*\]/g, "");
+
+    // 3. Remove links (http, https, www)
+    text = text.replace(/\b(?:https?:\/\/|www\.)\S+\b/g, "");
+
+    // 4. Fix "true split" words only: first part ends with a letter, second part starts lowercase
+    // Example: "electroa- coustic" -> "electroacoustic"
+    text = text.replace(/\b([a-z]+)-\s*([a-z]+)/g, "$1$2");
+
+    // 5. Replace remaining line breaks with a space
+    text = text.replace(/\n/g, " ");
+
+    // 6. Replace multiple spaces with a single space
+    text = text.replace(/\s{2,}/g, " ").trim();
+
+    return text;
+}
+
+/* ================== BUILD PIPER AUDIO ================== */
 async function buildPiperAudio(sentence, voice, text) {
+    async function retryAsync(fn, retries = 3, delay = 300) {
+        let lastError;
+        for (let i = 0; i < retries; i++) {
+            try {
+                return await fn();
+            } catch (err) {
+                lastError = err;
+                console.warn(`Attempt ${i + 1} failed: ${err.message || err}`);
+                if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+            }
+        }
+        throw lastError;
+    }
+
     await ensureAudioContext();
     await ensurePiper(voice);
     await cooperativeYield();
 
-    const wavBlob = await piperInstance.synthesize(text, CURRENT_SPEED);
-    await cooperativeYield();
+    const currentSpeed = 1 + (1 - parseFloat(speedSelect.value));
+    const wavBlob = await retryAsync(async () => {
+        try {
+            text = formatTextToSpeech(text);
+            return await piperInstance.synthesize(text, currentSpeed);
+        } catch (e) {
+            console.warn("Error during synthesis, trying to reinitialize Piper...");
+            await ensurePiper(voice, true);
+            throw e;
+        }
+    });
 
+    await cooperativeYield();
     const arrBuf = await wavBlob.arrayBuffer();
     await cooperativeYield();
     const decoded = await safeDecodeAudioData(arrBuf.slice(0));
     await cooperativeYield();
-
     analyzeAudioBuffer(decoded);
     await cooperativeYield();
 
@@ -560,7 +629,9 @@ async function buildPiperAudio(sentence, voice, text) {
                 offsetMs: Math.floor((i / total) * totalMs),
                 durationMs: Math.floor(totalMs / total),
             });
-            if (i > 0 && i % WORD_BOUNDARY_CHUNK_SIZE === 0) await cooperativeYield();
+            if (i > 0 && i % WORD_BOUNDARY_CHUNK_SIZE === 0) {
+                await cooperativeYield();
+            }
         }
     }
 
@@ -588,13 +659,12 @@ async function buildPiperAudio(sentence, voice, text) {
     });
 }
 
-/* ================== SYNTHESIZE (SEM GERAR ANTES DO PLAY) ================== */
+/* ================== SYNTHESIZE ================== */
 async function synthesizeSequential(idx) {
-    if (!generationEnabled) return; // não gera antes do Play
+    if (!generationEnabled) return;
     const s = sentences[idx];
     if (!s) return;
     const voice = voiceSelect?.value || DEFAULT_PIPER_VOICE;
-
     if (s.audioReady && s.lastVoice === voice && s.lastSpeed === CURRENT_SPEED) return;
     if (s.audioInProgress) return;
 
@@ -621,6 +691,14 @@ async function synthesizeSequential(idx) {
 
     s.audioInProgress = true;
     s.audioError = null;
+
+    const icon = btnPlayToggle.querySelector("i");
+    const label = btnPlayToggle.querySelector(".label");
+
+    icon.className = "fa-solid fa-spinner fa-spin";
+    label.textContent = "Loading";
+    label.textContent = "Generating...";
+
     updateStatus(`Generating audio (sentence ${s.index + 1})...`);
     try {
         await buildPiperAudio(s, voice, normalized);
@@ -632,12 +710,14 @@ async function synthesizeSequential(idx) {
     } finally {
         s.audioInProgress = false;
         updatePrefetchVisual();
+        icon.className = "fa-solid fa-pause";
+        label.textContent = "Pause";
     }
 }
 
 /* ================== PREFETCH ================== */
 function schedulePrefetch() {
-    if (!generationEnabled) return; // só depois do Play
+    if (!generationEnabled) return;
     if (currentSentenceIndex >= 0) ttsQueue.add(currentSentenceIndex, true);
     const base = currentSentenceIndex;
     for (let i = base + 1; i <= base + PREFETCH_AHEAD && i < sentences.length; i++) {
@@ -671,37 +751,49 @@ function updateStatus(msg) {
     if (live) live.textContent = msg || "";
 }
 
+/* Modernized: keep icons; toggle state via dataset + icon classes */
 function updatePlayButton() {
     const s = sentences[currentSentenceIndex];
     if (!btnPlayToggle) return;
     if (!s) {
-        btnPlayToggle.textContent = "▶️";
         btnPlayToggle.disabled = true;
+        btnPlayToggle.dataset.state = "play";
+        setPlayButtonVisual(false);
         return;
     }
     btnPlayToggle.disabled = false;
-    btnPlayToggle.textContent = isPlaying ? "⏸️" : "▶️";
+    setPlayButtonVisual(isPlaying);
+}
+
+function setPlayButtonVisual(playing) {
+    if (!btnPlayToggle) return;
+    const icon = btnPlayToggle.querySelector("i");
+    const label = btnPlayToggle.querySelector(".label");
+    btnPlayToggle.dataset.state = playing ? "pause" : "play";
+    if (icon) {
+        icon.classList.toggle("fa-play", !playing);
+        icon.classList.toggle("fa-pause", playing);
+    } else {
+        // Fallback if icon not present (older markup)
+        btnPlayToggle.textContent = playing ? "Pause" : "Play";
+    }
+    if (label) label.textContent = playing ? "Pause" : "Play";
 }
 
 async function playCurrentSentence() {
     const s = sentences[currentSentenceIndex];
-    if (!s) return;
-    if (isPlaying) return;
+    if (!s || isPlaying) return;
 
     await ensureAudioContext();
 
-    // Ativa geração ao apertar Play pela primeira vez
     if (!generationEnabled) {
         generationEnabled = true;
-        // coloca a sentença atual imediatamente na fila
         ttsQueue.add(currentSentenceIndex, true);
         ttsQueue.run();
-        // prefetch futuro só depois da primeira play
         schedulePrefetch();
     }
 
     if (!s.audioReady) {
-        // prioriza novamente (caso usuário pulou rápido)
         ttsQueue.add(currentSentenceIndex, true);
         ttsQueue.run();
         try {
@@ -784,10 +876,12 @@ async function stopPlayback(fade = true) {
                 setTimeout(
                     () => {
                         try {
-                            if (currentSource) {
-                                currentSource.stop();
-                                currentSource.disconnect();
-                            }
+                            if (currentSource) currentSource.stop();
+                        } catch {}
+                        try {
+                            if (currentSource) currentSource.disconnect();
+                        } catch {}
+                        try {
                             if (currentGain) currentGain.disconnect();
                         } catch {}
                     },
@@ -796,6 +890,8 @@ async function stopPlayback(fade = true) {
             } else {
                 try {
                     currentSource.stop();
+                } catch {}
+                try {
                     currentSource.disconnect();
                 } catch {}
                 try {
@@ -842,6 +938,17 @@ function clearWordBoundaryTimers(s) {
     s.playbackWordTimers = [];
 }
 
+/* Save Progress */
+function saveProgress() {
+    if (!sentences.length || currentSentenceIndex < 0) return;
+    const pdfName = PDF_URL || "";
+    const data = {
+        pdf: pdfName,
+        sentenceIndex: currentSentenceIndex,
+    };
+    localStorage.setItem("pdfReaderProgress", JSON.stringify(data));
+}
+
 /* ================== WAIT FOR ================== */
 function waitFor(condFn, timeoutMs = 10000, interval = 120) {
     return new Promise((resolve, reject) => {
@@ -880,12 +987,47 @@ if (btnNextSentence) btnNextSentence.addEventListener("click", () => nextSentenc
 if (btnPrevSentence) btnPrevSentence.addEventListener("click", () => prevSentence(true));
 if (btnPlayToggle) btnPlayToggle.addEventListener("click", togglePlay);
 
+const btnPrevPage = document.getElementById("prev-page");
+const btnNextPage = document.getElementById("next-page");
+
+if (btnPrevPage) {
+    btnPrevPage.addEventListener("click", async () => {
+        stopPlayback(true);
+        autoAdvanceActive = false;
+        ttsQueue.reset();
+
+        // Determinar página anterior
+        const currentPage = sentences[currentSentenceIndex]?.pageNumber || 1;
+        const targetPage = Math.max(1, currentPage - 1);
+
+        // Encontrar índice da primeira sentença da página
+        const firstIdx = sentences.findIndex((s) => s.pageNumber === targetPage);
+        if (firstIdx >= 0) await renderSentence(firstIdx);
+    });
+}
+
+if (btnNextPage) {
+    btnNextPage.addEventListener("click", async () => {
+        stopPlayback(true);
+        autoAdvanceActive = false;
+        ttsQueue.reset();
+
+        // Determinar próxima página
+        const currentPage = sentences[currentSentenceIndex]?.pageNumber || 1;
+        const targetPage = Math.min(pdf.numPages, currentPage + 1);
+
+        // Encontrar índice da primeira sentença da página
+        const firstIdx = sentences.findIndex((s) => s.pageNumber === targetPage);
+        if (firstIdx >= 0) await renderSentence(firstIdx);
+    });
+}
+
 if (voiceSelect) {
     voiceSelect.addEventListener("change", () => {
         stopPlayback(true);
         autoAdvanceActive = false;
         invalidateFrom(currentSentenceIndex);
-        schedulePrefetch(); // só vai rodar se generationEnabled for true
+        schedulePrefetch();
     });
 }
 
@@ -944,4 +1086,3 @@ window.nextSentence = () => nextSentence(true);
 window.prevSentence = () => prevSentence(true);
 window.playSentence = playCurrentSentence;
 window.togglePlay = togglePlay;
-

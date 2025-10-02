@@ -4,6 +4,8 @@
         <meta charset="UTF-8" />
         <title>PDF Word Highlighter + Piper TTS</title>
 
+        <script src="./threads.js"></script>
+
         <!-- PDF.js -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.min.js"></script>
         <script>
@@ -11,36 +13,56 @@
                 "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.worker.min.js";
         </script>
 
-        <!-- ONNX Runtime + Piper (must exist locally if you host offline) -->
+        <!-- ONNX Runtime + Piper -->
         <script src="thirdparty/ort.min.js"></script>
         <script src="thirdparty/piper/piper-tts-proper.js"></script>
 
+        <!-- Font Awesome (Modern Icons) -->
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
         <style>
             :root {
-                --bg-light: #fff;
-                --fg-light: #000;
-                --bg-dark: #303030;
-                --fg-dark: rgba(255, 255, 255, 0.9);
-                --accent: linear-gradient(90deg, #ffaf00, #ffcc33);
+                --bg-light: #ffffff;
+                --fg-light: #111;
+                --bg-dark: #1f1f1f;
+                --fg-dark: #f5f5f5;
+                --border-light: #d0d4d9;
+                --border-dark: #3a3f46;
+                --accent-gradient: linear-gradient(135deg, #ffb347, #ffcc33);
+                --accent-solid: #ffb347;
+                --btn-bg-light: #f5f7fa;
+                --btn-bg-dark: #2b2f34;
+                --shadow-color-light: rgba(0, 0, 0, 0.08);
+                --shadow-color-dark: rgba(0, 0, 0, 0.6);
+                --focus-ring: 0 0 0 3px rgba(0, 140, 255, 0.45);
             }
 
             @media (prefers-color-scheme: light) {
                 :root {
                     --bg: var(--bg-light);
                     --fg: var(--fg-light);
-                    --border: #333;
+                    --border: var(--border-light);
+                    --panel-bg: rgba(255, 255, 255, 0.75);
+                    --panel-border: rgba(0, 0, 0, 0.08);
+                    --btn-bg: var(--btn-bg-light);
+                    --btn-bg-hover: #eef1f5;
+                    --btn-bg-active: #e2e6eb;
                     --info-color: #333;
                     --subtitle-color: #555;
                 }
             }
-
             @media (prefers-color-scheme: dark) {
                 :root {
                     --bg: var(--bg-dark);
                     --fg: var(--fg-dark);
-                    --border: #ccc;
-                    --info-color: #ddd;
-                    --subtitle-color: #aaa;
+                    --border: var(--border-dark);
+                    --panel-bg: rgba(40, 40, 44, 0.68);
+                    --panel-border: rgba(255, 255, 255, 0.08);
+                    --btn-bg: var(--btn-bg-dark);
+                    --btn-bg-hover: #353b42;
+                    --btn-bg-active: #40464e;
+                    --info-color: #e0e0e0;
+                    --subtitle-color: #a8a8a8;
                 }
                 canvas {
                     filter: invert(0.85);
@@ -52,36 +74,179 @@
                 margin: 0;
                 padding: 0;
                 overflow: hidden;
-                font-family: Arial, sans-serif;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    Segoe UI,
+                    Roboto,
+                    Ubuntu,
+                    Cantarell,
+                    "Noto Sans",
+                    Arial,
+                    sans-serif;
                 background: var(--bg);
                 color: var(--fg);
+                -webkit-font-smoothing: antialiased;
             }
 
-            #controls {
+            /* Modern Toolbar */
+            #controls.toolbar {
+                position: relative;
                 display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 10px 14px;
+                background: var(--panel-bg);
+                backdrop-filter: blur(14px) saturate(1.4);
+                -webkit-backdrop-filter: blur(14px) saturate(1.4);
+                border-bottom: 1px solid var(--panel-border);
+                box-shadow:
+                    0 4px 14px -4px var(--shadow-color-light),
+                    0 2px 4px -1px var(--shadow-color-light);
+                transition: background 0.35s ease;
                 flex-wrap: wrap;
-                justify-content: center;
-                gap: 6px;
-                padding: 10px 10px 4px;
+            }
+            @media (prefers-color-scheme: dark) {
+                #controls.toolbar {
+                    box-shadow:
+                        0 4px 18px -6px var(--shadow-color-dark),
+                        0 2px 6px -2px var(--shadow-color-dark);
+                }
+            }
+
+            .toolbar .btn-group {
+                display: flex;
+                gap: 8px;
+                align-items: stretch;
+            }
+
+            .toolbar .spacer {
+                flex: 1 1 auto;
+                min-width: 40px;
             }
 
             button,
-            select,
-            input[type="file"] {
-                padding: 6px 10px;
-                border-radius: 6px;
-                background: var(--bg);
-                color: var(--fg);
+            select {
+                font: inherit;
                 border: 1px solid var(--border);
+                background: var(--btn-bg);
+                color: var(--fg);
+                padding: 8px 12px;
+                border-radius: 10px;
                 cursor: pointer;
                 font-size: 14px;
+                line-height: 1;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                position: relative;
+                transition:
+                    background 0.25s,
+                    border-color 0.25s,
+                    transform 0.15s;
+                min-height: 40px;
+            }
+
+            button:focus-visible,
+            select:focus-visible {
+                outline: none;
+                box-shadow: var(--focus-ring);
+            }
+
+            button:hover:not(:disabled),
+            select:hover:not(:disabled) {
+                background: var(--btn-bg-hover);
+            }
+
+            button:active:not(:disabled) {
+                background: var(--btn-bg-active);
+                transform: translateY(1px);
             }
 
             button:disabled {
-                opacity: 0.5;
+                opacity: 0.55;
                 cursor: not-allowed;
             }
 
+            .icon-btn {
+                padding-inline: 14px;
+                font-weight: 500;
+            }
+
+            .icon-btn .label {
+                font-size: 13px;
+                letter-spacing: 0.3px;
+            }
+
+            .icon-btn i {
+                font-size: 15px;
+                width: 16px;
+                text-align: center;
+            }
+
+            .select-cluster {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                flex-wrap: wrap;
+            }
+
+            .select-group {
+                position: relative;
+                display: flex;
+                align-items: center;
+                background: var(--btn-bg);
+                border: 1px solid var(--border);
+                padding: 4px 10px 4px 10px;
+                border-radius: 12px;
+                gap: 8px;
+                min-height: 30px;
+                transition:
+                    background 0.25s,
+                    border-color 0.25s;
+            }
+
+            .select-group:hover {
+                background: var(--btn-bg-hover);
+            }
+
+            .select-group:focus-within {
+                box-shadow: var(--focus-ring);
+            }
+
+            .select-group i {
+                font-size: 15px;
+                color: var(--fg);
+                opacity: 0.85;
+            }
+
+            .select-group select {
+                background: transparent;
+                border: none;
+                padding: 0 4px 0 0;
+                min-height: unset;
+                height: 26px;
+                font-size: 13px;
+                line-height: 1.1;
+            }
+            .select-group select:focus {
+                outline: none;
+                box-shadow: none;
+            }
+
+            .sr-only {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0 0 0 0);
+                white-space: nowrap;
+                border: 0;
+            }
+
+            /* Info panels */
             #info-box,
             #tts-status {
                 text-align: center;
@@ -92,35 +257,34 @@
             }
 
             #progress-prefetch {
-                width: 240px;
+                width: 260px;
                 height: 6px;
-                background: var(--bg);
-                border-radius: 4px;
+                background: var(--btn-bg);
+                border-radius: 5px;
                 overflow: hidden;
-                margin: 0 auto 6px;
+                margin: 2px auto 8px;
                 position: relative;
+                border: 1px solid var(--border);
             }
-
             #progress-prefetch span {
                 position: absolute;
-                left: 0;
-                top: 0;
-                height: 100%;
+                inset: 0;
                 width: 0%;
-                background: var(--accent);
-                transition: width 0.25s ease;
+                background: var(--accent-gradient);
+                transition: width 0.35s ease;
             }
 
             #subtitle-preview {
                 font-size: 11px;
                 text-align: center;
                 color: var(--subtitle-color);
-                max-width: 900px;
+                max-width: 1000px;
                 margin: 0 auto;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 font-family: "Courier New", monospace;
+                padding: 0 12px 6px;
             }
 
             #viewer-wrapper {
@@ -129,57 +293,96 @@
                 justify-content: center;
                 padding-bottom: 12px;
             }
-
             #pdf-canvas {
                 border: 1px solid var(--border);
-                border-radius: 10px;
+                border-radius: 14px;
                 background: var(--bg);
                 display: block;
+                box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.25);
+                max-width: calc(100vw - 40px);
             }
 
             #drop-overlay {
                 position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 150, 255, 0.2);
+                inset: 0;
+                background: radial-gradient(circle at 50% 50%, rgba(0, 150, 255, 0.25), rgba(0, 150, 255, 0.1));
                 border: 3px dashed #0096ff;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 2rem;
+                font-size: clamp(1.5rem, 3.5vw, 2.4rem);
+                font-weight: 600;
                 color: #0096ff;
                 pointer-events: none;
                 opacity: 0;
-                transition: opacity 0.2s;
+                transition: opacity 0.25s ease;
                 z-index: 1000;
+                backdrop-filter: blur(6px);
             }
-
             #drop-overlay.active {
                 opacity: 1;
+            }
+
+            /* Compact adjustments for very narrow screens */
+            @media (max-width: 680px) {
+                .icon-btn .label {
+                    display: none;
+                }
+                .select-group {
+                    padding: 4px 10px;
+                }
+                #controls.toolbar {
+                    padding: 8px 10px;
+                }
             }
         </style>
     </head>
     <body>
-        <div id="controls">
-            <button id="prev-sentence">← Prev Sentence</button>
-            <button id="next-sentence">Next Sentence →</button>
-            <button id="play-toggle">▶️ Play</button>
+        <div id="controls" class="toolbar">
+            <div class="btn-group">
+                <button id="prev-page" class="icon-btn" title="Previous Page">
+                    <i class="fa-solid fa-circle-left"></i>
+                    <span class="label">Prev Page</span>
+                </button>
+                <button id="prev-sentence" class="icon-btn" title="Previous Sentence (Arrow Left)">
+                    <i class="fa-solid fa-backward" aria-hidden="true"></i>
+                    <span class="label">Prev</span>
+                </button>
+                <button id="play-toggle" class="icon-btn" data-state="play" title="Play / Pause (Space)">
+                    <i class="fa-solid fa-play" aria-hidden="true" id="play-toggle-icon"></i>
+                    <span class="label" id="play-toggle-label">Play</span>
+                </button>
+                <button id="next-sentence" class="icon-btn" title="Next Sentence (Arrow Right)">
+                    <i class="fa-solid fa-forward" aria-hidden="true"></i>
+                    <span class="label">Next</span>
+                </button>
+                <button id="next-page" class="icon-btn" title="Next Page">
+                    <i class="fa-solid fa-circle-right"></i>
+                    <span class="label">Next Page</span>
+                </button>
+            </div>
 
-            <label for="language-select" title="Static placeholder for legacy UI">Lang:</label>
-            <select id="language-select" title="Not used for Piper filtering"></select>
+            <div class="spacer" aria-hidden="true"></div>
 
-            <label for="voice-select">Voice:</label>
-            <select id="voice-select"></select>
+            <div class="select-cluster">
+                <div class="select-group" title="Voice">
+                    <i id="mic-icon" class="fa-solid fa-spin fa-spinner" aria-hidden="true"></i>
+                    <label class="sr-only" for="voice-select">Voice</label>
+                    <select id="voice-select" aria-label="Voice"></select>
+                </div>
 
-            <select id="rate-select" title="Speed (mapped from % to factor)">
-                <option value="+0%">speed +0%</option>
-                <option value="+10%">speed +10%</option>
-                <option value="+15%">speed +15%</option>
-                <option value="+30%" selected>speed +30%</option>
-                <option value="-10%">speed -10%</option>
-            </select>
+                <div class="select-group" title="Playback Speed">
+                    <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
+                    <label class="sr-only" for="rate-select">Playback Speed</label>
+                    <select id="rate-select" aria-label="Playback Speed">
+                        <option value="1" selected>1x</option>
+                        <option value="1.25%">1.25x</option>
+                        <option value="1.5%">1.5x</option>
+                        <option value="1.75%">1.75x</option>
+                        <option value="2">2x</option>
+                    </select>
+                </div>
+            </div>
         </div>
 
         <div id="info-box"></div>
@@ -218,7 +421,6 @@
             window.addEventListener("drop", async (e) => {
                 e.preventDefault();
                 dropOverlay.classList.remove("active");
-
                 const file = e.dataTransfer.files[0];
                 if (file && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
                     if (window.loadPDF) {
@@ -232,4 +434,3 @@
         </script>
     </body>
 </html>
-

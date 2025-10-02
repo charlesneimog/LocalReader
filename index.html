@@ -1,24 +1,29 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
     <head>
         <meta charset="UTF-8" />
-        <title>PDF Word Highlighter + TTS</title>
+        <title>PDF Word Highlighter + Piper TTS</title>
+
+        <!-- PDF.js -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.min.js"></script>
         <script>
             pdfjsLib.GlobalWorkerOptions.workerSrc =
                 "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.worker.min.js";
         </script>
 
+        <!-- ONNX Runtime + Piper (must exist locally if you host offline) -->
+        <script src="thirdparty/ort.min.js"></script>
+        <script src="thirdparty/piper/piper-tts-proper.js"></script>
+
         <style>
             :root {
                 --bg-light: #fff;
                 --fg-light: #000;
-                --bg-dark: rgb(48, 48, 48);
+                --bg-dark: #303030;
                 --fg-dark: rgba(255, 255, 255, 0.9);
                 --accent: linear-gradient(90deg, #ffaf00, #ffcc33);
             }
 
-            /* Tema claro */
             @media (prefers-color-scheme: light) {
                 :root {
                     --bg: var(--bg-light);
@@ -26,11 +31,9 @@
                     --border: #333;
                     --info-color: #333;
                     --subtitle-color: #555;
-                    --sound-filter: invert(0);
                 }
             }
 
-            /* Tema escuro */
             @media (prefers-color-scheme: dark) {
                 :root {
                     --bg: var(--bg-dark);
@@ -39,7 +42,6 @@
                     --info-color: #ddd;
                     --subtitle-color: #aaa;
                 }
-
                 canvas {
                     filter: invert(0.85);
                 }
@@ -61,7 +63,6 @@
                 justify-content: center;
                 gap: 6px;
                 padding: 10px 10px 4px;
-                text-emphasis-color: var(--fg);
             }
 
             button,
@@ -162,39 +163,49 @@
     </head>
     <body>
         <div id="controls">
-            <button id="prev-sentence">← Prev Phrase</button>
-            <button id="next-sentence">Next Phrase →</button>
+            <button id="prev-sentence">← Prev Sentence</button>
+            <button id="next-sentence">Next Sentence →</button>
             <button id="play-toggle">▶️ Play</button>
-            <label for="language-select">Language:</label>
-            <select id="language-select"></select>
+
+            <label for="language-select" title="Static placeholder for legacy UI">Lang:</label>
+            <select id="language-select" title="Not used for Piper filtering"></select>
+
             <label for="voice-select">Voice:</label>
             <select id="voice-select"></select>
-            <select id="rate-select" title="Velocidade">
-                <option value="+0%">rate +0%</option>
-                <option value="+10%">rate +10%</option>
-                <option value="+15%">rate +15%</option>
-                <option value="+30%" selected>rate +30%</option>
-                <option value="-10%">rate -10%</option>
+
+            <select id="rate-select" title="Speed (mapped from % to factor)">
+                <option value="+0%">speed +0%</option>
+                <option value="+10%">speed +10%</option>
+                <option value="+15%">speed +15%</option>
+                <option value="+30%" selected>speed +30%</option>
+                <option value="-10%">speed -10%</option>
             </select>
         </div>
+
         <div id="info-box"></div>
         <div id="tts-status"></div>
         <div id="progress-prefetch"><span id="prefetch-bar"></span></div>
         <div id="subtitle-preview"></div>
+
         <div id="viewer-wrapper">
             <canvas id="pdf-canvas"></canvas>
         </div>
 
-        <div id="drop-overlay">Drop the PDF file to read it!</div>
-        <script type="module" src="render.js"></script>
-        <script>
-            window.addEventListener("DOMContentLoaded", () => {
-                window.loadPDF();
-            });
-        </script>
-        <script>
-            const dropOverlay = document.getElementById("drop-overlay");
+        <div id="drop-overlay">Drop a PDF to read it!</div>
 
+        <!-- Main logic -->
+        <script type="module" src="render.js"></script>
+
+        <script>
+            // Auto-load default PDF
+            window.addEventListener("DOMContentLoaded", () => {
+                if (window.loadPDF) {
+                    window.loadPDF();
+                }
+            });
+
+            // Drag & Drop
+            const dropOverlay = document.getElementById("drop-overlay");
             window.addEventListener("dragenter", (e) => {
                 e.preventDefault();
                 dropOverlay.classList.add("active");
@@ -209,13 +220,16 @@
                 dropOverlay.classList.remove("active");
 
                 const file = e.dataTransfer.files[0];
-                if (file && (file.type === "application/pdf" || file.name.endsWith(".pdf"))) {
-                    await window.loadPDF(file);
-                    console.log("PDF carregado via drag & drop");
+                if (file && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+                    if (window.loadPDF) {
+                        await window.loadPDF(file);
+                        console.log("PDF loaded via drag & drop");
+                    }
                 } else {
-                    alert("O arquivo não é PDF!");
+                    alert("Not a valid PDF file!");
                 }
             });
         </script>
     </body>
 </html>
+

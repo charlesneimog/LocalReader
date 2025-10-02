@@ -75,7 +75,7 @@ function analyzeAudioBuffer(buffer) {
 }
 
 /* -------------------- CONFIG: PDF -------------------- */
-const PDF_URL = "pdf.pdf";
+const PDF_URL = "Enabling Interactive Music Performance through Web Browsers for non-Programmers.pdf";
 const BASE_WIDTH_CSS = 1400;
 const VIEWPORT_HEIGHT_CSS = 650;
 const MARGIN_TOP = 100;

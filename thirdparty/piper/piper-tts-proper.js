@@ -24,13 +24,9 @@
 
             // Available voices
             this.availableVoices = {
-                // US English voices
-                "en_US-hfc_female-medium": "US Female (HFC) - Medium",
-                "en_GB-cori-medium": "en-GB (Cori) - Medium",
-                "pt_BR-faber-medium": "pt-BR (Faber) - Medium",
-
-                "en_US-lessac-high": "US Male (Lessac) - High (Need very-fast CPU)",
-                "en_GB-cori-high": "en-GB (Cori) - High (Need very-fast CPU)",
+                "en_GB-cori-medium": "🇬🇧 (Cori) - Medium",
+                "pt_BR-faber-medium": "🇧🇷 (Faber) - Medium",
+                "en_US-hfc_female-medium": "🇺🇸 (HFC) - Medium",
             };
         }
 
@@ -83,10 +79,10 @@
                 const modelBuffer = await modelResponse.arrayBuffer();
 
                 // Configure ONNX Runtime
-                ort.env.wasm.numThreads = 4;
+                ort.env.wasm.numThreads = 1;
                 ort.env.wasm.simd = true;
                 ort.env.wasm.wasmPaths = this.baseUrl + "/thirdparty/";
-                ort.env.logLevel = 'error';    
+                ort.env.logLevel = "error";
 
                 // Create ONNX session
                 const sessionOptions = {
@@ -95,8 +91,8 @@
                     enableCpuMemArena: true,
                     enableMemPattern: true,
                     executionMode: "sequential",
-                    interOpNumThreads: 2,
-                    intraOpNumThreads: 2,
+                    interOpNumThreads: 4,
+                    intraOpNumThreads: 4,
                 };
 
                 this.session = await ort.InferenceSession.create(modelBuffer, sessionOptions);

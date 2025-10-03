@@ -68,8 +68,6 @@
                 //console.log("Loading Piper phonemizer module...");
                 await this.loadPhonemizer();
 
-                console.log(this.voiceConfigPath);
-
                 const configResponse = await fetch(this.voiceConfigPath);
                 if (!configResponse.ok) {
                     throw new Error(`Failed to load voice config: ${configResponse.status}`);
@@ -85,7 +83,9 @@
                 const modelBuffer = await modelResponse.arrayBuffer();
 
                 // Configure ONNX Runtime
-                ort.env.wasm.numThreads = 8;
+                const threads = navigator.hardwareConcurrency;
+                ort.env.wasm.numThreads = threads; // threads para WASM
+
                 ort.env.wasm.simd = true;
                 ort.env.wasm.wasmPaths = this.baseUrl + "/thirdparty/";
                 ort.env.logLevel = "error";
@@ -97,16 +97,16 @@
                     enableCpuMemArena: true,
                     enableMemPattern: true,
                     executionMode: "sequential",
-                    interOpNumThreads: 4,
-                    intraOpNumThreads: 4,
+                    intraOpNumThreads: threads,
+                    interOpNumThreads: parseInt(threads / 2),
                 };
 
                 this.session = await ort.InferenceSession.create(modelBuffer, sessionOptions);
-                console.log("ONNX session created successfully");
+                // console.log("ONNX session created successfully");
 
                 this.initialized = true;
                 this.initializing = false;
-                console.log("Piper TTS initialized successfully!");
+                // console.log("Piper TTS initialized successfully!");
             } catch (error) {
                 console.error("Piper TTS initialization failed:", error);
                 this.initializing = false;
@@ -140,7 +140,7 @@
 
             this.createPiperPhonemize = window.__createPiperPhonemize;
             delete window.__createPiperPhonemize;
-            console.log("Phonemizer module loaded");
+            // console.log("Phonemizer module loaded");
         }
 
         async initPhonemizer() {
@@ -176,7 +176,7 @@
                 },
             });
 
-            console.log("Phonemizer module initialized");
+            // console.log("Phonemizer module initialized");
         }
 
         async phonemize(text) {
@@ -253,7 +253,7 @@
         async synthesize(text, speed = 1.0) {
             // Ensure initialization is complete
             if (!this.initialized) {
-                console.log("Waiting for Piper TTS initialization...");
+                // console.log("Waiting for Piper TTS initialization...");
                 await this.init();
             }
 
@@ -288,7 +288,7 @@
                 }
 
                 const inferenceTime = performance.now() - startTime;
-                console.log(`Inference completed in ${inferenceTime.toFixed(2)}ms`);
+                // console.log(`Inference completed in ${inferenceTime.toFixed(2)}ms`);
 
                 // Get audio output
                 if (!results || !results.output || !results.output.data) {
@@ -352,7 +352,7 @@
 
                 // If not initialized yet, wait for initialization before processing
                 if (!this.initialized && !this.initializing) {
-                    console.log("Piper TTS not initialized, initializing now...");
+                    // console.log("Piper TTS not initialized, initializing now...");
                     this.init()
                         .then(() => {
                             this.processQueue();
@@ -460,7 +460,7 @@
                 item.reject(new Error("Queue cleared"));
             });
             this.synthesisQueue = [];
-            console.log(`Cleared ${queueLength} pending TTS requests`);
+            // console.log(`Cleared ${queueLength} pending TTS requests`);
         }
 
         // Get queue status
@@ -476,7 +476,7 @@
                 );
             }
 
-            console.log(`Changing voice from ${this.voiceId} to ${voiceId}`);
+            // console.log(`Changing voice from ${this.voiceId} to ${voiceId}`);
 
             // Clear any pending speech
             this.clearQueue();

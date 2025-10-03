@@ -41,8 +41,15 @@ const SPLIT_ON_LINE_GAP = false;
 const LINE_GAP_THRESHOLD = 1.6;
 
 /* Prefetch / TTS */
-const PREFETCH_AHEAD = 2;
-const PIPER_VOICES = ["en_US-hfc_female-medium", "pt_BR-faber-medium"];
+const PREFETCH_AHEAD = 1;
+const PIPER_VOICES = [
+    "en_US-hfc_female-medium",
+    "pt_BR-faber-medium",
+    "en_GB-cori-medium",
+    "en_GB-cori-high",
+    "en_US-lessac-high",
+];
+
 const DEFAULT_PIPER_VOICE = PIPER_VOICES[0];
 
 /* Responsive */

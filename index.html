@@ -4,23 +4,25 @@
         <meta charset="UTF-8" />
         <title>PDF Word Highlighter + Piper TTS</title>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        <link rel="manifest" href="manifest.webmanifest" />
+        <meta name="theme-color" content="#2b2b2b" />
 
         <!-- Threads (if needed) -->
         <script src="./threads.js"></script>
 
         <!-- PDF.js -->
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.min.js"></script>
+        <script src="thirdparty/pdf/pdf.js"></script>
         <script>
             pdfjsLib.GlobalWorkerOptions.workerSrc =
-                "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.worker.min.js";
+                "thirdparty/pdf/pdf.worker.js";
         </script>
 
         <!-- ONNX Runtime + Piper -->
-        <script src="thirdparty/ort.min.js"></script>
+        <script src="thirdparty/ort.js"></script>
         <script src="thirdparty/piper/piper-tts-proper.js"></script>
 
         <!-- Font Awesome -->
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+        <link rel="stylesheet" href="thirdparty/font-awesome/all.css" />
 
         <style>
             :root {
@@ -541,6 +543,15 @@
         </style>
     </head>
     <body>
+        <script>
+            if ("serviceWorker" in navigator) {
+                navigator.serviceWorker
+                    .register("/service-worker.js")
+                    .then((reg) => console.log("Service Worker registrado:", reg.scope))
+                    .catch((err) => console.error("Erro no Service Worker:", err));
+            }
+        </script>
+
         <div id="controls" class="toolbar">
             <div class="btn-group">
                 <button id="open-file" class="icon-btn" title="Open PDF (File Dialog)">

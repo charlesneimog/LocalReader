@@ -20,32 +20,6 @@ Works offline, remembers your position in each PDF, and is optimized for desktop
 - **Dark/Light Theme:** Follows your system preference.
 
 ---
-
-## Getting Started
-
-1. **Clone or Download:**
-   ```
-   git clone https://github.com/<your-username>/<your-repo>.git
-   cd <your-repo>
-   ```
-
-2. **Install Dependencies:**
-   - No build needed. All libraries are loaded via CDN or included in `thirdparty/`.
-
-3. **Run Locally:**
-   - Serve the directory with any static server, e.g.:
-     ```
-     npx serve .
-     ```
-   - Or just open `index.html` in your browser (some browsers require HTTPS for TTS and PWA features).
-
-4. **Open Your PDF:**
-   - Click "Open" or drag and drop a PDF file.
-   - Use navigation controls to move by sentence or page.
-   - Click play to listen via Piper TTS.
-
----
-
 ## Usage
 
 - **Install as App:**  
@@ -78,34 +52,10 @@ Works offline, remembers your position in each PDF, and is optimized for desktop
 
 ---
 
-## Customization
-
-- **Add voices:**  
-  Update `PIPER_VOICES` in `render.js` to add more Piper voice models.
-- **Change accent color:**  
-  Edit `theme_color` in `manifest.webmanifest` and CSS vars in `index.html`.
-
----
-
-## Accessibility
-
-- Keyboard navigation (space, arrows, 'p' for play/pause)
-- ARIA live regions for screen readers
-- Responsive design for mobile/touch users
-
----
-
 ## Contributing
 
 Pull requests and issues welcome!  
 Please open issues for bugs, feature requests, or suggestions for mobile improvements.
-
----
-
-## License
-
-MIT License.  
-See [LICENSE](LICENSE).
 
 ---
 
@@ -119,21 +69,12 @@ See [LICENSE](LICENSE).
 
 ## Screenshots
 
-> _Add your screenshots here!_
+<p markdown align="center">
+    <img src="resources/example.png"/>
+</p>
 
 ---
 
 ## TODO / Roadmap
 
-- [ ] Add search within PDF
-- [ ] Support for bookmarks and annotations
-- [ ] More TTS voices and languages
 - [ ] Virtualized rendering for very large PDFs
-- [ ] User settings for cache management and privacy
-
----
-
-## Contact
-
-Questions or feedback?  
-Open an issue or email: [your-email@example.com](mailto:your-email@example.com)

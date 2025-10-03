@@ -1,102 +1,48 @@
-// ==============================================
-// PDF Sentence Highlighter + Piper TTS (Local WASM)
-// Modernized toolbar support (Font Awesome button icons).
-// ==============================================
+// ===============================
+// render.js (PDF + TTS)
+// ===============================
 
-/* -------------------- CONFIG: ACCESSIBILITY -------------------- */
+/* ------------ CONFIG ------------ */
 const ENABLE_WORD_HIGHLIGHT = true;
 const ENABLE_LIVE_WORD_REGION = true;
 const LIVE_WORD_REGION_ID = "live-word";
 const LIVE_STATUS_REGION_ID = "live-status";
 
-/* -------------------- CONFIG: AUDIO / FADES / BUFFER -------------------- */
 const MAKE_WAV_COPY = false;
 const STORE_DECODED_ONLY = true;
 const FADE_IN_SEC = 0.03;
 const FADE_OUT_SEC = 0.08;
 const MIN_GAIN = 0.001;
 
-/* -------------------- AUDIO CONTEXT -------------------- */
 const AUDIO_CONTEXT_OPTIONS = { latencyHint: "playback" };
-let audioCtx = null;
 
-async function ensureAudioContext() {
-    if (!audioCtx) {
-        try {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)(AUDIO_CONTEXT_OPTIONS);
-        } catch {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-    }
-    if (audioCtx.state === "suspended") {
-        try {
-            await audioCtx.resume();
-        } catch (e) {
-            console.warn("Resume fail:", e);
-        }
-    }
-    return audioCtx;
-}
-
-async function safeDecodeAudioData(arrayBuffer) {
-    await ensureAudioContext();
-    if (!arrayBuffer || arrayBuffer.byteLength < 100) throw new Error("Audio ArrayBuffer too small or invalid.");
-    try {
-        return await audioCtx.decodeAudioData(arrayBuffer.slice(0));
-    } catch (err) {
-        console.warn("Primary decode failed; recreating AudioContext:", err);
-        try {
-            if (audioCtx) await audioCtx.close();
-        } catch {}
-        audioCtx = null;
-        await ensureAudioContext();
-        return await audioCtx.decodeAudioData(arrayBuffer.slice(0));
-    }
-}
-
-function analyzeAudioBuffer(buffer) {
-    if (!buffer) return;
-    // console.log("=== AUDIO DIAGNOSTIC ===");
-    // console.log("Duration (s):", buffer.duration);
-    // console.log("Sample Rate:", buffer.sampleRate);
-    // console.log("Channels:", buffer.numberOfChannels);
-    // console.log("Length (samples):", buffer.length);
-}
-
-/* -------------------- CONFIG: PDF -------------------- */
+/* PDF / Layout */
 const PDF_URL = "Enabling Interactive Music Performance through Web Browsers for non-Programmers.pdf";
 const BASE_WIDTH_CSS = 1400;
 const VIEWPORT_HEIGHT_CSS = 650;
 const MARGIN_TOP = 100;
 
-/* -------------------- CONFIG: SENTENCE BUILDING -------------------- */
+/* Sentence building */
 const BREAK_ON_LINE = false;
 const SPLIT_ON_LINE_GAP = false;
 const LINE_GAP_THRESHOLD = 1.6;
 
-/* -------------------- CONFIG: TTS PREFETCH -------------------- */
+/* Prefetch / TTS */
 const PREFETCH_AHEAD = 1;
 const PIPER_VOICES = ["en_US-hfc_female-medium", "pt_BR-faber-medium"];
-
-/* -------------------- PIPER SETTINGS -------------------- */
 const DEFAULT_PIPER_VOICE = PIPER_VOICES[0];
+
+/* Full document mode */
+const SCROLL_MARGIN = 120;
+const VIEW_MODE_STORAGE_KEY = "pdfViewMode"; // "full" | "single"
+
+/* Progress map key */
+const PROGRESS_STORAGE_KEY = "pdfReaderProgressMap";
+
+/* ------------ STATE ------------ */
+let audioCtx = null;
 let CURRENT_SPEED = 1.0;
 
-/* -------------------- DOM ELEMENTS -------------------- */
-const languageSelect = document.getElementById("language-select");
-const voiceSelect = document.getElementById("voice-select");
-const canvas = document.getElementById("pdf-canvas");
-const ctx = canvas?.getContext("2d");
-const btnNextSentence = document.getElementById("next-sentence");
-const btnPrevSentence = document.getElementById("prev-sentence");
-const btnPlayToggle = document.getElementById("play-toggle");
-const infoBox = document.getElementById("info-box");
-const ttsStatus = document.getElementById("tts-status");
-const speedSelect = document.getElementById("rate-select");
-const prefetchBar = document.getElementById("prefetch-bar");
-const subtitlePreview = document.getElementById("subtitle-preview");
-
-/* -------------------- STATE -------------------- */
 let pdf = null;
 let pagesCache = new Map();
 let viewportDisplayByPage = new Map();
@@ -105,42 +51,51 @@ let sentences = [];
 let currentSentenceIndex = -1;
 let deviceScale = window.devicePixelRatio || 1;
 
-// Playback
 let currentSource = null;
 let currentGain = null;
 let isPlaying = false;
 let autoAdvanceActive = false;
 let stopRequested = false;
-
-// TTS generation enable flag (só gera depois do Play)
 let generationEnabled = false;
 
-// Audio cache
+/* Multi-PDF identity */
+let currentPdfKey = null;
+let currentPdfDescriptor = null;
+
+/* Caches */
 const audioCache = new Map();
 
-/* -------------------- COOPERATIVE MULTITASKING HELPERS -------------------- */
+/* TTS engine */
+let piperInstance = null;
+let currentPiperVoice = null;
+let piperLoading = false;
+
+/* Concurrency and timers */
 const MAX_CONCURRENT_SYNTH = 2;
 const WORD_BOUNDARY_CHUNK_SIZE = 40;
 const YIELD_AFTER_MS = 32;
 
-function cooperativeYield() {
-    if (typeof requestIdleCallback === "function") return new Promise((res) => requestIdleCallback(() => res()));
-    return new Promise((res) => setTimeout(res, 0));
-}
+/* View mode (default loaded from storage) */
+let viewMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY) === "single" ? "single" : "full";
 
-async function timedCooperativeLoop(loopFn) {
-    let lastYield = performance.now();
-    while (true) {
-        const result = loopFn();
-        if (result === false) break;
-        if (performance.now() - lastYield > YIELD_AFTER_MS) {
-            await cooperativeYield();
-            lastYield = performance.now();
-        }
-    }
-}
+/* ------------ DOM ELEMENTS ------------ */
+const voiceSelect = document.getElementById("voice-select");
+const speedSelect = document.getElementById("rate-select");
+const btnNextSentence = document.getElementById("next-sentence");
+const btnPrevSentence = document.getElementById("prev-sentence");
+const btnPlayToggle = document.getElementById("play-toggle");
+const btnPrevPage = document.getElementById("prev-page");
+const btnNextPage = document.getElementById("next-page");
+const toggleViewBtn = document.getElementById("toggle-view-mode");
+const infoBox = document.getElementById("info-box");
+const ttsStatus = document.getElementById("tts-status");
+const prefetchBar = document.getElementById("prefetch-bar");
+const subtitlePreview = document.getElementById("subtitle-preview");
+const pdfCanvas = document.getElementById("pdf-canvas");
+const pdfDocContainer = document.getElementById("pdf-doc-container");
+const viewerWrapper = document.getElementById("viewer-wrapper");
 
-/* -------------------- ARIA LIVE REGIONS -------------------- */
+/* Ensure live regions */
 (function ensureAriaRegions() {
     if (ENABLE_LIVE_WORD_REGION && !document.getElementById(LIVE_WORD_REGION_ID)) {
         const div = document.createElement("div");
@@ -162,178 +117,71 @@ async function timedCooperativeLoop(loopFn) {
     }
 })();
 
-/* -------------------- PIPER INITIALIZATION -------------------- */
-let piperInstance = null;
-let currentPiperVoice = null;
-let piperLoading = false;
-
-async function ensurePiper(voice) {
-    if (!window.ort) throw new Error("ONNX Runtime (ort.min.js) not loaded.");
-    if (!window.ProperPiperTTS) throw new Error("Piper library not loaded.");
-    if (!piperInstance || currentPiperVoice !== voice) {
-        if (piperLoading) {
-            while (piperLoading) await cooperativeYield();
-        } else {
-            piperLoading = true;
-            try {
-                if (piperInstance && currentPiperVoice !== voice) {
-                    await piperInstance.changeVoice(voice);
-                } else {
-                    piperInstance = new window.ProperPiperTTS(voice);
-                    await piperInstance.init();
-                }
-                currentPiperVoice = voice;
-            } finally {
-                piperLoading = false;
-            }
-        }
-    }
-}
-
-function initVoices() {
-    if (voiceSelect) {
-        voiceSelect.innerHTML = "";
-        const allVoices = piperInstance.availableVoices;
-        PIPER_VOICES.forEach((v) => {
-            const option = document.createElement("option");
-            option.value = v;
-            option.textContent = allVoices[v];
-            voiceSelect.appendChild(option);
-        });
-        voiceSelect.value = DEFAULT_PIPER_VOICE;
-    }
-    const micIcon = document.getElementById("mic-icon");
-    micIcon.classList.remove("fa-spinner");
-    micIcon.classList.remove("fa-spin");
-    micIcon.classList.add("fa-microphone");
-}
-
-/* -------------------- QUEUE MANAGER -------------------- */
-class TTSQueueManager {
-    constructor() {
-        this.queue = [];
-        this.active = 0;
-        this.MAX_CONCURRENT = MAX_CONCURRENT_SYNTH;
-        this.inFlight = new Set();
-    }
-    add(sentenceIndex, priority = false) {
-        if (!generationEnabled) return;
-        const s = sentences[sentenceIndex];
-        if (!s) return;
-        if (s.audioReady || s.audioInProgress) return;
-        if (this.queue.includes(sentenceIndex) || this.inFlight.has(sentenceIndex)) return;
-        s.prefetchQueued = true;
-        priority ? this.queue.unshift(sentenceIndex) : this.queue.push(sentenceIndex);
-        this.run();
-    }
-    run() {
-        if (!generationEnabled) return;
-        while (this.active < this.MAX_CONCURRENT && this.queue.length) {
-            const idx = this.queue.shift();
-            if (idx == null) break;
-            this.startTask(idx);
-        }
-        updatePrefetchVisual();
-    }
-    async startTask(idx) {
-        const s = sentences[idx];
-        if (!s) return;
-        if (s.audioReady || s.audioInProgress) {
-            this.run();
-            return;
-        }
-        this.active++;
-        this.inFlight.add(idx);
-        try {
-            await synthesizeSequential(idx);
-        } catch (e) {
-            console.warn("Synthesis failure:", e);
-        } finally {
-            this.active--;
-            this.inFlight.delete(idx);
-            this.run();
-        }
-    }
-    reset() {
-        this.queue = [];
-    }
-}
-const ttsQueue = new TTSQueueManager();
-
-/* -------------------- UTILS -------------------- */
+/* ------------ Helpers ------------ */
 const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* ================== LOAD PDF ================== */
-export async function loadPDF(file = null) {
-    try {
-        // Se não houver arquivo enviado, tenta recuperar progresso salvo
-        if (!file) {
-            const saved = JSON.parse(localStorage.getItem("pdfReaderProgress") || "{}");
-            if (!saved.pdf || typeof saved.sentenceIndex !== "number") {
-                alert("No PDF loaded and no saved progress found. Please select a PDF to continue.");
-                return; // retorna sem carregar nada
-            }
-            // Carrega PDF salvo anteriormente
-            file = saved.fileData ? new Blob([Uint8Array.from(saved.fileData)]) : null;
-            if (!file) {
-                alert("Saved PDF data not found. Please re-select the PDF file.");
-                return;
-            }
-        }
-
-        // Se é um arquivo enviado, limpa caches
-        if (file) {
-            pagesCache.clear();
-            viewportDisplayByPage.clear();
-            fullPageRenderCache.clear();
-            audioCache.clear();
-        }
-
-        const arrayBuffer = await file.arrayBuffer();
-        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-        pdf = await loadingTask.promise;
-
-        if (!pdf.numPages) throw new Error("PDF has no pages.");
-
-        // Pré-processa páginas
-        for (let p = 1; p <= pdf.numPages; p++) await preprocessPage(p);
-
-        // Constrói sentenças
-        buildSentences();
-
-        // Recupera índice salvo
-        let startIndex = 0;
-        try {
-            const saved = JSON.parse(localStorage.getItem("pdfReaderProgress") || "{}");
-            if (saved.pdf === (file.name || "") && typeof saved.sentenceIndex === "number") {
-                startIndex = clamp(saved.sentenceIndex, 0, sentences.length - 1);
-            }
-        } catch (e) {
-            console.warn("Error restoring saved progress:", e);
-        }
-
-        await renderSentence(startIndex);
-        showInfo(`Total sentences: ${sentences.length}`);
-        updatePlayButton();
-        ensureFullPageRendered(1);
-    } catch (e) {
-        console.error(e);
-        showInfo("Error: " + e.message);
-    }
-
-    // Inicializa Piper TTS
-    try {
-        piperInstance = new window.ProperPiperTTS(DEFAULT_PIPER_VOICE);
-        await piperInstance.init();
-        await piperInstance.getAvailableVoices();
-        initVoices();
-    } catch (e) {
-        console.warn("Error initializing Piper:", e);
-    }
+function cooperativeYield() {
+    if (typeof requestIdleCallback === "function") return new Promise((res) => requestIdleCallback(() => res()));
+    return new Promise((res) => setTimeout(res, 0));
 }
 
-/* ================== PREPROCESS PAGE ================== */
+async function ensureAudioContext() {
+    if (!audioCtx) {
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)(AUDIO_CONTEXT_OPTIONS);
+        } catch {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+    if (audioCtx.state === "suspended") {
+        try {
+            await audioCtx.resume();
+        } catch (e) {
+            console.warn("Resume fail:", e);
+        }
+    }
+    return audioCtx;
+}
+
+/* ------------ Multi-PDF Progress ------------ */
+function getProgressMap() {
+    try {
+        return JSON.parse(localStorage.getItem(PROGRESS_STORAGE_KEY) || "{}");
+    } catch {
+        return {};
+    }
+}
+function setProgressMap(map) {
+    try {
+        localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(map));
+    } catch (e) {
+        console.warn("Failed to write progress map:", e);
+    }
+}
+function computePdfKeyFromSource(source) {
+    if (source.type === "url") return `url::${source.name}`;
+    if (source.type === "file") {
+        const { name, size = 0, lastModified = 0 } = source;
+        return `file::${name}::${size}::${lastModified}`;
+    }
+    return null;
+}
+function loadSavedPosition(pdfKey) {
+    return getProgressMap()[pdfKey] || null;
+}
+function saveProgress() {
+    if (!sentences.length || currentSentenceIndex < 0 || !currentPdfKey) return;
+    const map = getProgressMap();
+    map[currentPdfKey] = {
+        sentenceIndex: currentSentenceIndex,
+        totalSentences: sentences.length,
+        updated: Date.now(),
+    };
+    setProgressMap(map);
+}
+
+/* ------------ PDF Processing ------------ */
 async function preprocessPage(pageNumber) {
     if (viewportDisplayByPage.has(pageNumber)) return;
     const page = await pdf.getPage(pageNumber);
@@ -344,8 +192,7 @@ async function preprocessPage(pageNumber) {
     viewportDisplayByPage.set(pageNumber, viewportDisplay);
     const textContent = await page.getTextContent();
     const rawItems = textContent.items;
-    let pageWords = [];
-
+    const pageWords = [];
     for (const item of rawItems) {
         if (!item?.transform || !item.str) continue;
         if (!item.str.trim()) continue;
@@ -372,7 +219,6 @@ async function preprocessPage(pageNumber) {
     page.pageWords = pageWords;
 }
 
-/* ================== BUILD SENTENCES ================== */
 function buildSentences() {
     sentences = [];
     let sentenceIndex = 0;
@@ -443,15 +289,14 @@ function combinedBBox(words) {
     };
 }
 
-/* ================== RENDER SENTENCE ================== */
 async function ensureFullPageRendered(pageNumber) {
     if (fullPageRenderCache.has(pageNumber)) return fullPageRenderCache.get(pageNumber);
     const page = pagesCache.get(pageNumber) || (await pdf.getPage(pageNumber));
     const viewportDisplay = viewportDisplayByPage.get(pageNumber);
     const fullW = Math.round(viewportDisplay.width * deviceScale);
     const fullH = Math.round(viewportDisplay.height * deviceScale);
-    const renderScale = (viewportDisplay.width / page.getViewport({ scale: 1 }).width) * deviceScale;
-    const viewportRender = page.getViewport({ scale: renderScale });
+    const scale = (viewportDisplay.width / page.getViewport({ scale: 1 }).width) * deviceScale;
+    const viewportRender = page.getViewport({ scale });
     const off = document.createElement("canvas");
     off.width = fullW;
     off.height = fullH;
@@ -461,58 +306,133 @@ async function ensureFullPageRendered(pageNumber) {
     return off;
 }
 
+/* ------------ Full Document Mode ------------ */
+function clearFullDocHighlights() {
+    if (!pdfDocContainer) return;
+    const olds = pdfDocContainer.querySelectorAll(".pdf-word-highlight");
+    olds.forEach((n) => n.remove());
+}
+
+function updateHighlightFullDoc(sentence) {
+    if (viewMode !== "full" || !pdfDocContainer || !sentence) return;
+    clearFullDocHighlights();
+    const wrapper = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
+    if (!wrapper) return;
+    for (const w of sentence.words) {
+        const div = document.createElement("div");
+        div.className = "pdf-word-highlight";
+        div.style.left = w.x + "px";
+        div.style.top = w.y - w.height + "px";
+        div.style.width = w.width + "px";
+        div.style.height = w.height + "px";
+        wrapper.appendChild(div);
+    }
+}
+
+function scrollSentenceIntoView(sentence) {
+    if (viewMode !== "full" || !pdfDocContainer || !sentence) return;
+    const wrapper = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
+    if (!wrapper) return;
+    const bbox = sentence.bbox;
+    if (!bbox) {
+        wrapper.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+    }
+    const wrapperTop = wrapper.offsetTop;
+    const targetY = wrapperTop + bbox.y - SCROLL_MARGIN;
+    const maxScroll = pdfDocContainer.scrollHeight - pdfDocContainer.clientHeight;
+    const finalScroll = clamp(targetY, 0, maxScroll);
+    pdfDocContainer.scrollTo({ top: finalScroll, behavior: "smooth" });
+}
+
+async function renderFullDocumentIfNeeded() {
+    if (viewMode !== "full" || !pdfDocContainer) return;
+    pdfDocContainer.innerHTML = "";
+    for (let p = 1; p <= pdf.numPages; p++) {
+        const viewportDisplay = viewportDisplayByPage.get(p);
+        await ensureFullPageRendered(p);
+        const offscreen = fullPageRenderCache.get(p);
+
+        const pageWrapper = document.createElement("div");
+        pageWrapper.className = "pdf-page-wrapper";
+        pageWrapper.dataset.pageNumber = p;
+        pageWrapper.style.width = viewportDisplay.width + "px";
+        pageWrapper.style.height = viewportDisplay.height + "px";
+
+        const c = document.createElement("canvas");
+        c.width = offscreen.width;
+        c.height = offscreen.height;
+        c.style.width = viewportDisplay.width + "px";
+        c.style.height = viewportDisplay.height + "px";
+        c.getContext("2d").drawImage(offscreen, 0, 0);
+        pageWrapper.appendChild(c);
+        pdfDocContainer.appendChild(pageWrapper);
+    }
+}
+
+/* ------------ Rendering Sentence ------------ */
 async function renderSentence(idx) {
     if (idx < 0 || idx >= sentences.length) return;
     currentSentenceIndex = idx;
     const sentence = sentences[idx];
     const pageNumber = sentence.pageNumber;
 
-    const viewportDisplay = viewportDisplayByPage.get(pageNumber);
-    const pageHeightDisplay = viewportDisplay.height;
-    const pageWidthDisplay = viewportDisplay.width;
+    if (viewMode === "full") {
+        if (pdfCanvas) pdfCanvas.style.display = "none";
+        if (pdfDocContainer) pdfDocContainer.style.display = "block";
+        updateHighlightFullDoc(sentence);
+        scrollSentenceIntoView(sentence);
+    } else {
+        if (pdfDocContainer) pdfDocContainer.style.display = "none";
+        if (pdfCanvas) pdfCanvas.style.display = "block";
 
-    const fullPageCanvas = await ensureFullPageRendered(pageNumber);
+        const ctx = pdfCanvas.getContext("2d");
+        const viewportDisplay = viewportDisplayByPage.get(pageNumber);
+        const pageHeightDisplay = viewportDisplay.height;
+        const pageWidthDisplay = viewportDisplay.width;
+        const fullPageCanvas = await ensureFullPageRendered(pageNumber);
 
-    canvas.style.width = pageWidthDisplay + "px";
-    canvas.style.height = VIEWPORT_HEIGHT_CSS + "px";
-    canvas.width = Math.round(pageWidthDisplay * deviceScale);
-    canvas.height = Math.round(VIEWPORT_HEIGHT_CSS * deviceScale);
+        pdfCanvas.style.width = pageWidthDisplay + "px";
+        pdfCanvas.style.height = VIEWPORT_HEIGHT_CSS + "px";
+        pdfCanvas.width = Math.round(pageWidthDisplay * deviceScale);
+        pdfCanvas.height = Math.round(VIEWPORT_HEIGHT_CSS * deviceScale);
 
-    let offsetYDisplay = 0;
-    if (sentence.bbox) {
-        const targetTop = sentence.bbox.y - MARGIN_TOP;
-        const maxOffset = Math.max(0, pageHeightDisplay - VIEWPORT_HEIGHT_CSS);
-        offsetYDisplay = clamp(targetTop, 0, maxOffset);
+        let offsetYDisplay = 0;
+        if (sentence.bbox) {
+            const targetTop = sentence.bbox.y - MARGIN_TOP;
+            const maxOffset = Math.max(0, pageHeightDisplay - VIEWPORT_HEIGHT_CSS);
+            offsetYDisplay = clamp(targetTop, 0, maxOffset);
+        }
+
+        const offsetYRender = offsetYDisplay * deviceScale;
+        const sliceHeightRender = pdfCanvas.height;
+        const maxAvail = fullPageCanvas.height - offsetYRender;
+        const effectiveSliceHeight = Math.min(sliceHeightRender, maxAvail);
+
+        ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+        ctx.drawImage(
+            fullPageCanvas,
+            0,
+            offsetYRender,
+            fullPageCanvas.width,
+            effectiveSliceHeight,
+            0,
+            0,
+            pdfCanvas.width,
+            effectiveSliceHeight,
+        );
+        highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay);
     }
-
-    const offsetYRender = offsetYDisplay * deviceScale;
-    const sliceHeightRender = canvas.height;
-    const maxAvail = fullPageCanvas.height - offsetYRender;
-    const effectiveSliceHeight = Math.min(sliceHeightRender, maxAvail);
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(
-        fullPageCanvas,
-        0,
-        offsetYRender,
-        fullPageCanvas.width,
-        effectiveSliceHeight,
-        0,
-        0,
-        canvas.width,
-        effectiveSliceHeight,
-    );
-    highlightSentence(sentence, offsetYDisplay);
 
     showInfo(`Sentence ${sentence.index + 1}/${sentences.length} (Page ${pageNumber})`);
     updateSubtitlePreview(sentence);
     updatePlayButton();
-
     schedulePrefetch();
     saveProgress();
 }
 
-function highlightSentence(sentence, offsetYDisplay) {
+function highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay) {
+    if (!ctx) return;
     ctx.save();
     ctx.fillStyle = "rgba(255,255,0,0.28)";
     for (const w of sentence.words) {
@@ -521,13 +441,13 @@ function highlightSentence(sentence, offsetYDisplay) {
         const yR = yTopDisplay * deviceScale;
         const widthR = w.width * deviceScale;
         const heightR = w.height * deviceScale;
-        if (yR + heightR < 0 || yR > canvas.height) continue;
+        if (yR + heightR < 0 || yR > pdfCanvas.height) continue;
         ctx.fillRect(xR, yR, widthR, heightR);
     }
     ctx.restore();
 }
 
-/* ================== NAVIGATION ================== */
+/* ------------ Navigation ------------ */
 function nextSentence(manual = true) {
     if (currentSentenceIndex < sentences.length - 1) {
         stopPlayback(true);
@@ -542,8 +462,20 @@ function prevSentence(manual = true) {
         renderSentence(currentSentenceIndex - 1);
     }
 }
+function nextPageNav() {
+    const currentPage = sentences[currentSentenceIndex]?.pageNumber || 1;
+    const target = Math.min(pdf.numPages, currentPage + 1);
+    const firstIdx = sentences.findIndex((s) => s.pageNumber === target);
+    if (firstIdx >= 0) renderSentence(firstIdx);
+}
+function prevPageNav() {
+    const currentPage = sentences[currentSentenceIndex]?.pageNumber || 1;
+    const target = Math.max(1, currentPage - 1);
+    const firstIdx = sentences.findIndex((s) => s.pageNumber === target);
+    if (firstIdx >= 0) renderSentence(firstIdx);
+}
 
-/* ================== NORMALIZE ================== */
+/* ------------ Text Normalizing ------------ */
 function normalizeText(raw) {
     if (!raw) return "";
     let t = raw.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, " ");
@@ -551,72 +483,70 @@ function normalizeText(raw) {
     if (t && !/[.?!…]$/.test(t)) t += ".";
     return t;
 }
-
-/* ================== BUILD PIPER AUDIO ================== */
 function formatTextToSpeech(text) {
     if (!text) return "";
-
-    // 1. Remove content inside parentheses
     text = text.replace(/\([^)]*\)/g, "");
-
-    // 2. Remove content inside square brackets
     text = text.replace(/\[[^\]]*\]/g, "");
-
-    // 3. Remove links (http, https, www)
     text = text.replace(/\b(?:https?:\/\/|www\.)\S+\b/g, "");
-
-    // 4. Fix "true split" words only: first part ends with a letter, second part starts lowercase
-    // Example: "electroa- coustic" -> "electroacoustic"
     text = text.replace(/\b([a-z]+)-\s*([a-z]+)/g, "$1$2");
-
-    // 5. Replace remaining line breaks with a space
     text = text.replace(/\n/g, " ");
-
-    // 6. Replace multiple spaces with a single space
     text = text.replace(/\s{2,}/g, " ").trim();
-
     return text;
 }
 
-/* ================== BUILD PIPER AUDIO ================== */
-async function buildPiperAudio(sentence, voice, text) {
-    async function retryAsync(fn, retries = 3, delay = 300) {
-        let lastError;
-        for (let i = 0; i < retries; i++) {
+/* ------------ TTS Build ------------ */
+async function ensurePiper(voice) {
+    if (!window.ort) throw new Error("ONNX Runtime not loaded.");
+    if (!window.ProperPiperTTS) throw new Error("Piper library not loaded.");
+    if (!piperInstance || currentPiperVoice !== voice) {
+        if (piperLoading) {
+            while (piperLoading) await cooperativeYield();
+        } else {
+            piperLoading = true;
             try {
-                return await fn();
-            } catch (err) {
-                lastError = err;
-                console.warn(`Attempt ${i + 1} failed: ${err.message || err}`);
-                if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+                if (piperInstance && currentPiperVoice !== voice) {
+                    await piperInstance.changeVoice(voice);
+                } else {
+                    piperInstance = new window.ProperPiperTTS(voice);
+                    await piperInstance.init();
+                }
+                currentPiperVoice = voice;
+            } finally {
+                piperLoading = false;
             }
         }
-        throw lastError;
     }
+}
 
+async function buildPiperAudio(sentence, voice, text) {
+    async function retryAsync(fn, tries = 3, gap = 300) {
+        let last;
+        for (let i = 0; i < tries; i++) {
+            try {
+                return await fn();
+            } catch (e) {
+                last = e;
+                if (i < tries - 1) await delay(gap);
+            }
+        }
+        throw last;
+    }
     await ensureAudioContext();
     await ensurePiper(voice);
     await cooperativeYield();
 
-    const currentSpeed = 1 + (1 - parseFloat(speedSelect.value));
     const wavBlob = await retryAsync(async () => {
         try {
-            text = formatTextToSpeech(text);
-            return await piperInstance.synthesize(text, currentSpeed);
+            const cleaned = formatTextToSpeech(text);
+            return await piperInstance.synthesize(cleaned, CURRENT_SPEED);
         } catch (e) {
-            console.warn("Error during synthesis, trying to reinitialize Piper...");
-            await ensurePiper(voice, true);
+            await ensurePiper(voice);
             throw e;
         }
     });
 
-    await cooperativeYield();
     const arrBuf = await wavBlob.arrayBuffer();
-    await cooperativeYield();
     const decoded = await safeDecodeAudioData(arrBuf.slice(0));
-    await cooperativeYield();
-    analyzeAudioBuffer(decoded);
-    await cooperativeYield();
 
     let wordBoundaries = [];
     if (ENABLE_WORD_HIGHLIGHT) {
@@ -629,26 +559,21 @@ async function buildPiperAudio(sentence, voice, text) {
                 offsetMs: Math.floor((i / total) * totalMs),
                 durationMs: Math.floor(totalMs / total),
             });
-            if (i > 0 && i % WORD_BOUNDARY_CHUNK_SIZE === 0) {
-                await cooperativeYield();
-            }
+            if (i > 0 && i % WORD_BOUNDARY_CHUNK_SIZE === 0) await cooperativeYield();
         }
     }
-
-    let finalWav = null;
-    if (MAKE_WAV_COPY) finalWav = wavBlob;
 
     const cacheKey = `${voice}|${CURRENT_SPEED}|${sentence.normalizedText}`;
     audioCache.set(cacheKey, {
         audioBlob: STORE_DECODED_ONLY ? null : wavBlob,
-        wavBlob: finalWav,
+        wavBlob: MAKE_WAV_COPY ? wavBlob : null,
         audioBuffer: decoded,
         wordBoundaries,
     });
 
     Object.assign(sentence, {
         audioBlob: STORE_DECODED_ONLY ? null : wavBlob,
-        wavBlob: finalWav,
+        wavBlob: MAKE_WAV_COPY ? wavBlob : null,
         audioBuffer: decoded,
         audioReady: true,
         lastVoice: voice,
@@ -659,7 +584,69 @@ async function buildPiperAudio(sentence, voice, text) {
     });
 }
 
-/* ================== SYNTHESIZE ================== */
+async function safeDecodeAudioData(arrayBuffer) {
+    await ensureAudioContext();
+    if (!arrayBuffer || arrayBuffer.byteLength < 100) throw new Error("Audio buffer too small/invalid.");
+    try {
+        return await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+    } catch (err) {
+        try {
+            if (audioCtx) await audioCtx.close();
+        } catch {}
+        audioCtx = null;
+        await ensureAudioContext();
+        return audioCtx.decodeAudioData(arrayBuffer.slice(0));
+    }
+}
+
+/* ------------ TTS Queue ------------ */
+class TTSQueueManager {
+    constructor() {
+        this.queue = [];
+        this.active = 0;
+        this.inFlight = new Set();
+    }
+    add(idx, priority = false) {
+        if (!generationEnabled) return;
+        const s = sentences[idx];
+        if (!s || s.audioReady || s.audioInProgress) return;
+        if (this.queue.includes(idx) || this.inFlight.has(idx)) return;
+        s.prefetchQueued = true;
+        priority ? this.queue.unshift(idx) : this.queue.push(idx);
+        this.run();
+    }
+    run() {
+        while (this.active < MAX_CONCURRENT_SYNTH && this.queue.length) {
+            const idx = this.queue.shift();
+            this.startTask(idx);
+        }
+        updatePrefetchVisual();
+    }
+    async startTask(idx) {
+        const s = sentences[idx];
+        if (!s) return;
+        if (s.audioReady || s.audioInProgress) {
+            this.run();
+            return;
+        }
+        this.active++;
+        this.inFlight.add(idx);
+        try {
+            await synthesizeSequential(idx);
+        } catch (e) {
+            console.warn("Synthesis failure:", e);
+        } finally {
+            this.active--;
+            this.inFlight.delete(idx);
+            this.run();
+        }
+    }
+    reset() {
+        this.queue = [];
+    }
+}
+const ttsQueue = new TTSQueueManager();
+
 async function synthesizeSequential(idx) {
     if (!generationEnabled) return;
     const s = sentences[idx];
@@ -667,11 +654,9 @@ async function synthesizeSequential(idx) {
     const voice = voiceSelect?.value || DEFAULT_PIPER_VOICE;
     if (s.audioReady && s.lastVoice === voice && s.lastSpeed === CURRENT_SPEED) return;
     if (s.audioInProgress) return;
-
-    const normalized = normalizeText(s.text);
-    s.normalizedText = normalized;
-    const cacheKey = `${voice}|${CURRENT_SPEED}|${normalized}`;
-
+    const norm = normalizeText(s.text);
+    s.normalizedText = norm;
+    const cacheKey = `${voice}|${CURRENT_SPEED}|${norm}`;
     if (audioCache.has(cacheKey)) {
         const cached = audioCache.get(cacheKey);
         Object.assign(s, {
@@ -688,34 +673,30 @@ async function synthesizeSequential(idx) {
         });
         return;
     }
-
     s.audioInProgress = true;
     s.audioError = null;
 
-    const icon = btnPlayToggle.querySelector("i");
-    const label = btnPlayToggle.querySelector(".label");
-
-    icon.className = "fa-solid fa-spinner fa-spin";
-    label.textContent = "Loading";
-    label.textContent = "Generating...";
+    const icon = btnPlayToggle?.querySelector("i");
+    const label = document.getElementById("play-toggle-label");
+    if (icon) icon.className = "fa-solid fa-spinner fa-spin";
+    if (label) label.textContent = "Generating";
 
     updateStatus(`Generating audio (sentence ${s.index + 1})...`);
     try {
-        await buildPiperAudio(s, voice, normalized);
+        await buildPiperAudio(s, voice, norm);
         updateStatus("");
     } catch (err) {
-        console.error("Piper TTS failure:", err);
         s.audioError = err;
         updateStatus(`TTS error (sentence ${s.index + 1})`);
     } finally {
         s.audioInProgress = false;
         updatePrefetchVisual();
-        icon.className = "fa-solid fa-pause";
-        label.textContent = "Pause";
+        if (icon) icon.className = isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
+        if (label) label.textContent = isPlaying ? "Pause" : "Play";
     }
 }
 
-/* ================== PREFETCH ================== */
+/* ------------ Prefetch Visual ------------ */
 function schedulePrefetch() {
     if (!generationEnabled) return;
     if (currentSentenceIndex >= 0) ttsQueue.add(currentSentenceIndex, true);
@@ -729,7 +710,7 @@ function schedulePrefetch() {
 function updatePrefetchVisual() {
     if (!prefetchBar) return;
     if (!generationEnabled) {
-        prefetchBar.style.display = "none";
+        prefetchBar.style.width = "0%";
         return;
     }
     const base = currentSentenceIndex;
@@ -741,49 +722,33 @@ function updatePrefetchVisual() {
     }
     const pct = needed === 0 ? 0 : (ready / needed) * 100;
     prefetchBar.style.width = pct + "%";
-    prefetchBar.style.display = pct < 99 ? "block" : "none";
 }
 
-/* ================== PLAYBACK ================== */
+/* ------------ Playback ------------ */
 function updateStatus(msg) {
     if (ttsStatus) ttsStatus.textContent = msg || "";
     const live = document.getElementById(LIVE_STATUS_REGION_ID);
     if (live) live.textContent = msg || "";
 }
 
-/* Modernized: keep icons; toggle state via dataset + icon classes */
 function updatePlayButton() {
     const s = sentences[currentSentenceIndex];
     if (!btnPlayToggle) return;
+    btnPlayToggle.disabled = !s;
+    const icon = btnPlayToggle.querySelector("i");
+    const label = document.getElementById("play-toggle-label");
     if (!s) {
-        btnPlayToggle.disabled = true;
-        btnPlayToggle.dataset.state = "play";
-        setPlayButtonVisual(false);
+        if (icon) icon.className = "fa-solid fa-play";
+        if (label) label.textContent = "Play";
         return;
     }
-    btnPlayToggle.disabled = false;
-    setPlayButtonVisual(isPlaying);
-}
-
-function setPlayButtonVisual(playing) {
-    if (!btnPlayToggle) return;
-    const icon = btnPlayToggle.querySelector("i");
-    const label = btnPlayToggle.querySelector(".label");
-    btnPlayToggle.dataset.state = playing ? "pause" : "play";
-    if (icon) {
-        icon.classList.toggle("fa-play", !playing);
-        icon.classList.toggle("fa-pause", playing);
-    } else {
-        // Fallback if icon not present (older markup)
-        btnPlayToggle.textContent = playing ? "Pause" : "Play";
-    }
-    if (label) label.textContent = playing ? "Pause" : "Play";
+    if (icon) icon.className = isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
+    if (label) label.textContent = isPlaying ? "Pause" : "Play";
 }
 
 async function playCurrentSentence() {
     const s = sentences[currentSentenceIndex];
     if (!s || isPlaying) return;
-
     await ensureAudioContext();
 
     if (!generationEnabled) {
@@ -800,26 +765,22 @@ async function playCurrentSentence() {
             await waitFor(() => s.audioReady || s.audioError, 45000);
         } catch {}
     }
-
-    if (s.audioError || !s.audioReady || !s.audioBuffer) {
-        updateStatus("Failed to get audio for this sentence.");
+    if (!s.audioReady || s.audioError || !s.audioBuffer) {
+        updateStatus("Audio not ready.");
         return;
     }
-
     stopPlayback(false);
     stopRequested = false;
 
     try {
-        if (currentSource) {
+        if (currentSource)
             try {
                 currentSource.disconnect();
             } catch {}
-        }
-        if (currentGain) {
+        if (currentGain)
             try {
                 currentGain.disconnect();
             } catch {}
-        }
 
         currentSource = audioCtx.createBufferSource();
         currentSource.buffer = s.audioBuffer;
@@ -852,8 +813,8 @@ async function playCurrentSentence() {
         autoAdvanceActive = true;
         updatePlayButton();
     } catch (err) {
-        console.error("Critical playback error:", err);
-        updateStatus("Critical audio failure - resetting context...");
+        console.error("Playback error:", err);
+        updateStatus("Playback error; resetting context.");
         try {
             if (audioCtx) await audioCtx.close();
         } catch {}
@@ -867,19 +828,19 @@ async function stopPlayback(fade = true) {
         try {
             if (fade && currentGain && audioCtx.state === "running") {
                 const now = audioCtx.currentTime;
-                const currentValue = currentGain.gain.value;
-                if (currentValue > MIN_GAIN) {
+                const val = currentGain.gain.value;
+                if (val > MIN_GAIN) {
                     currentGain.gain.cancelScheduledValues(now);
-                    currentGain.gain.setValueAtTime(currentValue, now);
+                    currentGain.gain.setValueAtTime(val, now);
                     currentGain.gain.linearRampToValueAtTime(MIN_GAIN, now + FADE_OUT_SEC);
                 }
                 setTimeout(
                     () => {
                         try {
-                            if (currentSource) currentSource.stop();
+                            currentSource.stop();
                         } catch {}
                         try {
-                            if (currentSource) currentSource.disconnect();
+                            currentSource.disconnect();
                         } catch {}
                         try {
                             if (currentGain) currentGain.disconnect();
@@ -899,7 +860,7 @@ async function stopPlayback(fade = true) {
                 } catch {}
             }
         } catch (e) {
-            console.warn("Error during stop:", e);
+            console.warn("Stop error:", e);
         }
     }
     currentSource = null;
@@ -919,17 +880,15 @@ function togglePlay() {
     }
 }
 
-/* ================== WORD BOUNDARIES ================== */
 function setupWordBoundaryTimers(s) {
     clearWordBoundaryTimers(s);
-    if (!ENABLE_WORD_HIGHLIGHT) return;
-    if (!s.wordBoundaries?.length) return;
+    if (!ENABLE_WORD_HIGHLIGHT || !s.wordBoundaries?.length) return;
     const liveWord = document.getElementById(LIVE_WORD_REGION_ID);
     for (const wb of s.wordBoundaries) {
-        const timerId = setTimeout(() => {
+        const id = setTimeout(() => {
             if (liveWord) liveWord.textContent = wb.text;
         }, wb.offsetMs);
-        s.playbackWordTimers.push(timerId);
+        s.playbackWordTimers.push(id);
     }
 }
 function clearWordBoundaryTimers(s) {
@@ -938,18 +897,6 @@ function clearWordBoundaryTimers(s) {
     s.playbackWordTimers = [];
 }
 
-/* Save Progress */
-function saveProgress() {
-    if (!sentences.length || currentSentenceIndex < 0) return;
-    const pdfName = PDF_URL || "";
-    const data = {
-        pdf: pdfName,
-        sentenceIndex: currentSentenceIndex,
-    };
-    localStorage.setItem("pdfReaderProgress", JSON.stringify(data));
-}
-
-/* ================== WAIT FOR ================== */
 function waitFor(condFn, timeoutMs = 10000, interval = 120) {
     return new Promise((resolve, reject) => {
         const start = performance.now();
@@ -959,13 +906,12 @@ function waitFor(condFn, timeoutMs = 10000, interval = 120) {
                 resolve(true);
             } else if (performance.now() - start > timeoutMs) {
                 clearInterval(id);
-                reject(new Error("Timeout waiting for condition"));
+                reject(new Error("Timeout"));
             }
         }, interval);
     });
 }
 
-/* ================== SUBTITLE PREVIEW ================== */
 function updateSubtitlePreview(sentence) {
     if (!subtitlePreview) return;
     if (!sentence?.text) {
@@ -976,91 +922,12 @@ function updateSubtitlePreview(sentence) {
     subtitlePreview.textContent = txt.length > 160 ? txt.slice(0, 160) + "..." : txt;
 }
 
-/* ================== INFO ================== */
 function showInfo(msg) {
     if (infoBox) infoBox.textContent = msg;
     else console.log(msg);
 }
 
-/* ================== EVENTS ================== */
-if (btnNextSentence) btnNextSentence.addEventListener("click", () => nextSentence(true));
-if (btnPrevSentence) btnPrevSentence.addEventListener("click", () => prevSentence(true));
-if (btnPlayToggle) btnPlayToggle.addEventListener("click", togglePlay);
-
-const btnPrevPage = document.getElementById("prev-page");
-const btnNextPage = document.getElementById("next-page");
-
-if (btnPrevPage) {
-    btnPrevPage.addEventListener("click", async () => {
-        stopPlayback(true);
-        autoAdvanceActive = false;
-        ttsQueue.reset();
-
-        // Determinar página anterior
-        const currentPage = sentences[currentSentenceIndex]?.pageNumber || 1;
-        const targetPage = Math.max(1, currentPage - 1);
-
-        // Encontrar índice da primeira sentença da página
-        const firstIdx = sentences.findIndex((s) => s.pageNumber === targetPage);
-        if (firstIdx >= 0) await renderSentence(firstIdx);
-    });
-}
-
-if (btnNextPage) {
-    btnNextPage.addEventListener("click", async () => {
-        stopPlayback(true);
-        autoAdvanceActive = false;
-        ttsQueue.reset();
-
-        // Determinar próxima página
-        const currentPage = sentences[currentSentenceIndex]?.pageNumber || 1;
-        const targetPage = Math.min(pdf.numPages, currentPage + 1);
-
-        // Encontrar índice da primeira sentença da página
-        const firstIdx = sentences.findIndex((s) => s.pageNumber === targetPage);
-        if (firstIdx >= 0) await renderSentence(firstIdx);
-    });
-}
-
-if (voiceSelect) {
-    voiceSelect.addEventListener("change", () => {
-        stopPlayback(true);
-        autoAdvanceActive = false;
-        invalidateFrom(currentSentenceIndex);
-        schedulePrefetch();
-    });
-}
-
-if (speedSelect) {
-    speedSelect.addEventListener("change", () => {
-        const val = speedSelect.value.trim();
-        const match = val.match(/([-+]?)(\d+)%/);
-        if (match) {
-            const sign = match[1] === "-" ? -1 : 1;
-            const pct = parseInt(match[2], 10) || 0;
-            CURRENT_SPEED = 1 + sign * (pct / 100);
-        } else {
-            CURRENT_SPEED = 1.0;
-        }
-        stopPlayback(true);
-        autoAdvanceActive = false;
-        invalidateFrom(currentSentenceIndex);
-        schedulePrefetch();
-    });
-}
-
-window.addEventListener("keydown", (e) => {
-    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable))
-        return;
-    if (e.code === "Space") {
-        e.preventDefault();
-        togglePlay();
-    } else if (e.code === "ArrowRight") nextSentence(true);
-    else if (e.code === "ArrowLeft") prevSentence(true);
-    else if (e.key === "p") togglePlay();
-});
-
-/* ================== INVALIDATE ================== */
+/* ------------ Invalidate from index ------------ */
 function invalidateFrom(idx) {
     for (let i = idx; i < sentences.length; i++) {
         const s = sentences[i];
@@ -1080,7 +947,194 @@ function invalidateFrom(idx) {
     ttsQueue.reset();
 }
 
-/* ================== EXPORTS ================== */
+/* ------------ View Mode Toggle ------------ */
+function applyViewModeUI() {
+    if (!toggleViewBtn) return;
+    const label = toggleViewBtn.querySelector(".label");
+    if (viewMode === "full") {
+        if (label) label.textContent = "View: Full Doc";
+        if (pdfDocContainer) pdfDocContainer.style.display = "block";
+        if (viewerWrapper) viewerWrapper.style.display = "none";
+    } else {
+        if (label) label.textContent = "View: Single Page";
+        if (pdfDocContainer) pdfDocContainer.style.display = "none";
+        if (viewerWrapper) viewerWrapper.style.display = "flex";
+    }
+}
+
+window.toggleViewMode = async function () {
+    viewMode = viewMode === "full" ? "single" : "full";
+    localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+    applyViewModeUI();
+    if (viewMode === "full") {
+        await renderFullDocumentIfNeeded();
+        renderSentence(currentSentenceIndex);
+    } else {
+        clearFullDocHighlights();
+        renderSentence(currentSentenceIndex);
+    }
+};
+
+/* ------------ Load PDF ------------ */
+export async function loadPDF(file = null, { resume = true } = {}) {
+    try {
+        if (file instanceof File) {
+            currentPdfDescriptor = {
+                type: "file",
+                name: file.name,
+                size: file.size,
+                lastModified: file.lastModified,
+            };
+        } else {
+            currentPdfDescriptor = { type: "url", name: PDF_URL };
+        }
+        currentPdfKey = computePdfKeyFromSource(currentPdfDescriptor);
+
+        pagesCache.clear();
+        viewportDisplayByPage.clear();
+        fullPageRenderCache.clear();
+        audioCache.clear();
+        sentences = [];
+        currentSentenceIndex = -1;
+
+        let arrayBuffer;
+        if (file instanceof File) {
+            arrayBuffer = await file.arrayBuffer();
+        } else {
+            const resp = await fetch(PDF_URL);
+            if (!resp.ok) throw new Error("Failed to fetch PDF URL.");
+            arrayBuffer = await resp.arrayBuffer();
+        }
+
+        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+        pdf = await loadingTask.promise;
+        if (!pdf.numPages) throw new Error("PDF has no pages.");
+
+        for (let p = 1; p <= pdf.numPages; p++) await preprocessPage(p);
+        buildSentences();
+
+        if (viewMode === "full") {
+            await renderFullDocumentIfNeeded();
+        }
+
+        let startIndex = 0;
+        if (resume && currentPdfKey) {
+            const saved = loadSavedPosition(currentPdfKey);
+            if (saved && typeof saved.sentenceIndex === "number")
+                startIndex = clamp(saved.sentenceIndex, 0, sentences.length - 1);
+        }
+
+        await renderSentence(startIndex);
+        showInfo(`Total sentences: ${sentences.length}`);
+        updatePlayButton();
+    } catch (e) {
+        console.error(e);
+        showInfo("Error: " + e.message);
+    }
+
+    try {
+        if (!piperInstance) {
+            piperInstance = new window.ProperPiperTTS(DEFAULT_PIPER_VOICE);
+            await piperInstance.init();
+            await piperInstance.getAvailableVoices();
+        }
+        initVoices();
+    } catch (e) {
+        console.warn("Piper init error:", e);
+    }
+}
+
+/* ------------ Voices Init ------------ */
+function initVoices() {
+    if (!voiceSelect) return;
+    voiceSelect.innerHTML = "";
+    const allVoices = piperInstance.availableVoices;
+    PIPER_VOICES.forEach((v) => {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = allVoices[v] || v;
+        voiceSelect.appendChild(opt);
+    });
+    voiceSelect.value = DEFAULT_PIPER_VOICE;
+    const micIcon = document.getElementById("mic-icon");
+    if (micIcon) {
+        micIcon.classList.remove("fa-spinner", "fa-spin");
+        micIcon.classList.add("fa-microphone");
+    }
+}
+
+/* ------------ Events ------------ */
+if (btnNextSentence) btnNextSentence.addEventListener("click", () => nextSentence(true));
+if (btnPrevSentence) btnPrevSentence.addEventListener("click", () => prevSentence(true));
+if (btnPlayToggle) btnPlayToggle.addEventListener("click", togglePlay);
+if (btnNextPage)
+    btnNextPage.addEventListener("click", () => {
+        stopPlayback(true);
+        autoAdvanceActive = false;
+        ttsQueue.reset();
+        nextPageNav();
+    });
+if (btnPrevPage)
+    btnPrevPage.addEventListener("click", () => {
+        stopPlayback(true);
+        autoAdvanceActive = false;
+        ttsQueue.reset();
+        prevPageNav();
+    });
+
+if (voiceSelect) {
+    voiceSelect.addEventListener("change", () => {
+        stopPlayback(true);
+        autoAdvanceActive = false;
+        invalidateFrom(currentSentenceIndex);
+        schedulePrefetch();
+    });
+}
+
+if (speedSelect) {
+    speedSelect.addEventListener("change", () => {
+        const val = parseFloat(speedSelect.value);
+        CURRENT_SPEED = isNaN(val) ? 1.0 : val;
+        stopPlayback(true);
+        autoAdvanceActive = false;
+        invalidateFrom(currentSentenceIndex);
+        schedulePrefetch();
+    });
+}
+
+window.addEventListener("keydown", (e) => {
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.code === "Space") {
+        e.preventDefault();
+        togglePlay();
+    } else if (e.code === "ArrowRight") {
+        nextSentence(true);
+    } else if (e.code === "ArrowLeft") {
+        prevSentence(true);
+    } else if (e.key.toLowerCase() === "p") {
+        togglePlay();
+    }
+});
+
+window.addEventListener("beforeunload", () => saveProgress());
+
+/* ------------ Public Extras ------------ */
+window.listSavedProgress = () => getProgressMap();
+window.clearPdfProgress = (key) => {
+    const map = getProgressMap();
+    if (map[key]) {
+        delete map[key];
+        setProgressMap(map);
+    }
+};
+
+/* ------------ Initialization Helper ------------ */
+window.initializePdfApp = async function () {
+    applyViewModeUI();
+    await loadPDF();
+};
+
+/* Expose some functions */
 window.loadPDF = loadPDF;
 window.nextSentence = () => nextSentence(true);
 window.prevSentence = () => prevSentence(true);

@@ -17,11 +17,11 @@ const MIN_GAIN = 0.001;
 const AUDIO_CONTEXT_OPTIONS = { latencyHint: "playback" };
 
 function getBaseWidthCSS() {
-    return Math.max(360, Math.min(window.innerWidth * 0.96, 1400));
+    return Math.max(360, Math.min(window.innerWidth, 1400));
 }
 
 function getViewportHeightCSS() {
-    return Math.max(260, Math.min(window.innerHeight * 0.72, 650));
+    return Math.max(260, window.innerHeight * 0.82);
 }
 
 function getMarginTop() {
@@ -431,7 +431,6 @@ async function preprocessPage(pageNumber) {
         }
     }
     page.pageWords = pageWords;
-    console.log(page);
 }
 
 function buildSentences() {
@@ -712,14 +711,15 @@ async function renderSentence(idx) {
             const pageWidthDisplay = viewportDisplay.width;
 
             pdfCanvas.style.width = pageWidthDisplay + "px";
-            pdfCanvas.style.height = VIEWPORT_HEIGHT_CSS + "px";
+            pdfCanvas.style.height = getViewportHeightCSS() + "px";
+
             pdfCanvas.width = Math.round(pageWidthDisplay * deviceScale);
-            pdfCanvas.height = Math.round(VIEWPORT_HEIGHT_CSS * deviceScale);
+            pdfCanvas.height = Math.round(getViewportHeightCSS() * deviceScale);
 
             let offsetYDisplay = 0;
             if (sentence.bbox) {
                 const targetTop = sentence.bbox.y - MARGIN_TOP;
-                const maxOffset = Math.max(0, pageHeightDisplay - VIEWPORT_HEIGHT_CSS);
+                const maxOffset = Math.max(0, pageHeightDisplay - getViewportHeightCSS());
                 offsetYDisplay = clamp(targetTop, 0, maxOffset);
             }
 
@@ -1476,7 +1476,6 @@ function initVoices() {
     PIPER_VOICES.forEach((v) => {
         const opt = document.createElement("option");
         opt.value = v;
-        console.log(allVoices[v]);
         const lang = allVoices[v]["language"];
         const flag = regionToFlag(lang["region"]);
         const qual = capitalizeFirst(allVoices[v]["quality"]);

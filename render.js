@@ -18,9 +18,22 @@ const AUDIO_CONTEXT_OPTIONS = { latencyHint: "playback" };
 
 /* PDF / Layout */
 const PDF_URL = "Enabling Interactive Music Performance through Web Browsers for non-Programmers.pdf";
-const BASE_WIDTH_CSS = 1400;
-const VIEWPORT_HEIGHT_CSS = 650;
-const MARGIN_TOP = 100;
+
+function getBaseWidthCSS() {
+    return Math.max(360, Math.min(window.innerWidth * 0.96, 1400));
+}
+
+function getViewportHeightCSS() {
+    return Math.max(260, Math.min(window.innerHeight * 0.65, 650));
+}
+
+function getMarginTop() {
+    return window.innerWidth < 700 ? 50 : 100;
+}
+
+const BASE_WIDTH_CSS = getBaseWidthCSS();
+const VIEWPORT_HEIGHT_CSS = getViewportHeightCSS();
+const MARGIN_TOP = getMarginTop();
 
 /* Sentence building */
 const BREAK_ON_LINE = false;

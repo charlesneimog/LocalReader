@@ -69,6 +69,10 @@
                 #pdf-canvas {
                     filter: invert(0.87);
                 }
+
+                canvas {
+                    filter: invert(0.87);
+                }
             }
 
             html,
@@ -649,14 +653,16 @@
                 if (window.initializePdfApp) await window.initializePdfApp();
                 else if (window.loadPDF) await window.loadPDF();
             });
+        </script>
+        <script>
+            let wakeLock = null;
 
-            // Fullscreen
             const btn = document.getElementById("toggle-fullscreen");
             btn.addEventListener("click", () => {
                 toggleFullscreen();
             });
 
-            function toggleFullscreen() {
+            async function toggleFullscreen() {
                 const doc = window.document;
                 const docEl = doc.documentElement;
 
@@ -676,10 +682,37 @@
                     !doc.msFullscreenElement
                 ) {
                     // Enter fullscreen
-                    requestFull.call(docEl);
+                    await requestFull.call(docEl);
+                    enableWakeLock(); // keep screen awake
                 } else {
                     // Exit fullscreen
-                    exitFull.call(doc);
+                    await exitFull.call(doc);
+                    disableWakeLock(); // allow screen to sleep again
+                }
+            }
+
+            async function enableWakeLock() {
+                try {
+                    if ("wakeLock" in navigator) {
+                        wakeLock = await navigator.wakeLock.request("screen");
+                        console.log("Wake Lock active");
+
+                        // Handle if wake lock is released (e.g., device goes to sleep, tab hidden)
+                        wakeLock.addEventListener("release", () => {
+                            console.log("Wake Lock released");
+                        });
+                    } else {
+                        console.warn("Wake Lock API not supported on this browser.");
+                    }
+                } catch (err) {
+                    console.error(`${err.name}, ${err.message}`);
+                }
+            }
+
+            function disableWakeLock() {
+                if (wakeLock) {
+                    wakeLock.release();
+                    wakeLock = null;
                 }
             }
         </script>

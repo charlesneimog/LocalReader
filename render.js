@@ -16,15 +16,12 @@ const MIN_GAIN = 0.001;
 
 const AUDIO_CONTEXT_OPTIONS = { latencyHint: "playback" };
 
-/* PDF / Layout */
-const PDF_URL = "Enabling Interactive Music Performance through Web Browsers for non-Programmers.pdf";
-
 function getBaseWidthCSS() {
     return Math.max(360, Math.min(window.innerWidth * 0.96, 1400));
 }
 
 function getViewportHeightCSS() {
-    return Math.max(260, Math.min(window.innerHeight * 0.65, 650));
+    return Math.max(260, Math.min(window.innerHeight * 0.72, 650));
 }
 
 function getMarginTop() {
@@ -43,9 +40,13 @@ const LINE_GAP_THRESHOLD = 1.6;
 /* Prefetch / TTS */
 const PREFETCH_AHEAD = 1;
 const PIPER_VOICES = [
+    // "en_US-hfc_female-medium"
+    // "en_US-hfc_female-medium"
+    // "en_US-hfc_female-medium"
+    // "en_US-hfc_female-medium"
     "en_US-hfc_female-medium",
-    "pt_BR-faber-medium",
-    "en_GB-cori-medium",
+    "pt_BR-faber-medium", 
+    "en_GB-cori-medium", 
 ];
 
 const DEFAULT_PIPER_VOICE = PIPER_VOICES[0];
@@ -57,9 +58,8 @@ const SCROLL_MARGIN = 120;
 
 /* View mode */
 const VIEW_MODE_STORAGE_KEY = "pdfViewMode"; // "full" | "single"
-
-/* Progress map key */
-const PROGRESS_STORAGE_KEY = "pdfReaderProgressMap";
+const PROGRESS_STORAGE_KEY = "charlesneimog.github.io/pdfReaderProgressMap";
+const HIGHLIGHTS_STORAGE_KEY = "charlesneimog.github.io/pdfReaderHighlightsMap";
 
 /* ------------ STATE ------------ */
 let audioCtx = null;
@@ -100,6 +100,10 @@ const YIELD_AFTER_MS = 32;
 /* View mode */
 let viewMode = "single";
 
+/* Highlights state */
+let savedHighlights = new Map(); // sentenceIndex -> {color, timestamp}
+let autoHighlightEnabled = false;
+
 /* ------------ DOM ------------ */
 const voiceSelect = document.getElementById("voice-select");
 const speedSelect = document.getElementById("rate-select");
@@ -111,11 +115,16 @@ const btnNextPage = document.getElementById("next-page");
 const toggleViewBtn = document.getElementById("toggle-view-mode");
 const infoBox = document.getElementById("info-box");
 const ttsStatus = document.getElementById("tts-status");
-const prefetchBar = document.getElementById("prefetch-bar");
-const subtitlePreview = document.getElementById("subtitle-preview");
+// const prefetchBar = document.getElementById("prefetch-bar");
+// const subtitlePreview = document.getElementById("subtitle-preview");
 const pdfCanvas = document.getElementById("pdf-canvas");
 const pdfDocContainer = document.getElementById("pdf-doc-container");
 const viewerWrapper = document.getElementById("viewer-wrapper");
+
+/* Highlight controls */
+const highlightColorPicker = document.getElementById("highlight-color");
+const saveHighlightBtn = document.getElementById("save-highlight");
+const exportHighlightsBtn = document.getElementById("export-highlights");
 
 /* ------------ ARIA Regions ------------ */
 (function ensureAriaRegions() {
@@ -190,6 +199,176 @@ function setProgressMap(map) {
         console.warn("Failed to write progress map:", e);
     }
 }
+
+/* ------------ Highlights Storage ------------ */
+function getHighlightsMap() {
+    try {
+        return JSON.parse(localStorage.getItem(HIGHLIGHTS_STORAGE_KEY) || "{}");
+    } catch {
+        return {};
+    }
+}
+function setHighlightsMap(map) {
+    try {
+        localStorage.setItem(HIGHLIGHTS_STORAGE_KEY, JSON.stringify(map));
+    } catch (e) {
+        console.warn("Failed to write highlights map:", e);
+    }
+}
+function loadSavedHighlights(pdfKey) {
+    if (!pdfKey) return new Map();
+    const allHighlights = getHighlightsMap();
+    const pdfHighlights = allHighlights[pdfKey] || {};
+    const highlightsMap = new Map();
+    for (const [sentenceIndex, data] of Object.entries(pdfHighlights)) {
+        highlightsMap.set(parseInt(sentenceIndex), data);
+    }
+    return highlightsMap;
+}
+function saveHighlightsForPdf() {
+    if (!currentPdfKey) return;
+    const allHighlights = getHighlightsMap();
+    const pdfHighlights = {};
+    for (const [sentenceIndex, data] of savedHighlights.entries()) {
+        pdfHighlights[sentenceIndex] = data;
+    }
+    allHighlights[currentPdfKey] = pdfHighlights;
+    setHighlightsMap(allHighlights);
+}
+function saveCurrentSentenceHighlight(color = null) {
+    if (currentSentenceIndex < 0 || currentSentenceIndex >= sentences.length) return;
+    const highlightColor = color || (highlightColorPicker?.value || "#ffeb3b");
+    savedHighlights.set(currentSentenceIndex, {
+        color: highlightColor,
+        timestamp: Date.now(),
+        sentenceText: sentences[currentSentenceIndex].text
+    });
+    saveHighlightsForPdf();
+    updateHighlightDisplay();
+}
+function clearHighlight(sentenceIndex) {
+    savedHighlights.delete(sentenceIndex);
+    saveHighlightsForPdf();
+    updateHighlightDisplay();
+}
+
+/* ------------ PDF Export with Highlights ------------ */
+async function exportPdfWithHighlights() {
+    if (!currentPdfDescriptor || savedHighlights.size === 0) {
+        alert("No highlights to export or no PDF loaded.");
+        return;
+    }
+    
+    try {
+        updateStatus("Preparing PDF export...");
+        
+        // Get original PDF data
+        let pdfBytes;
+        if (currentPdfDescriptor.type === "file") {
+            if (currentPdfDescriptor.fileObject) {
+                pdfBytes = await currentPdfDescriptor.fileObject.arrayBuffer();
+            } else {
+                throw new Error("Original file object not available for export");
+            }
+        } else if (currentPdfDescriptor.type === "url") {
+            const response = await fetch(currentPdfDescriptor.url);
+            pdfBytes = await response.arrayBuffer();
+        } else {
+            throw new Error("Cannot export: unsupported PDF source");
+        }
+        
+        // Load PDF with pdf-lib
+        const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
+        const pages = pdfDoc.getPages();
+        
+        // Group highlights by page
+        const highlightsByPage = new Map();
+        for (const [sentenceIndex, highlightData] of savedHighlights.entries()) {
+            const sentence = sentences[sentenceIndex];
+            if (!sentence || !sentence.words || sentence.words.length === 0) continue;
+            
+            const pageNum = sentence.pageNumber;
+            if (!highlightsByPage.has(pageNum)) {
+                highlightsByPage.set(pageNum, []);
+            }
+            highlightsByPage.get(pageNum).push({
+                sentence: sentence,
+                color: highlightData.color,
+                text: sentence.text
+            });
+        }
+        
+        // Add highlights to each page
+        for (const [pageNum, pageHighlights] of highlightsByPage.entries()) {
+            if (pageNum > pages.length) continue;
+            
+            const page = pages[pageNum - 1]; // pdf-lib uses 0-based indexing
+            const { width, height } = page.getSize();
+            
+            // Get the viewport scale used in our rendering
+            const viewportDisplay = viewportDisplayByPage.get(pageNum);
+            if (!viewportDisplay) continue;
+            
+            const scaleX = width / viewportDisplay.width;
+            const scaleY = height / viewportDisplay.height;
+            
+            for (const highlight of pageHighlights) {
+                const { sentence, color } = highlight;
+                
+                // Convert hex color to RGB
+                const rgb = hexToRgb(color);
+                const pdfColor = rgb ? 
+                    PDFLib.rgb(rgb.r / 255, rgb.g / 255, rgb.b / 255) : 
+                    PDFLib.rgb(1, 1, 0); // fallback yellow
+                
+                // Add individual word highlights instead of sentence bounding box
+                for (const word of sentence.words) {
+                    // Convert our coordinates to PDF coordinates
+                    // Our Y coordinates are from top, PDF coordinates are from bottom
+                    // word.y is the baseline, word.y - word.height is the top
+                    const pdfX = word.x * scaleX;
+                    const pdfY = height - (word.y - word.height) * scaleY; // Use top of word
+                    const pdfWidth = word.width * scaleX;
+                    const pdfHeight = word.height * scaleY;
+                    
+                    // Add rectangle annotation for each word
+                    page.drawRectangle({
+                        x: pdfX,
+                        y: pdfY - pdfHeight, // Position from bottom
+                        width: pdfWidth,
+                        height: pdfHeight,
+                        color: pdfColor,
+                        opacity: 0.3,
+                    });
+                }
+            }
+        }
+        
+        // Generate filename
+        const originalName = currentPdfDescriptor.name || "document";
+        const baseName = originalName.replace(/\.pdf$/i, "");
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+        const filename = `${baseName}_highlighted_${timestamp}.pdf`;
+        
+        // Save the PDF
+        const highlightedPdfBytes = await pdfDoc.save();
+        const blob = new Blob([highlightedPdfBytes], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        
+        URL.revokeObjectURL(url);
+        updateStatus(`Exported: ${filename}`);
+        
+    } catch (error) {
+        console.error("Export failed:", error);
+        updateStatus("Export failed: " + error.message);
+        alert("Failed to export PDF: " + error.message);
+    }
+}
 function computePdfKeyFromSource(source) {
     if (source.type === "url") return `url::${source.name}`;
     if (source.type === "file") {
@@ -248,9 +427,18 @@ async function preprocessPage(pageNumber) {
         }
     }
     page.pageWords = pageWords;
+    console.log(page);
 }
 
 function buildSentences() {
+    const abbreviations = ["Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "e.g", "i.e", "etc", "Fig", "p"];
+    function isSentenceEnd(wordStr, nextWordStr) {
+        const w = wordStr.replace(/[.?!]+$/, "");
+        if (abbreviations.includes(w)) return false;
+        if (nextWordStr && /^[0-9)]/.test(nextWordStr)) return false;
+        return /[.?!]$/.test(wordStr);
+    }
+
     sentences = [];
     let sentenceIndex = 0;
     for (let p = 1; p <= pdf.numPages; p++) {
@@ -286,7 +474,9 @@ function buildSentences() {
             buffer = [];
         };
 
-        for (const w of page.pageWords) {
+        for (let i = 0; i < page.pageWords.length; i++) {
+            const w = page.pageWords[i];
+
             let gapBreak = false;
             if (SPLIT_ON_LINE_GAP && lastY !== null) {
                 const verticalDelta = Math.abs(lastY - w.y);
@@ -294,8 +484,12 @@ function buildSentences() {
             }
             if (gapBreak && buffer.length) flush();
 
+            // buffer.push(w);
+            // if (/[.?!]$/.test(w.str) || (BREAK_ON_LINE && w.lineBreak)) flush();
+
             buffer.push(w);
-            if (/[.?!]$/.test(w.str) || (BREAK_ON_LINE && w.lineBreak)) flush();
+            const nextWord = page.pageWords[i + 1]?.str || "";
+            if (isSentenceEnd(w.str, nextWord) || (BREAK_ON_LINE && w.lineBreak)) flush();
 
             lastY = w.y;
             lastHeight = w.height;
@@ -339,11 +533,14 @@ async function ensureFullPageRendered(pageNumber) {
 function clearFullDocHighlights() {
     if (!pdfDocContainer) return;
     pdfDocContainer.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
+    pdfDocContainer.querySelectorAll(".persistent-highlight").forEach((n) => n.remove());
 }
 
 function updateHighlightFullDoc(sentence) {
     if (viewMode !== "full" || !pdfDocContainer || !sentence) return;
     clearFullDocHighlights();
+    
+    // Show current sentence highlight (temporary)
     const wrapper = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
     if (!wrapper) return;
     const scale = parseFloat(wrapper.dataset.scale) || 1;
@@ -355,6 +552,40 @@ function updateHighlightFullDoc(sentence) {
         div.style.width = w.width * scale + "px";
         div.style.height = w.height * scale + "px";
         wrapper.appendChild(div);
+    }
+    
+    // Show all saved highlights
+    renderSavedHighlightsFullDoc();
+}
+
+function renderSavedHighlightsFullDoc() {
+    if (viewMode !== "full" || !pdfDocContainer) return;
+    
+    for (const [sentenceIndex, highlightData] of savedHighlights.entries()) {
+        const sentence = sentences[sentenceIndex];
+        if (!sentence) continue;
+        
+        const wrapper = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
+        if (!wrapper) continue;
+        
+        const scale = parseFloat(wrapper.dataset.scale) || 1;
+        
+        // Create individual word highlights instead of sentence bounding box
+        for (const word of sentence.words) {
+            const div = document.createElement("div");
+            div.className = "persistent-highlight";
+            if (sentenceIndex === currentSentenceIndex) {
+                div.classList.add("current-playing");
+            }
+            div.style.left = word.x * scale + "px";
+            div.style.top = (word.y - word.height) * scale + "px";
+            div.style.width = word.width * scale + "px";
+            div.style.height = word.height * scale + "px";
+            div.style.backgroundColor = highlightData.color;
+            div.style.borderRadius = "2px"; // Slightly rounded for natural look
+            div.title = `Highlighted: ${sentence.text.substring(0, 50)}...`;
+            wrapper.appendChild(div);
+        }
     }
 }
 
@@ -420,6 +651,15 @@ function rescaleAllPages() {
     updateHighlightFullDoc(sentences[currentSentenceIndex]);
 }
 
+function updateHighlightDisplay() {
+    if (viewMode === "full") {
+        renderSavedHighlightsFullDoc();
+    } else {
+        // Re-render current sentence to show any new highlights
+        renderSentence(currentSentenceIndex);
+    }
+}
+
 /* ------------ Rendering Sentence ------------ */
 async function renderSentence(idx) {
     if (idx < 0 || idx >= sentences.length) return;
@@ -459,6 +699,8 @@ async function renderSentence(idx) {
                 pdfCanvas.width,
                 pdfCanvas.height,
             );
+            // Render saved highlights first, then current sentence highlight
+            renderSavedHighlightsSingleCanvas(ctx, pageNumber, 0);
             highlightSentenceSingleCanvas(ctx, sentence, 0);
         } else {
             // Original cropped view for desktop
@@ -494,6 +736,8 @@ async function renderSentence(idx) {
                 pdfCanvas.width,
                 effectiveSliceHeight,
             );
+            // Render saved highlights first, then current sentence highlight
+            renderSavedHighlightsSingleCanvas(ctx, pageNumber, offsetYDisplay);
             highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay);
         }
     }
@@ -519,6 +763,65 @@ function highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay) {
         ctx.fillRect(xR, yR, widthR, heightR);
     }
     ctx.restore();
+}
+
+function renderSavedHighlightsSingleCanvas(ctx, pageNumber, offsetYDisplay) {
+    if (!ctx) return;
+    ctx.save();
+    
+    // Render all saved highlights for this page
+    for (const [sentenceIndex, highlightData] of savedHighlights.entries()) {
+        const sentence = sentences[sentenceIndex];
+        if (!sentence || sentence.pageNumber !== pageNumber) continue;
+        
+        // Use saved color with some transparency
+        const color = highlightData.color;
+        const rgb = hexToRgb(color);
+        if (rgb) {
+            ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)`;
+        } else {
+            ctx.fillStyle = "rgba(255, 235, 59, 0.3)"; // fallback yellow
+        }
+        
+        // Highlight each word individually instead of using bounding box
+        for (const word of sentence.words) {
+            const xR = word.x * deviceScale;
+            const yTopDisplay = word.y - word.height - offsetYDisplay;
+            const yR = yTopDisplay * deviceScale;
+            const widthR = word.width * deviceScale;
+            const heightR = word.height * deviceScale;
+            
+            if (yR + heightR < 0 || yR > pdfCanvas.height) continue;
+            
+            // Add rounded corners for a more natural highlight look
+            ctx.fillRect(xR, yR, widthR, heightR);
+        }
+        
+        // Add border for current sentence using word outlines
+        if (sentenceIndex === currentSentenceIndex) {
+            ctx.strokeStyle = "#ff9800";
+            ctx.lineWidth = 2;
+            for (const word of sentence.words) {
+                const xR = word.x * deviceScale;
+                const yTopDisplay = word.y - word.height - offsetYDisplay;
+                const yR = yTopDisplay * deviceScale;
+                const widthR = word.width * deviceScale;
+                const heightR = word.height * deviceScale;
+                if (yR + heightR < 0 || yR > pdfCanvas.height) continue;
+                ctx.strokeRect(xR, yR, widthR, heightR);
+            }
+        }
+    }
+    ctx.restore();
+}
+
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
 }
 
 /* ------------ Navigation ------------ */
@@ -785,6 +1088,7 @@ function schedulePrefetch() {
 }
 
 function updatePrefetchVisual() {
+    return;
     if (!prefetchBar) return;
     if (!generationEnabled) {
         prefetchBar.style.width = "0%";
@@ -841,7 +1145,7 @@ async function playCurrentSentence() {
         } catch {}
     }
     if (!s.audioReady || s.audioError || !s.audioBuffer) {
-        updateStatus("Audio not ready.");
+        updateStatus("❌ Audio not ready.");
         return;
     }
 
@@ -871,6 +1175,12 @@ async function playCurrentSentence() {
         currentSource.onended = async () => {
             clearWordBoundaryTimers(s);
             if (stopRequested) return;
+            
+            // Auto-highlight if enabled
+            if (autoHighlightEnabled) {
+                saveCurrentSentenceHighlight();
+            }
+            
             isPlaying = false;
             updatePlayButton();
             if (!autoAdvanceActive) return;
@@ -991,13 +1301,14 @@ function waitFor(condFn, timeoutMs = 10000, interval = 120) {
 
 /* ------------ Subtitle Preview ------------ */
 function updateSubtitlePreview(sentence) {
-    if (!subtitlePreview) return;
-    if (!sentence?.text) {
-        subtitlePreview.textContent = "";
-        return;
-    }
-    const txt = sentence.text.trim().replace(/\s+/g, " ");
-    subtitlePreview.textContent = txt.length > 160 ? txt.slice(0, 160) + "..." : txt;
+    return;
+    // if (!subtitlePreview) return;
+    // if (!sentence?.text) {
+    //     subtitlePreview.textContent = "";
+    //     return;
+    // }
+    // const txt = sentence.text.trim().replace(/\s+/g, " ");
+    // subtitlePreview.textContent = txt.length > 160 ? txt.slice(0, 160) + "..." : txt;
 }
 
 /* ------------ Info ------------ */
@@ -1063,9 +1374,21 @@ export async function loadPDF(file = null, { resume = true } = {}) {
                 name: file.name,
                 size: file.size,
                 lastModified: file.lastModified,
+                fileObject: file, // Store reference to the actual file
             };
+            document.getElementById("pdf-open").classList.remove("fa-beat");
         } else {
-            currentPdfDescriptor = { type: "url", name: PDF_URL };
+            if (!piperInstance) {
+                piperInstance = new window.ProperPiperTTS(DEFAULT_PIPER_VOICE);
+                await piperInstance.init();
+                await piperInstance.getAvailableVoices();
+            }
+            initVoices();
+
+            document.getElementById("pdf-open").classList.add("fa-beat");
+            document.getElementById("play-toggle-icon").classList.toggle("disabled");
+
+            return;
         }
         currentPdfKey = computePdfKeyFromSource(currentPdfDescriptor);
 
@@ -1080,9 +1403,7 @@ export async function loadPDF(file = null, { resume = true } = {}) {
         if (file instanceof File) {
             arrayBuffer = await file.arrayBuffer();
         } else {
-            const resp = await fetch(PDF_URL);
-            if (!resp.ok) throw new Error("Failed to fetch PDF URL.");
-            arrayBuffer = await resp.arrayBuffer();
+            return;
         }
 
         const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
@@ -1102,6 +1423,9 @@ export async function loadPDF(file = null, { resume = true } = {}) {
             if (saved && typeof saved.sentenceIndex === "number")
                 startIndex = clamp(saved.sentenceIndex, 0, sentences.length - 1);
         }
+
+        // Load saved highlights for this PDF
+        savedHighlights = loadSavedHighlights(currentPdfKey);
 
         await renderSentence(startIndex);
         showInfo(`Total sentences: ${sentences.length}`);
@@ -1160,6 +1484,19 @@ if (btnPrevPage)
         ttsQueue.reset();
         prevPageNav();
     });
+
+/* Highlight controls */
+if (saveHighlightBtn) {
+    saveHighlightBtn.addEventListener("click", () => {
+        saveCurrentSentenceHighlight();
+        updateStatus("Highlight saved!");
+        setTimeout(() => updateStatus(""), 2000);
+    });
+}
+
+if (exportHighlightsBtn) {
+    exportHighlightsBtn.addEventListener("click", exportPdfWithHighlights);
+}
 
 if (voiceSelect) {
     voiceSelect.addEventListener("change", () => {
@@ -1227,6 +1564,22 @@ window.clearPdfProgress = (key) => {
         setProgressMap(map);
     }
 };
+
+/* Highlight management functions */
+window.listSavedHighlights = () => getHighlightsMap();
+window.clearPdfHighlights = (key) => {
+    const map = getHighlightsMap();
+    if (map[key]) {
+        delete map[key];
+        setHighlightsMap(map);
+        if (key === currentPdfKey) {
+            savedHighlights.clear();
+            updateHighlightDisplay();
+        }
+    }
+};
+window.exportHighlights = exportPdfWithHighlights;
+window.saveHighlight = () => saveCurrentSentenceHighlight();
 
 /* ------------ Initialization Helper ------------ */
 window.initializePdfApp = async function () {

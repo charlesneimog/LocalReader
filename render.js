@@ -1,5 +1,5 @@
 // ===============================
-// render.js (PDF + TTS)
+// render.js (PDF + TTS) - Mobile scaling fixed
 // ===============================
 
 /* ------------ CONFIG ------------ */
@@ -28,12 +28,16 @@ const SPLIT_ON_LINE_GAP = false;
 const LINE_GAP_THRESHOLD = 1.6;
 
 /* Prefetch / TTS */
-const PREFETCH_AHEAD = 1;
+const PREFETCH_AHEAD = 2;
 const PIPER_VOICES = ["en_US-hfc_female-medium", "pt_BR-faber-medium"];
 const DEFAULT_PIPER_VOICE = PIPER_VOICES[0];
 
-/* Full document mode */
+/* Responsive */
+const MOBILE_BREAKPOINT = 680; // px
+const HORIZONTAL_MOBILE_MARGIN = 16; // px side margin used in scale calculation
 const SCROLL_MARGIN = 120;
+
+/* View mode */
 const VIEW_MODE_STORAGE_KEY = "pdfViewMode"; // "full" | "single"
 
 /* Progress map key */
@@ -70,15 +74,15 @@ let piperInstance = null;
 let currentPiperVoice = null;
 let piperLoading = false;
 
-/* Concurrency and timers */
+/* Concurrency / timers */
 const MAX_CONCURRENT_SYNTH = 2;
 const WORD_BOUNDARY_CHUNK_SIZE = 40;
 const YIELD_AFTER_MS = 32;
 
-/* View mode (default loaded from storage) */
-let viewMode = localStorage.getItem(VIEW_MODE_STORAGE_KEY) === "single" ? "single" : "full";
+/* View mode */
+let viewMode = "single";
 
-/* ------------ DOM ELEMENTS ------------ */
+/* ------------ DOM ------------ */
 const voiceSelect = document.getElementById("voice-select");
 const speedSelect = document.getElementById("rate-select");
 const btnNextSentence = document.getElementById("next-sentence");
@@ -95,7 +99,7 @@ const pdfCanvas = document.getElementById("pdf-canvas");
 const pdfDocContainer = document.getElementById("pdf-doc-container");
 const viewerWrapper = document.getElementById("viewer-wrapper");
 
-/* Ensure live regions */
+/* ------------ ARIA Regions ------------ */
 (function ensureAriaRegions() {
     if (ENABLE_LIVE_WORD_REGION && !document.getElementById(LIVE_WORD_REGION_ID)) {
         const div = document.createElement("div");
@@ -120,6 +124,7 @@ const viewerWrapper = document.getElementById("viewer-wrapper");
 /* ------------ Helpers ------------ */
 const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+const isMobile = () => window.innerWidth <= MOBILE_BREAKPOINT;
 
 function cooperativeYield() {
     if (typeof requestIdleCallback === "function") return new Promise((res) => requestIdleCallback(() => res()));
@@ -142,6 +147,14 @@ async function ensureAudioContext() {
         }
     }
     return audioCtx;
+}
+
+/* Responsive scaling:
+   Returns a scale factor (<=1) so pages fit on mobile without distortion */
+function getPageDisplayScale(viewportDisplay) {
+    if (!isMobile()) return 1;
+    const available = window.innerWidth - HORIZONTAL_MOBILE_MARGIN;
+    return Math.min(1, available / viewportDisplay.width);
 }
 
 /* ------------ Multi-PDF Progress ------------ */
@@ -190,10 +203,10 @@ async function preprocessPage(pageNumber) {
     const displayScale = BASE_WIDTH_CSS / unscaled.width;
     const viewportDisplay = page.getViewport({ scale: displayScale });
     viewportDisplayByPage.set(pageNumber, viewportDisplay);
+
     const textContent = await page.getTextContent();
-    const rawItems = textContent.items;
     const pageWords = [];
-    for (const item of rawItems) {
+    for (const item of textContent.items) {
         if (!item?.transform || !item.str) continue;
         if (!item.str.trim()) continue;
         const [a, , , d, e, f] = item.transform;
@@ -264,9 +277,7 @@ function buildSentences() {
             if (gapBreak && buffer.length) flush();
 
             buffer.push(w);
-            const punctuationEnd = /[.?!]$/.test(w.str);
-            const lineBreakTriggered = BREAK_ON_LINE && w.lineBreak;
-            if (punctuationEnd || lineBreakTriggered) flush();
+            if (/[.?!]$/.test(w.str) || (BREAK_ON_LINE && w.lineBreak)) flush();
 
             lastY = w.y;
             lastHeight = w.height;
@@ -309,8 +320,7 @@ async function ensureFullPageRendered(pageNumber) {
 /* ------------ Full Document Mode ------------ */
 function clearFullDocHighlights() {
     if (!pdfDocContainer) return;
-    const olds = pdfDocContainer.querySelectorAll(".pdf-word-highlight");
-    olds.forEach((n) => n.remove());
+    pdfDocContainer.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
 }
 
 function updateHighlightFullDoc(sentence) {
@@ -318,13 +328,14 @@ function updateHighlightFullDoc(sentence) {
     clearFullDocHighlights();
     const wrapper = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
     if (!wrapper) return;
+    const scale = parseFloat(wrapper.dataset.scale) || 1;
     for (const w of sentence.words) {
         const div = document.createElement("div");
         div.className = "pdf-word-highlight";
-        div.style.left = w.x + "px";
-        div.style.top = w.y - w.height + "px";
-        div.style.width = w.width + "px";
-        div.style.height = w.height + "px";
+        div.style.left = w.x * scale + "px";
+        div.style.top = (w.y - w.height) * scale + "px";
+        div.style.width = w.width * scale + "px";
+        div.style.height = w.height * scale + "px";
         wrapper.appendChild(div);
     }
 }
@@ -338,11 +349,23 @@ function scrollSentenceIntoView(sentence) {
         wrapper.scrollIntoView({ behavior: "smooth", block: "center" });
         return;
     }
+    const scale = parseFloat(wrapper.dataset.scale) || 1;
     const wrapperTop = wrapper.offsetTop;
-    const targetY = wrapperTop + bbox.y - SCROLL_MARGIN;
+    const targetY = wrapperTop + bbox.y * scale - SCROLL_MARGIN;
     const maxScroll = pdfDocContainer.scrollHeight - pdfDocContainer.clientHeight;
-    const finalScroll = clamp(targetY, 0, maxScroll);
-    pdfDocContainer.scrollTo({ top: finalScroll, behavior: "smooth" });
+    pdfDocContainer.scrollTo({ top: clamp(targetY, 0, maxScroll), behavior: "smooth" });
+}
+
+function applyPageScale(wrapper, viewportDisplay) {
+    const scale = getPageDisplayScale(viewportDisplay);
+    wrapper.dataset.scale = String(scale);
+    wrapper.style.width = viewportDisplay.width * scale + "px";
+    wrapper.style.height = viewportDisplay.height * scale + "px";
+    const c = wrapper.querySelector("canvas");
+    if (c) {
+        c.style.width = "100%";
+        c.style.height = "100%";
+    }
 }
 
 async function renderFullDocumentIfNeeded() {
@@ -356,18 +379,27 @@ async function renderFullDocumentIfNeeded() {
         const pageWrapper = document.createElement("div");
         pageWrapper.className = "pdf-page-wrapper";
         pageWrapper.dataset.pageNumber = p;
-        pageWrapper.style.width = viewportDisplay.width + "px";
-        pageWrapper.style.height = viewportDisplay.height + "px";
 
         const c = document.createElement("canvas");
         c.width = offscreen.width;
         c.height = offscreen.height;
-        c.style.width = viewportDisplay.width + "px";
-        c.style.height = viewportDisplay.height + "px";
         c.getContext("2d").drawImage(offscreen, 0, 0);
+
         pageWrapper.appendChild(c);
         pdfDocContainer.appendChild(pageWrapper);
+        applyPageScale(pageWrapper, viewportDisplay);
     }
+}
+
+function rescaleAllPages() {
+    if (viewMode !== "full" || !pdfDocContainer) return;
+    pdfDocContainer.querySelectorAll(".pdf-page-wrapper").forEach((wrapper) => {
+        const p = parseInt(wrapper.dataset.pageNumber, 10);
+        const viewportDisplay = viewportDisplayByPage.get(p);
+        if (viewportDisplay) applyPageScale(wrapper, viewportDisplay);
+    });
+    // Repaint highlight for current sentence
+    updateHighlightFullDoc(sentences[currentSentenceIndex]);
 }
 
 /* ------------ Rendering Sentence ------------ */
@@ -388,40 +420,64 @@ async function renderSentence(idx) {
 
         const ctx = pdfCanvas.getContext("2d");
         const viewportDisplay = viewportDisplayByPage.get(pageNumber);
-        const pageHeightDisplay = viewportDisplay.height;
-        const pageWidthDisplay = viewportDisplay.width;
         const fullPageCanvas = await ensureFullPageRendered(pageNumber);
 
-        pdfCanvas.style.width = pageWidthDisplay + "px";
-        pdfCanvas.style.height = VIEWPORT_HEIGHT_CSS + "px";
-        pdfCanvas.width = Math.round(pageWidthDisplay * deviceScale);
-        pdfCanvas.height = Math.round(VIEWPORT_HEIGHT_CSS * deviceScale);
+        if (isMobile()) {
+            // Full page render (no cropping) scaled proportionally via CSS width
+            const scaleCSS = getPageDisplayScale(viewportDisplay);
+            pdfCanvas.width = Math.round(viewportDisplay.width * deviceScale);
+            pdfCanvas.height = Math.round(viewportDisplay.height * deviceScale);
+            pdfCanvas.style.width = viewportDisplay.width * scaleCSS + "px";
+            pdfCanvas.style.height = viewportDisplay.height * scaleCSS + "px";
+            ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+            ctx.drawImage(
+                fullPageCanvas,
+                0,
+                0,
+                fullPageCanvas.width,
+                fullPageCanvas.height,
+                0,
+                0,
+                pdfCanvas.width,
+                pdfCanvas.height,
+            );
+            highlightSentenceSingleCanvas(ctx, sentence, 0);
+        } else {
+            // Original cropped view for desktop
+            const pageHeightDisplay = viewportDisplay.height;
+            const pageWidthDisplay = viewportDisplay.width;
 
-        let offsetYDisplay = 0;
-        if (sentence.bbox) {
-            const targetTop = sentence.bbox.y - MARGIN_TOP;
-            const maxOffset = Math.max(0, pageHeightDisplay - VIEWPORT_HEIGHT_CSS);
-            offsetYDisplay = clamp(targetTop, 0, maxOffset);
+            pdfCanvas.style.width = pageWidthDisplay + "px";
+            pdfCanvas.style.height = VIEWPORT_HEIGHT_CSS + "px";
+            pdfCanvas.width = Math.round(pageWidthDisplay * deviceScale);
+            pdfCanvas.height = Math.round(VIEWPORT_HEIGHT_CSS * deviceScale);
+
+            let offsetYDisplay = 0;
+            if (sentence.bbox) {
+                const targetTop = sentence.bbox.y - MARGIN_TOP;
+                const maxOffset = Math.max(0, pageHeightDisplay - VIEWPORT_HEIGHT_CSS);
+                offsetYDisplay = clamp(targetTop, 0, maxOffset);
+            }
+
+            const offsetYRender = offsetYDisplay * deviceScale;
+            const sliceHeightRender = pdfCanvas.height;
+            const maxAvail = fullPageCanvas.height - offsetYRender;
+            const effectiveSliceHeight = Math.min(sliceHeightRender, maxAvail);
+
+            ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+            ctx.drawImage(
+                fullPageCanvas,
+                0,
+                offsetYRender,
+                fullPageCanvas.width,
+                effectiveSliceHeight,
+                0,
+                0,
+                pdfCanvas.width,
+                effectiveSliceHeight,
+            );
+            highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay);
         }
-
-        const offsetYRender = offsetYDisplay * deviceScale;
-        const sliceHeightRender = pdfCanvas.height;
-        const maxAvail = fullPageCanvas.height - offsetYRender;
-        const effectiveSliceHeight = Math.min(sliceHeightRender, maxAvail);
-
-        ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
-        ctx.drawImage(
-            fullPageCanvas,
-            0,
-            offsetYRender,
-            fullPageCanvas.width,
-            effectiveSliceHeight,
-            0,
-            0,
-            pdfCanvas.width,
-            effectiveSliceHeight,
-        );
-        highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay);
     }
 
     showInfo(`Sentence ${sentence.index + 1}/${sentences.length} (Page ${pageNumber})`);
@@ -432,7 +488,7 @@ async function renderSentence(idx) {
 }
 
 function highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay) {
-    if (!ctx) return;
+    if (!ctx || !sentence) return;
     ctx.save();
     ctx.fillStyle = "rgba(255,255,0,0.28)";
     for (const w of sentence.words) {
@@ -485,12 +541,14 @@ function normalizeText(raw) {
 }
 function formatTextToSpeech(text) {
     if (!text) return "";
-    text = text.replace(/\([^)]*\)/g, "");
-    text = text.replace(/\[[^\]]*\]/g, "");
-    text = text.replace(/\b(?:https?:\/\/|www\.)\S+\b/g, "");
-    text = text.replace(/\b([a-z]+)-\s*([a-z]+)/g, "$1$2");
-    text = text.replace(/\n/g, " ");
-    text = text.replace(/\s{2,}/g, " ").trim();
+    text = text
+        .replace(/\([^)]*\)/g, "")
+        .replace(/\[[^\]]]*\]/g, "")
+        .replace(/\b(?:https?:\/\/|www\.)\S+\b/g, "")
+        .replace(/\b([a-z]+)-\s*([a-z]+)/g, "$1$2")
+        .replace(/\n/g, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
     return text;
 }
 
@@ -531,6 +589,7 @@ async function buildPiperAudio(sentence, voice, text) {
         }
         throw last;
     }
+
     await ensureAudioContext();
     await ensurePiper(voice);
     await cooperativeYield();
@@ -713,15 +772,14 @@ function updatePrefetchVisual() {
         prefetchBar.style.width = "0%";
         return;
     }
-    const base = currentSentenceIndex;
     let needed = 0,
         ready = 0;
+    const base = currentSentenceIndex;
     for (let i = base; i <= base + PREFETCH_AHEAD && i < sentences.length; i++) {
         needed++;
         if (sentences[i].audioReady) ready++;
     }
-    const pct = needed === 0 ? 0 : (ready / needed) * 100;
-    prefetchBar.style.width = pct + "%";
+    prefetchBar.style.width = (needed === 0 ? 0 : (ready / needed) * 100) + "%";
 }
 
 /* ------------ Playback ------------ */
@@ -757,7 +815,6 @@ async function playCurrentSentence() {
         ttsQueue.run();
         schedulePrefetch();
     }
-
     if (!s.audioReady) {
         ttsQueue.add(currentSentenceIndex, true);
         ttsQueue.run();
@@ -769,6 +826,7 @@ async function playCurrentSentence() {
         updateStatus("Audio not ready.");
         return;
     }
+
     stopPlayback(false);
     stopRequested = false;
 
@@ -787,7 +845,6 @@ async function playCurrentSentence() {
 
         currentGain = audioCtx.createGain();
         currentGain.gain.setValueAtTime(MIN_GAIN, audioCtx.currentTime);
-
         currentSource.connect(currentGain).connect(audioCtx.destination);
         currentGain.gain.exponentialRampToValueAtTime(1.0, audioCtx.currentTime + FADE_IN_SEC);
 
@@ -880,6 +937,7 @@ function togglePlay() {
     }
 }
 
+/* ------------ Word Boundaries ------------ */
 function setupWordBoundaryTimers(s) {
     clearWordBoundaryTimers(s);
     if (!ENABLE_WORD_HIGHLIGHT || !s.wordBoundaries?.length) return;
@@ -897,6 +955,7 @@ function clearWordBoundaryTimers(s) {
     s.playbackWordTimers = [];
 }
 
+/* ------------ Wait For ------------ */
 function waitFor(condFn, timeoutMs = 10000, interval = 120) {
     return new Promise((resolve, reject) => {
         const start = performance.now();
@@ -912,6 +971,7 @@ function waitFor(condFn, timeoutMs = 10000, interval = 120) {
     });
 }
 
+/* ------------ Subtitle Preview ------------ */
 function updateSubtitlePreview(sentence) {
     if (!subtitlePreview) return;
     if (!sentence?.text) {
@@ -922,12 +982,13 @@ function updateSubtitlePreview(sentence) {
     subtitlePreview.textContent = txt.length > 160 ? txt.slice(0, 160) + "..." : txt;
 }
 
+/* ------------ Info ------------ */
 function showInfo(msg) {
     if (infoBox) infoBox.textContent = msg;
     else console.log(msg);
 }
 
-/* ------------ Invalidate from index ------------ */
+/* ------------ Invalidate ------------ */
 function invalidateFrom(idx) {
     for (let i = idx; i < sentences.length; i++) {
         const s = sentences[i];
@@ -1117,6 +1178,27 @@ window.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("beforeunload", () => saveProgress());
+
+/* Responsive re-scaling on resize/orientation */
+window.addEventListener("resize", () => {
+    if (viewMode === "full") {
+        rescaleAllPages();
+        updateHighlightFullDoc(sentences[currentSentenceIndex]);
+    } else {
+        // Re-render current sentence so single page view recalculates canvas CSS sizes
+        renderSentence(currentSentenceIndex);
+    }
+});
+window.addEventListener("orientationchange", () => {
+    setTimeout(() => {
+        if (viewMode === "full") {
+            rescaleAllPages();
+            updateHighlightFullDoc(sentences[currentSentenceIndex]);
+        } else {
+            renderSentence(currentSentenceIndex);
+        }
+    }, 150);
+});
 
 /* ------------ Public Extras ------------ */
 window.listSavedProgress = () => getProgressMap();

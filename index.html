@@ -393,6 +393,7 @@
         <div id="viewer-wrapper">
             <canvas id="pdf-canvas"></canvas>
         </div>
+        <input type="file" id="file-input" accept="application/pdf" style="display: none" />
 
         <div id="drop-overlay">Drop a PDF to read it!</div>
 
@@ -422,6 +423,24 @@
                 e.preventDefault();
                 dropOverlay.classList.remove("active");
                 const file = e.dataTransfer.files[0];
+                if (file && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+                    if (window.loadPDF) {
+                        await window.loadPDF(file);
+                        console.log("PDF loaded via drag & drop");
+                    }
+                } else {
+                    alert("Not a valid PDF file!");
+                }
+            });
+
+            const canvas = document.getElementById("pdf-canvas");
+            const fileInput = document.getElementById("file-input");
+            canvas.addEventListener("click", () => {
+                fileInput.click();
+            });
+
+            fileInput.addEventListener("change", async (event) => {
+                const file = event.target.files[0];
                 if (file && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
                     if (window.loadPDF) {
                         await window.loadPDF(file);

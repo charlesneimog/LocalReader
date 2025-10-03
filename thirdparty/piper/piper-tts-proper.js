@@ -2,7 +2,7 @@
 (function (window) {
     "use strict";
     class ProperPiperTTS {
-        constructor(voiceId = "en_US-hfc_female-medium") {
+        constructor(voiceId = "en_US-lessac-high") {
             this.initialized = false;
             this.initializing = false;
             this.initPromise = null;
@@ -14,23 +14,23 @@
             this.synthesisQueue = [];
             this.isProcessingQueue = false;
             this.voiceId = voiceId;
-            // Derive base URL from this script's location so relative assets work when embedded on other pages
+            this.availableVoices = {};
+            this.voicesUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json";
             const scriptSrc = (document.currentScript && document.currentScript.src) || window.location.href;
             const scriptDir = scriptSrc.substring(0, scriptSrc.lastIndexOf("/"));
             const baseUrl = scriptDir.replace(/\/thirdparty\/piper$/, "");
-            this.voiceModelPath = baseUrl + `/thirdparty/piper/piper-voices/${voiceId}.onnx`;
-            this.voiceConfigPath = baseUrl + `/thirdparty/piper/piper-voices/${voiceId}.onnx.json`;
             this.baseUrl = baseUrl;
-
-            // Available voices
-            this.availableVoices = {
-                "en_GB-cori-medium": "🇬🇧 (Cori) - Medium",
-                "pt_BR-faber-medium": "🇧🇷 (Faber) - Medium",
-                "en_US-hfc_female-medium": "🇺🇸 (HFC) - Medium",
-            };
+            this.huggingFaceRoot = "https://huggingface.co/rhasspy/piper-voices/resolve/main/";
         }
 
         async init() {
+            await this.loadVoices();
+            const voice = this.availableVoices[this.voiceId];
+            if (!voice) throw new Error(`Voice ${this.voiceId} not found in voices.json`);
+
+            const filePaths = Object.keys(voice.files);
+            this.voiceModelPath = this.huggingFaceRoot + filePaths.find((f) => f.endsWith(".onnx"));
+            this.voiceConfigPath = this.huggingFaceRoot + filePaths.find((f) => f.endsWith(".onnx.json"));
             if (this.initialized) return true;
 
             // If already initializing, wait for it to complete
@@ -51,6 +51,13 @@
             }
         }
 
+        async loadVoices() {
+            const response = await fetch(this.voicesUrl);
+            if (!response.ok) throw new Error("Failed to fetch voices.json");
+            const voices = await response.json();
+            this.availableVoices = voices;
+        }
+
         async _doInit() {
             try {
                 if (!window.ort) {
@@ -61,14 +68,13 @@
                 //console.log("Loading Piper phonemizer module...");
                 await this.loadPhonemizer();
 
-                // Load voice configuration
-                //console.log("Loading voice configuration...");
+                console.log(this.voiceConfigPath);
+
                 const configResponse = await fetch(this.voiceConfigPath);
                 if (!configResponse.ok) {
                     throw new Error(`Failed to load voice config: ${configResponse.status}`);
                 }
                 this.voiceConfig = await configResponse.json();
-                //console.log("Voice config loaded:", this.voiceConfig);
 
                 // Load ONNX model
                 console.log("Loading ONNX model...");
@@ -79,7 +85,7 @@
                 const modelBuffer = await modelResponse.arrayBuffer();
 
                 // Configure ONNX Runtime
-                ort.env.wasm.numThreads = 1;
+                ort.env.wasm.numThreads = 8;
                 ort.env.wasm.simd = true;
                 ort.env.wasm.wasmPaths = this.baseUrl + "/thirdparty/";
                 ort.env.logLevel = "error";

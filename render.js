@@ -44,9 +44,16 @@ const PIPER_VOICES = [
     // "en_US-hfc_female-medium"
     // "en_US-hfc_female-medium"
     // "en_US-hfc_female-medium"
-    "en_US-hfc_female-medium",
-    "pt_BR-faber-medium", 
-    "en_GB-cori-medium", 
+    "en_US-lessac-medium",
+    "pt_BR-faber-medium",
+    "en_GB-cori-medium",
+    "de_DE-thorsten-medium",
+    "es_ES-davefx-medium",
+    "fr_FR-siwis-medium",
+    "zh_CN-huayan-medium",
+
+    //
+    "en_US-lessac-high",
 ];
 
 const DEFAULT_PIPER_VOICE = PIPER_VOICES[0];
@@ -237,11 +244,11 @@ function saveHighlightsForPdf() {
 }
 function saveCurrentSentenceHighlight(color = null) {
     if (currentSentenceIndex < 0 || currentSentenceIndex >= sentences.length) return;
-    const highlightColor = color || (highlightColorPicker?.value || "#ffeb3b");
+    const highlightColor = color || highlightColorPicker?.value || "#ffeb3b";
     savedHighlights.set(currentSentenceIndex, {
         color: highlightColor,
         timestamp: Date.now(),
-        sentenceText: sentences[currentSentenceIndex].text
+        sentenceText: sentences[currentSentenceIndex].text,
     });
     saveHighlightsForPdf();
     updateHighlightDisplay();
@@ -258,10 +265,10 @@ async function exportPdfWithHighlights() {
         alert("No highlights to export or no PDF loaded.");
         return;
     }
-    
+
     try {
         updateStatus("Preparing PDF export...");
-        
+
         // Get original PDF data
         let pdfBytes;
         if (currentPdfDescriptor.type === "file") {
@@ -276,17 +283,17 @@ async function exportPdfWithHighlights() {
         } else {
             throw new Error("Cannot export: unsupported PDF source");
         }
-        
+
         // Load PDF with pdf-lib
         const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
         const pages = pdfDoc.getPages();
-        
+
         // Group highlights by page
         const highlightsByPage = new Map();
         for (const [sentenceIndex, highlightData] of savedHighlights.entries()) {
             const sentence = sentences[sentenceIndex];
             if (!sentence || !sentence.words || sentence.words.length === 0) continue;
-            
+
             const pageNum = sentence.pageNumber;
             if (!highlightsByPage.has(pageNum)) {
                 highlightsByPage.set(pageNum, []);
@@ -294,33 +301,31 @@ async function exportPdfWithHighlights() {
             highlightsByPage.get(pageNum).push({
                 sentence: sentence,
                 color: highlightData.color,
-                text: sentence.text
+                text: sentence.text,
             });
         }
-        
+
         // Add highlights to each page
         for (const [pageNum, pageHighlights] of highlightsByPage.entries()) {
             if (pageNum > pages.length) continue;
-            
+
             const page = pages[pageNum - 1]; // pdf-lib uses 0-based indexing
             const { width, height } = page.getSize();
-            
+
             // Get the viewport scale used in our rendering
             const viewportDisplay = viewportDisplayByPage.get(pageNum);
             if (!viewportDisplay) continue;
-            
+
             const scaleX = width / viewportDisplay.width;
             const scaleY = height / viewportDisplay.height;
-            
+
             for (const highlight of pageHighlights) {
                 const { sentence, color } = highlight;
-                
+
                 // Convert hex color to RGB
                 const rgb = hexToRgb(color);
-                const pdfColor = rgb ? 
-                    PDFLib.rgb(rgb.r / 255, rgb.g / 255, rgb.b / 255) : 
-                    PDFLib.rgb(1, 1, 0); // fallback yellow
-                
+                const pdfColor = rgb ? PDFLib.rgb(rgb.r / 255, rgb.g / 255, rgb.b / 255) : PDFLib.rgb(1, 1, 0); // fallback yellow
+
                 // Add individual word highlights instead of sentence bounding box
                 for (const word of sentence.words) {
                     // Convert our coordinates to PDF coordinates
@@ -330,7 +335,7 @@ async function exportPdfWithHighlights() {
                     const pdfY = height - (word.y - word.height) * scaleY; // Use top of word
                     const pdfWidth = word.width * scaleX;
                     const pdfHeight = word.height * scaleY;
-                    
+
                     // Add rectangle annotation for each word
                     page.drawRectangle({
                         x: pdfX,
@@ -343,26 +348,25 @@ async function exportPdfWithHighlights() {
                 }
             }
         }
-        
+
         // Generate filename
         const originalName = currentPdfDescriptor.name || "document";
         const baseName = originalName.replace(/\.pdf$/i, "");
         const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
         const filename = `${baseName}_highlighted_${timestamp}.pdf`;
-        
+
         // Save the PDF
         const highlightedPdfBytes = await pdfDoc.save();
         const blob = new Blob([highlightedPdfBytes], { type: "application/pdf" });
         const url = URL.createObjectURL(blob);
-        
+
         const a = document.createElement("a");
         a.href = url;
         a.download = filename;
         a.click();
-        
+
         URL.revokeObjectURL(url);
         updateStatus(`Exported: ${filename}`);
-        
     } catch (error) {
         console.error("Export failed:", error);
         updateStatus("Export failed: " + error.message);
@@ -539,7 +543,7 @@ function clearFullDocHighlights() {
 function updateHighlightFullDoc(sentence) {
     if (viewMode !== "full" || !pdfDocContainer || !sentence) return;
     clearFullDocHighlights();
-    
+
     // Show current sentence highlight (temporary)
     const wrapper = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
     if (!wrapper) return;
@@ -553,23 +557,23 @@ function updateHighlightFullDoc(sentence) {
         div.style.height = w.height * scale + "px";
         wrapper.appendChild(div);
     }
-    
+
     // Show all saved highlights
     renderSavedHighlightsFullDoc();
 }
 
 function renderSavedHighlightsFullDoc() {
     if (viewMode !== "full" || !pdfDocContainer) return;
-    
+
     for (const [sentenceIndex, highlightData] of savedHighlights.entries()) {
         const sentence = sentences[sentenceIndex];
         if (!sentence) continue;
-        
+
         const wrapper = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
         if (!wrapper) continue;
-        
+
         const scale = parseFloat(wrapper.dataset.scale) || 1;
-        
+
         // Create individual word highlights instead of sentence bounding box
         for (const word of sentence.words) {
             const div = document.createElement("div");
@@ -768,12 +772,12 @@ function highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay) {
 function renderSavedHighlightsSingleCanvas(ctx, pageNumber, offsetYDisplay) {
     if (!ctx) return;
     ctx.save();
-    
+
     // Render all saved highlights for this page
     for (const [sentenceIndex, highlightData] of savedHighlights.entries()) {
         const sentence = sentences[sentenceIndex];
         if (!sentence || sentence.pageNumber !== pageNumber) continue;
-        
+
         // Use saved color with some transparency
         const color = highlightData.color;
         const rgb = hexToRgb(color);
@@ -782,7 +786,7 @@ function renderSavedHighlightsSingleCanvas(ctx, pageNumber, offsetYDisplay) {
         } else {
             ctx.fillStyle = "rgba(255, 235, 59, 0.3)"; // fallback yellow
         }
-        
+
         // Highlight each word individually instead of using bounding box
         for (const word of sentence.words) {
             const xR = word.x * deviceScale;
@@ -790,13 +794,13 @@ function renderSavedHighlightsSingleCanvas(ctx, pageNumber, offsetYDisplay) {
             const yR = yTopDisplay * deviceScale;
             const widthR = word.width * deviceScale;
             const heightR = word.height * deviceScale;
-            
+
             if (yR + heightR < 0 || yR > pdfCanvas.height) continue;
-            
+
             // Add rounded corners for a more natural highlight look
             ctx.fillRect(xR, yR, widthR, heightR);
         }
-        
+
         // Add border for current sentence using word outlines
         if (sentenceIndex === currentSentenceIndex) {
             ctx.strokeStyle = "#ff9800";
@@ -817,11 +821,13 @@ function renderSavedHighlightsSingleCanvas(ctx, pageNumber, offsetYDisplay) {
 
 function hexToRgb(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-        r: parseInt(result[1], 16),
-        g: parseInt(result[2], 16),
-        b: parseInt(result[3], 16)
-    } : null;
+    return result
+        ? {
+              r: parseInt(result[1], 16),
+              g: parseInt(result[2], 16),
+              b: parseInt(result[3], 16),
+          }
+        : null;
 }
 
 /* ------------ Navigation ------------ */
@@ -884,10 +890,10 @@ async function ensurePiper(voice) {
             piperLoading = true;
             try {
                 if (piperInstance && currentPiperVoice !== voice) {
-                    await piperInstance.changeVoice(voice);
+                    piperInstance.changeVoice(voice);
                 } else {
                     piperInstance = new window.ProperPiperTTS(voice);
-                    await piperInstance.init();
+                    piperInstance.init();
                 }
                 currentPiperVoice = voice;
             } finally {
@@ -1175,12 +1181,12 @@ async function playCurrentSentence() {
         currentSource.onended = async () => {
             clearWordBoundaryTimers(s);
             if (stopRequested) return;
-            
+
             // Auto-highlight if enabled
             if (autoHighlightEnabled) {
                 saveCurrentSentenceHighlight();
             }
-            
+
             isPlaying = false;
             updatePlayButton();
             if (!autoAdvanceActive) return;
@@ -1448,6 +1454,21 @@ export async function loadPDF(file = null, { resume = true } = {}) {
 }
 
 /* ------------ Voices Init ------------ */
+function regionToFlag(region) {
+    if (!region) return "";
+    return region
+        .toUpperCase()
+        .replace(/[^A-Z]/g, "")
+        .split("")
+        .map((c) => String.fromCodePoint(c.charCodeAt(0) + 0x1f1a5))
+        .join("");
+}
+
+function capitalizeFirst(str) {
+    if (!str) return "";
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
 function initVoices() {
     if (!voiceSelect) return;
     voiceSelect.innerHTML = "";
@@ -1455,9 +1476,20 @@ function initVoices() {
     PIPER_VOICES.forEach((v) => {
         const opt = document.createElement("option");
         opt.value = v;
-        opt.textContent = allVoices[v] || v;
+        console.log(allVoices[v]);
+        const lang = allVoices[v]["language"];
+        const flag = regionToFlag(lang["region"]);
+        const qual = capitalizeFirst(allVoices[v]["quality"]);
+        const voiceName = capitalizeFirst(allVoices[v]["name"]);
+        if (qual == "High") {
+            opt.textContent = `${flag} ${voiceName} ${qual} - Need Fast CPU`;
+        } else {
+            opt.textContent = `${flag} ${voiceName} ${qual}`;
+        }
+
         voiceSelect.appendChild(opt);
     });
+
     voiceSelect.value = DEFAULT_PIPER_VOICE;
     const micIcon = document.getElementById("mic-icon");
     if (micIcon) {

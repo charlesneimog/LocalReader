@@ -1,3 +1,86 @@
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open("voice-models-db", 1);
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains("models")) {
+                db.createObjectStore("models");
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+function saveModel(key, buffer) {
+    return openDB().then((db) => {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("models", "readwrite");
+            const store = tx.objectStore("models");
+            store.put(buffer, key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    });
+}
+
+function loadModel(key) {
+    return openDB().then((db) => {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("models", "readonly");
+            const store = tx.objectStore("models");
+            const request = store.get(key);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    });
+}
+
+async function getCachedModel(key, url) {
+    let buffer = await loadModel(key);
+    if (buffer) {
+        console.log("Loaded model from cache.");
+        return buffer;
+    }
+
+    console.log("Fetching model from network...");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to load model: ${response.status}`);
+    buffer = await response.arrayBuffer();
+
+    // Save to IndexedDB for next time
+    await saveModel(key, buffer);
+    console.log("Model cached.");
+    return buffer;
+}
+
+function saveJSON(key, obj) {
+    const jsonString = JSON.stringify(obj);
+    return saveModel(key, jsonString); // reuse IndexedDB saveModel
+}
+
+async function loadJSON(key) {
+    const jsonString = await loadModel(key); // reuse IndexedDB loadModel
+    return jsonString ? JSON.parse(jsonString) : null;
+}
+
+async function getCachedJSON(key, url) {
+    let data = await loadJSON(key);
+    if (data) {
+        console.log("Loaded config from cache.");
+        return data;
+    }
+    console.log("Fetching config from network...");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to load config: ${response.status}`);
+    data = await response.json();
+
+    await saveJSON(key, data);
+    console.log("Config cached.");
+    return data;
+}
+
+
 // Proper Piper TTS implementation using the actual phonemizer
 (function (window) {
     "use strict";
@@ -64,23 +147,12 @@
                     throw new Error("ONNX Runtime not loaded");
                 }
 
-                // Load the phonemizer module
-                //console.log("Loading Piper phonemizer module...");
                 await this.loadPhonemizer();
-
-                const configResponse = await fetch(this.voiceConfigPath);
-                if (!configResponse.ok) {
-                    throw new Error(`Failed to load voice config: ${configResponse.status}`);
-                }
-                this.voiceConfig = await configResponse.json();
+                this.voiceConfig = await getCachedJSON(this.voiceId + "-json", this.voiceConfigPath);
 
                 // Load ONNX model
                 console.log("Loading ONNX model...");
-                const modelResponse = await fetch(this.voiceModelPath);
-                if (!modelResponse.ok) {
-                    throw new Error(`Failed to load voice model: ${modelResponse.status}`);
-                }
-                const modelBuffer = await modelResponse.arrayBuffer();
+                const modelBuffer = await getCachedModel(this.voiceId + "-onnx", this.voiceModelPath);
 
                 // Configure ONNX Runtime
                 const threads = navigator.hardwareConcurrency;

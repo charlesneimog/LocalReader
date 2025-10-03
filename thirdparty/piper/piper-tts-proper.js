@@ -86,6 +86,7 @@
                 ort.env.wasm.numThreads = 4;
                 ort.env.wasm.simd = true;
                 ort.env.wasm.wasmPaths = this.baseUrl + "/thirdparty/";
+                ort.env.logLevel = 'error';    
 
                 // Create ONNX session
                 const sessionOptions = {

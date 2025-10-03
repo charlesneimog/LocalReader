@@ -46,8 +46,6 @@ const PIPER_VOICES = [
     "en_US-hfc_female-medium",
     "pt_BR-faber-medium",
     "en_GB-cori-medium",
-    "en_GB-cori-high",
-    "en_US-lessac-high",
 ];
 
 const DEFAULT_PIPER_VOICE = PIPER_VOICES[0];

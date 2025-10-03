@@ -4,6 +4,7 @@
         <meta charset="UTF-8" />
         <title>PDF Word Highlighter + Piper TTS</title>
 
+        <!-- Threads (if needed) -->
         <script src="./threads.js"></script>
 
         <!-- PDF.js -->
@@ -17,7 +18,7 @@
         <script src="thirdparty/ort.min.js"></script>
         <script src="thirdparty/piper/piper-tts-proper.js"></script>
 
-        <!-- Font Awesome (Modern Icons) -->
+        <!-- Font Awesome -->
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
         <style>
@@ -36,7 +37,6 @@
                 --shadow-color-dark: rgba(0, 0, 0, 0.6);
                 --focus-ring: 0 0 0 3px rgba(0, 140, 255, 0.45);
             }
-
             @media (prefers-color-scheme: light) {
                 :root {
                     --bg: var(--bg-light);
@@ -64,16 +64,14 @@
                     --info-color: #e0e0e0;
                     --subtitle-color: #a8a8a8;
                 }
-                canvas {
-                    filter: invert(0.85);
-                }
+                /* If you want to invert single-canvas only, keep this.
+         For full-doc mode with colored highlights, you may prefer to remove it. */
+                /* #pdf-canvas { filter: invert(.85); } */
             }
-
             html,
             body {
                 margin: 0;
                 padding: 0;
-                overflow: hidden;
                 font-family:
                     system-ui,
                     -apple-system,
@@ -87,14 +85,17 @@
                 background: var(--bg);
                 color: var(--fg);
                 -webkit-font-smoothing: antialiased;
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
             }
 
-            /* Modern Toolbar */
             #controls.toolbar {
-                position: relative;
                 display: flex;
-                align-items: center;
+                flex-wrap: wrap;
                 gap: 10px;
+                align-items: center;
                 padding: 10px 14px;
                 background: var(--panel-bg);
                 backdrop-filter: blur(14px) saturate(1.4);
@@ -103,8 +104,9 @@
                 box-shadow:
                     0 4px 14px -4px var(--shadow-color-light),
                     0 2px 4px -1px var(--shadow-color-light);
-                transition: background 0.35s ease;
-                flex-wrap: wrap;
+                transition: background 0.35s;
+                position: relative;
+                z-index: 10;
             }
             @media (prefers-color-scheme: dark) {
                 #controls.toolbar {
@@ -112,17 +114,6 @@
                         0 4px 18px -6px var(--shadow-color-dark),
                         0 2px 6px -2px var(--shadow-color-dark);
                 }
-            }
-
-            .toolbar .btn-group {
-                display: flex;
-                gap: 8px;
-                align-items: stretch;
-            }
-
-            .toolbar .spacer {
-                flex: 1 1 auto;
-                min-width: 40px;
             }
 
             button,
@@ -146,23 +137,19 @@
                     transform 0.15s;
                 min-height: 40px;
             }
-
             button:focus-visible,
             select:focus-visible {
                 outline: none;
                 box-shadow: var(--focus-ring);
             }
-
             button:hover:not(:disabled),
             select:hover:not(:disabled) {
                 background: var(--btn-bg-hover);
             }
-
             button:active:not(:disabled) {
                 background: var(--btn-bg-active);
                 transform: translateY(1px);
             }
-
             button:disabled {
                 opacity: 0.55;
                 cursor: not-allowed;
@@ -172,12 +159,10 @@
                 padding-inline: 14px;
                 font-weight: 500;
             }
-
             .icon-btn .label {
                 font-size: 13px;
                 letter-spacing: 0.3px;
             }
-
             .icon-btn i {
                 font-size: 15px;
                 width: 16px;
@@ -190,44 +175,34 @@
                 gap: 14px;
                 flex-wrap: wrap;
             }
-
             .select-group {
-                position: relative;
                 display: flex;
                 align-items: center;
+                gap: 8px;
                 background: var(--btn-bg);
                 border: 1px solid var(--border);
-                padding: 4px 10px 4px 10px;
+                padding: 4px 10px;
                 border-radius: 12px;
-                gap: 8px;
-                min-height: 30px;
                 transition:
                     background 0.25s,
                     border-color 0.25s;
             }
-
             .select-group:hover {
                 background: var(--btn-bg-hover);
             }
-
             .select-group:focus-within {
                 box-shadow: var(--focus-ring);
             }
-
             .select-group i {
                 font-size: 15px;
-                color: var(--fg);
                 opacity: 0.85;
             }
-
             .select-group select {
                 background: transparent;
                 border: none;
-                padding: 0 4px 0 0;
-                min-height: unset;
-                height: 26px;
+                padding: 0;
                 font-size: 13px;
-                line-height: 1.1;
+                height: 26px;
             }
             .select-group select:focus {
                 outline: none;
@@ -246,16 +221,14 @@
                 border: 0;
             }
 
-            /* Info panels */
             #info-box,
             #tts-status {
                 text-align: center;
                 font-size: 13px;
-                padding: 4px 10px 4px;
+                padding: 4px 10px;
                 color: var(--info-color);
                 min-height: 20px;
             }
-
             #progress-prefetch {
                 width: 260px;
                 height: 6px;
@@ -273,7 +246,6 @@
                 background: var(--accent-gradient);
                 transition: width 0.35s ease;
             }
-
             #subtitle-preview {
                 font-size: 11px;
                 text-align: center;
@@ -284,14 +256,27 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
                 font-family: "Courier New", monospace;
-                padding: 0 12px 6px;
+                padding: 12px 6px;
+                margin: 0px 24px;
             }
 
+            /* Viewer layout container */
+            #viewer-region {
+                flex: 1 1 auto;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                position: relative;
+                margin: 40px;
+            }
+
+            /* Single-canvas wrapper */
             #viewer-wrapper {
-                width: 100%;
+                flex: 1 1 auto;
                 display: flex;
                 justify-content: center;
-                padding-bottom: 12px;
+                overflow: auto;
+                padding: 12px 0 24px;
             }
             #pdf-canvas {
                 border: 1px solid var(--border);
@@ -302,6 +287,45 @@
                 max-width: calc(100vw - 40px);
             }
 
+            /* Full document container */
+            #pdf-doc-container {
+                flex: 1 1 auto;
+                position: relative;
+                overflow-y: auto;
+                overflow-x: hidden;
+                background: var(--bg);
+                padding: 24px 0 48px;
+                margin: 0;
+                border-top: 1px solid var(--panel-border);
+                scroll-behavior: smooth;
+            }
+            body.dark #pdf-doc-container {
+                background: #2a2d30;
+            }
+            .pdf-page-wrapper {
+                position: relative;
+                margin: 0 auto 32px auto;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+                background: #fff;
+                border-radius: 6px;
+                overflow: hidden;
+                transition: box-shadow 0.25s;
+            }
+            .pdf-page-wrapper:hover {
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+            }
+            .pdf-word-highlight {
+                position: absolute;
+                background: rgba(255, 255, 0, 0.28);
+                pointer-events: none;
+                border-radius: 2px;
+            }
+
+            canvas {
+                filter: invert(0.95);
+            }
+
+            /* Drag & Drop overlay */
             #drop-overlay {
                 position: fixed;
                 inset: 0;
@@ -323,16 +347,25 @@
                 opacity: 1;
             }
 
-            /* Compact adjustments for very narrow screens */
+            .toolbar .btn-group {
+                display: flex;
+                gap: 8px;
+                align-items: stretch;
+            }
+            .toolbar .spacer {
+                flex: 1 1 auto;
+                min-width: 40px;
+            }
+
             @media (max-width: 680px) {
                 .icon-btn .label {
                     display: none;
                 }
-                .select-group {
-                    padding: 4px 10px;
-                }
                 #controls.toolbar {
                     padding: 8px 10px;
+                }
+                .select-group {
+                    padding: 4px 10px;
                 }
             }
         </style>
@@ -340,25 +373,30 @@
     <body>
         <div id="controls" class="toolbar">
             <div class="btn-group">
+                <button id="open-file" class="icon-btn" title="Open PDF (File Dialog)">
+                    <i class="fa-solid fa-folder-open"></i><span class="label">Open</span>
+                </button>
+                <button id="toggle-view-mode" class="icon-btn" title="Toggle Full Document / Single Page">
+                    <i class="fa-solid fa-clone"></i><span class="label">View: Full Doc</span>
+                </button>
+            </div>
+
+            <div class="btn-group">
                 <button id="prev-page" class="icon-btn" title="Previous Page">
-                    <i class="fa-solid fa-circle-left"></i>
-                    <span class="label">Prev Page</span>
+                    <i class="fa-solid fa-circle-left"></i><span class="label">Prev Page</span>
                 </button>
                 <button id="prev-sentence" class="icon-btn" title="Previous Sentence (Arrow Left)">
-                    <i class="fa-solid fa-backward" aria-hidden="true"></i>
-                    <span class="label">Prev</span>
+                    <i class="fa-solid fa-backward" aria-hidden="true"></i><span class="label">Prev</span>
                 </button>
                 <button id="play-toggle" class="icon-btn" data-state="play" title="Play / Pause (Space)">
                     <i class="fa-solid fa-play" aria-hidden="true" id="play-toggle-icon"></i>
                     <span class="label" id="play-toggle-label">Play</span>
                 </button>
                 <button id="next-sentence" class="icon-btn" title="Next Sentence (Arrow Right)">
-                    <i class="fa-solid fa-forward" aria-hidden="true"></i>
-                    <span class="label">Next</span>
+                    <i class="fa-solid fa-forward" aria-hidden="true"></i><span class="label">Next</span>
                 </button>
                 <button id="next-page" class="icon-btn" title="Next Page">
-                    <i class="fa-solid fa-circle-right"></i>
-                    <span class="label">Next Page</span>
+                    <i class="fa-solid fa-circle-right"></i><span class="label">Next Page</span>
                 </button>
             </div>
 
@@ -367,19 +405,19 @@
             <div class="select-cluster">
                 <div class="select-group" title="Voice">
                     <i id="mic-icon" class="fa-solid fa-spin fa-spinner" aria-hidden="true"></i>
-                    <label class="sr-only" for="voice-select">Voice</label>
+                    <label for="voice-select" class="sr-only">Voice</label>
                     <select id="voice-select" aria-label="Voice"></select>
                 </div>
 
                 <div class="select-group" title="Playback Speed">
                     <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
-                    <label class="sr-only" for="rate-select">Playback Speed</label>
+                    <label for="rate-select" class="sr-only">Playback Speed</label>
                     <select id="rate-select" aria-label="Playback Speed">
-                        <option value="1" selected>1x</option>
-                        <option value="1.25%">1.25x</option>
-                        <option value="1.5%">1.5x</option>
-                        <option value="1.75%">1.75x</option>
-                        <option value="2">2x</option>
+                        <option value="1.0" selected>1.0x</option>
+                        <option value="1.25">1.25x</option>
+                        <option value="1.5">1.5x</option>
+                        <option value="1.75">1.75x</option>
+                        <option value="2.0">2.0x</option>
                     </select>
                 </div>
             </div>
@@ -390,64 +428,79 @@
         <div id="progress-prefetch"><span id="prefetch-bar"></span></div>
         <div id="subtitle-preview"></div>
 
-        <div id="viewer-wrapper">
-            <canvas id="pdf-canvas"></canvas>
+        <div id="viewer-region">
+            <!-- Single page (legacy) canvas -->
+            <div id="viewer-wrapper">
+                <canvas id="pdf-canvas"></canvas>
+            </div>
+            <!-- Full document container (hidden initially; JS will manage display) -->
+            <div id="pdf-doc-container" style="display: none"></div>
         </div>
+
         <input type="file" id="file-input" accept="application/pdf" style="display: none" />
 
         <div id="drop-overlay">Drop a PDF to read it!</div>
 
         <!-- Main logic -->
         <script type="module" src="render.js"></script>
-
         <script>
-            // Auto-load default PDF
-            window.addEventListener("DOMContentLoaded", () => {
-                if (window.loadPDF) {
-                    window.loadPDF();
-                }
-            });
-
-            // Drag & Drop
+            // Drag & Drop overlay with counter to avoid flicker
             const dropOverlay = document.getElementById("drop-overlay");
+            let dragCounter = 0;
             window.addEventListener("dragenter", (e) => {
                 e.preventDefault();
+                dragCounter++;
                 dropOverlay.classList.add("active");
             });
+            window.addEventListener("dragover", (e) => e.preventDefault());
             window.addEventListener("dragleave", (e) => {
                 e.preventDefault();
-                dropOverlay.classList.remove("active");
+                dragCounter = Math.max(0, dragCounter - 1);
+                if (dragCounter === 0) dropOverlay.classList.remove("active");
             });
-            window.addEventListener("dragover", (e) => e.preventDefault());
             window.addEventListener("drop", async (e) => {
                 e.preventDefault();
+                dragCounter = 0;
                 dropOverlay.classList.remove("active");
                 const file = e.dataTransfer.files[0];
-                if (file && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+                if (file && /(\.pdf)$/i.test(file.name)) {
                     if (window.loadPDF) {
                         await window.loadPDF(file);
-                        console.log("PDF loaded via drag & drop");
                     }
                 } else {
                     alert("Not a valid PDF file!");
                 }
             });
 
-            const canvas = document.getElementById("pdf-canvas");
             const fileInput = document.getElementById("file-input");
-            canvas.addEventListener("click", () => {
-                fileInput.click();
-            });
+            const openBtn = document.getElementById("open-file");
+            openBtn.addEventListener("click", () => fileInput.click());
 
-            fileInput.addEventListener("change", async (event) => {
-                const file = event.target.files[0];
-                if (file && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+            fileInput.addEventListener("change", async (e) => {
+                const file = e.target.files[0];
+                if (file && /(\.pdf)$/i.test(file.name)) {
                     if (window.loadPDF) {
                         await window.loadPDF(file);
-                        console.log("PDF loaded via drag & drop");
                     }
                 } else {
                     alert("Not a valid PDF file!");
+                }
+            });
+
+            // View mode toggle (Full vs Single)
+            const toggleViewBtn = document.getElementById("toggle-view-mode");
+            toggleViewBtn.addEventListener("click", () => {
+                if (window.toggleViewMode) {
+                    window.toggleViewMode();
+                }
+            });
+
+            // Auto load after scripts register globals
+            window.addEventListener("DOMContentLoaded", async () => {
+                if (window.initializePdfApp) {
+                    await window.initializePdfApp();
+                } else if (window.loadPDF) {
+                    await window.loadPDF(); // fallback
                 }
             });
         </script>

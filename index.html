@@ -545,6 +545,9 @@
                 <button id="toggle-view-mode" class="icon-btn" title="Toggle Full Document / Single Page">
                     <i class="fa-solid fa-clone"></i><span class="label">View: Full Doc</span>
                 </button>
+                <button id="toggle-fullscreen" class="icon-btn" title="Toggle Full Screen">
+                    <i class="fa-solid fa-expand"></i><span class="label">Full Screen</span>
+                </button>
             </div>
 
             <div class="btn-group">
@@ -646,6 +649,39 @@
                 if (window.initializePdfApp) await window.initializePdfApp();
                 else if (window.loadPDF) await window.loadPDF();
             });
+
+            // Fullscreen
+            const btn = document.getElementById("toggle-fullscreen");
+            btn.addEventListener("click", () => {
+                toggleFullscreen();
+            });
+
+            function toggleFullscreen() {
+                const doc = window.document;
+                const docEl = doc.documentElement;
+
+                const requestFull =
+                    docEl.requestFullscreen ||
+                    docEl.mozRequestFullScreen || // Firefox
+                    docEl.webkitRequestFullscreen || // Safari
+                    docEl.msRequestFullscreen; // IE/Edge
+
+                const exitFull =
+                    doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+
+                if (
+                    !doc.fullscreenElement &&
+                    !doc.mozFullScreenElement &&
+                    !doc.webkitFullscreenElement &&
+                    !doc.msFullscreenElement
+                ) {
+                    // Enter fullscreen
+                    requestFull.call(docEl);
+                } else {
+                    // Exit fullscreen
+                    exitFull.call(doc);
+                }
+            }
         </script>
     </body>
 </html>

@@ -3,6 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <title>PDF Word Highlighter + Piper TTS</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
 
         <!-- Threads (if needed) -->
         <script src="./threads.js"></script>
@@ -64,10 +65,12 @@
                     --info-color: #e0e0e0;
                     --subtitle-color: #a8a8a8;
                 }
-                /* If you want to invert single-canvas only, keep this.
-         For full-doc mode with colored highlights, you may prefer to remove it. */
-                /* #pdf-canvas { filter: invert(.85); } */
+
+                #pdf-canvas {
+                    filter: invert(0.87);
+                }
             }
+
             html,
             body {
                 margin: 0;
@@ -130,7 +133,6 @@
                 display: inline-flex;
                 align-items: center;
                 gap: 8px;
-                position: relative;
                 transition:
                     background 0.25s,
                     border-color 0.25s,
@@ -229,6 +231,7 @@
                 color: var(--info-color);
                 min-height: 20px;
             }
+
             #progress-prefetch {
                 width: 260px;
                 height: 6px;
@@ -246,6 +249,7 @@
                 background: var(--accent-gradient);
                 transition: width 0.35s ease;
             }
+
             #subtitle-preview {
                 font-size: 11px;
                 text-align: center;
@@ -257,10 +261,8 @@
                 text-overflow: ellipsis;
                 font-family: "Courier New", monospace;
                 padding: 12px 6px;
-                margin: 0px 24px;
             }
 
-            /* Viewer layout container */
             #viewer-region {
                 flex: 1 1 auto;
                 display: flex;
@@ -270,7 +272,6 @@
                 margin: 40px;
             }
 
-            /* Single-canvas wrapper */
             #viewer-wrapper {
                 flex: 1 1 auto;
                 display: flex;
@@ -287,7 +288,6 @@
                 max-width: calc(100vw - 40px);
             }
 
-            /* Full document container */
             #pdf-doc-container {
                 flex: 1 1 auto;
                 position: relative;
@@ -298,9 +298,6 @@
                 margin: 0;
                 border-top: 1px solid var(--panel-border);
                 scroll-behavior: smooth;
-            }
-            body.dark #pdf-doc-container {
-                background: #2a2d30;
             }
             .pdf-page-wrapper {
                 position: relative;
@@ -321,9 +318,7 @@
                 border-radius: 2px;
             }
 
-            canvas {
-                filter: invert(0.95);
-            }
+            /* Remove the old forced full width/auto-height rule that caused distortion */
 
             /* Drag & Drop overlay */
             #drop-overlay {
@@ -357,15 +352,63 @@
                 min-width: 40px;
             }
 
+            /* Mobile adjustments (layout & stacked toolbars) */
             @media (max-width: 680px) {
+                html,
+                body {
+                    overflow: auto !important;
+                    font-size: 15px;
+                    height: 100dvh;
+                }
+                #controls.toolbar {
+                    flex-direction: column;
+                    align-items: stretch;
+                    padding: 8px 4px;
+                    gap: 4px;
+                }
+                .toolbar .btn-group,
+                .select-cluster {
+                    width: 100%;
+                    justify-content: center;
+                    gap: 4px;
+                    flex-wrap: wrap;
+                }
                 .icon-btn .label {
                     display: none;
                 }
-                #controls.toolbar {
-                    padding: 8px 10px;
+                button,
+                select {
+                    flex: 1;
+                    min-height: 46px;
+                    font-size: 16px;
                 }
-                .select-group {
-                    padding: 4px 10px;
+                #viewer-region {
+                    margin: 0;
+                    padding: 0;
+                }
+                #subtitle-preview {
+                    padding: 4px 2vw;
+                    max-width: 96vw;
+                }
+                #progress-prefetch {
+                    width: 90vw;
+                }
+                /* Page wrappers will be width-controlled by inline scaling;
+               allow them to center and never overflow horizontally */
+                .pdf-page-wrapper {
+                    margin: 0 auto 20px auto;
+                    border-radius: 4px;
+                }
+            }
+
+            @media (max-width: 420px) {
+                button,
+                select {
+                    font-size: 14px;
+                    min-height: 44px;
+                }
+                #subtitle-preview {
+                    font-size: 11px;
                 }
             }
         </style>
@@ -408,7 +451,6 @@
                     <label for="voice-select" class="sr-only">Voice</label>
                     <select id="voice-select" aria-label="Voice"></select>
                 </div>
-
                 <div class="select-group" title="Playback Speed">
                     <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
                     <label for="rate-select" class="sr-only">Playback Speed</label>
@@ -429,11 +471,9 @@
         <div id="subtitle-preview"></div>
 
         <div id="viewer-region">
-            <!-- Single page (legacy) canvas -->
             <div id="viewer-wrapper">
                 <canvas id="pdf-canvas"></canvas>
             </div>
-            <!-- Full document container (hidden initially; JS will manage display) -->
             <div id="pdf-doc-container" style="display: none"></div>
         </div>
 
@@ -441,10 +481,8 @@
 
         <div id="drop-overlay">Drop a PDF to read it!</div>
 
-        <!-- Main logic -->
         <script type="module" src="render.js"></script>
         <script>
-            // Drag & Drop overlay with counter to avoid flicker
             const dropOverlay = document.getElementById("drop-overlay");
             let dragCounter = 0;
             window.addEventListener("dragenter", (e) => {
@@ -456,52 +494,34 @@
             window.addEventListener("dragleave", (e) => {
                 e.preventDefault();
                 dragCounter = Math.max(0, dragCounter - 1);
-                if (dragCounter === 0) dropOverlay.classList.remove("active");
+                if (!dragCounter) dropOverlay.classList.remove("active");
             });
             window.addEventListener("drop", async (e) => {
                 e.preventDefault();
                 dragCounter = 0;
                 dropOverlay.classList.remove("active");
                 const file = e.dataTransfer.files[0];
-                if (file && /(\.pdf)$/i.test(file.name)) {
-                    if (window.loadPDF) {
-                        await window.loadPDF(file);
-                    }
-                } else {
-                    alert("Not a valid PDF file!");
-                }
+                if (file && /\.pdf$/i.test(file.name)) {
+                    if (window.loadPDF) await window.loadPDF(file);
+                } else alert("Not a valid PDF file!");
             });
 
             const fileInput = document.getElementById("file-input");
-            const openBtn = document.getElementById("open-file");
-            openBtn.addEventListener("click", () => fileInput.click());
-
+            document.getElementById("open-file").addEventListener("click", () => fileInput.click());
             fileInput.addEventListener("change", async (e) => {
                 const file = e.target.files[0];
-                if (file && /(\.pdf)$/i.test(file.name)) {
-                    if (window.loadPDF) {
-                        await window.loadPDF(file);
-                    }
-                } else {
-                    alert("Not a valid PDF file!");
-                }
+                if (file && /\.pdf$/i.test(file.name)) {
+                    if (window.loadPDF) await window.loadPDF(file);
+                } else alert("Not a valid PDF file!");
             });
 
-            // View mode toggle (Full vs Single)
-            const toggleViewBtn = document.getElementById("toggle-view-mode");
-            toggleViewBtn.addEventListener("click", () => {
-                if (window.toggleViewMode) {
-                    window.toggleViewMode();
-                }
+            document.getElementById("toggle-view-mode").addEventListener("click", () => {
+                if (window.toggleViewMode) window.toggleViewMode();
             });
 
-            // Auto load after scripts register globals
             window.addEventListener("DOMContentLoaded", async () => {
-                if (window.initializePdfApp) {
-                    await window.initializePdfApp();
-                } else if (window.loadPDF) {
-                    await window.loadPDF(); // fallback
-                }
+                if (window.initializePdfApp) await window.initializePdfApp();
+                else if (window.loadPDF) await window.loadPDF();
             });
         </script>
     </body>

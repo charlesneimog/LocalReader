@@ -25,18 +25,20 @@ export class ControlsManager {
         if (this.btnNextSentence) this.btnNextSentence.addEventListener("click", () => this.app.nextSentence(true));
         if (this.btnPrevSentence) this.btnPrevSentence.addEventListener("click", () => this.app.prevSentence(true));
         if (this.btnPlayToggle) this.btnPlayToggle.addEventListener("click", () => this.app.togglePlay());
-        if (this.btnNextPage) this.btnNextPage.addEventListener("click", () => {
-            this.app.audioManager.stopPlayback(true);
-            this.app.state.autoAdvanceActive = false;
-            this.app.ttsQueue.reset();
-            this.app.nextPageNav();
-        });
-        if (this.btnPrevPage) this.btnPrevPage.addEventListener("click", () => {
-            this.app.audioManager.stopPlayback(true);
-            this.app.state.autoAdvanceActive = false;
-            this.app.ttsQueue.reset();
-            this.app.prevPageNav();
-        });
+        if (this.btnNextPage)
+            this.btnNextPage.addEventListener("click", () => {
+                this.app.audioManager.stopPlayback(true);
+                this.app.state.autoAdvanceActive = false;
+                this.app.ttsQueue.reset();
+                this.app.nextPageNav();
+            });
+        if (this.btnPrevPage)
+            this.btnPrevPage.addEventListener("click", () => {
+                this.app.audioManager.stopPlayback(true);
+                this.app.state.autoAdvanceActive = false;
+                this.app.ttsQueue.reset();
+                this.app.prevPageNav();
+            });
         if (this.saveHighlightBtn) {
             this.saveHighlightBtn.addEventListener("click", () => {
                 this.app.highlightManager.saveCurrentSentenceHighlight();
@@ -74,9 +76,10 @@ export class ControlsManager {
                 this.app.nextSentence(true);
             } else if (e.code === "ArrowLeft") {
                 this.app.prevSentence(true);
-            } else if (e.key.toLowerCase() === "p") {
-                this.app.togglePlay();
+            } else if (e.code === "KeyH") {
+                this.app.saveCurrentSentenceHighlight();
             }
+            console.log(e.code);
         });
 
         window.addEventListener("beforeunload", () => this.app.progressManager.saveProgress());
@@ -105,3 +108,4 @@ export class ControlsManager {
         });
     }
 }
+

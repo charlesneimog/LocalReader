@@ -92,6 +92,15 @@ body {
     position: relative;
     z-index: 10;
 }
+.book-tts-info {
+    width: 90%;
+    margin: 5px auto;
+    display: flex;
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    border-radius: 6px;
+}
+
 @media (prefers-color-scheme: dark) {
     #controls.toolbar {
         box-shadow:
@@ -142,16 +151,22 @@ button:disabled {
 }
 
 .icon-btn {
-    padding-inline: 14px;
+    width: 32px; /* largura fixa */
+    height: 32px; /* altura igual à largura */
+    padding: 0; /* remove padding extra */
     font-weight: 500;
+    font-size: 14px; /* tamanho do ícone */
+    line-height: 1; /* evita expandir altura */
+    display: inline-flex;
+    align-items: center; /* centraliza verticalmente */
+    justify-content: center; /* centraliza horizontalmente */
+    flex-shrink: 0; /* não encolhe demais */
 }
-.icon-btn .label {
-    font-size: 13px;
-    letter-spacing: 0.3px;
-}
+
+/* Ícones proporcionais ao botão */
 .icon-btn i {
-    font-size: 15px;
-    width: 16px;
+    font-size: 16px;
+    width: auto;
     text-align: center;
 }
 
@@ -328,6 +343,12 @@ button[data-enabled="true"] {
     min-width: 40px;
 }
 
+@media (min-width: 680px) {
+    .btn-group {
+        margin-left: 20px;
+    }
+}
+
 @media (max-width: 680px) {
     html,
     body {
@@ -348,9 +369,15 @@ button[data-enabled="true"] {
         gap: 4px;
         flex-wrap: wrap;
     }
+
+    .icon-btn {
+        width: 12px;
+        height: 12px;
+    }
     .icon-btn .label {
         display: none;
     }
+
     button,
     select,
     input[type="color"] {
@@ -369,4 +396,23 @@ html {
     overflow: auto !important;
     min-height: 100dvh;
     height: 100dvh;
+}
+
+#controls.toolbar--collapsed .btn-group > :not([data-essential="true"]) {
+    display: none !important;
+}
+
+/* Opcional: esconde completamente (para modo “imersivo”) */
+#controls.toolbar--hidden {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+}
+
+#controls:not(.toolbar--hidden) {
+    transition: opacity 0.25s;
+}
+
+#controls.toolbar--collapsed .select-cluster {
+    display: none !important;
 }

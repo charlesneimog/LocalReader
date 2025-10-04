@@ -23,6 +23,7 @@ export class ControlsManager {
         this.infoBox = document.getElementById("info-box");
         this.ttsStatus = document.getElementById("tts-status");
         this.overlayHelp = document.getElementById("help-overlay");
+        this.controlsToolbar = document.getElementById("controls");
         this.wakeLock = null;
     }
 
@@ -116,7 +117,35 @@ export class ControlsManager {
         });
     }
 
+    collapseToolbar() {
+        if (!this.controlsToolbar) return;
+        this.controlsToolbar.classList.add("toolbar--collapsed");
+    }
+
+    expandToolbar() {
+        if (!this.controlsToolbar) return;
+        this.controlsToolbar.classList.remove("toolbar--collapsed");
+        this.controlsToolbar.classList.remove("toolbar--hidden"); // caso estivesse totalmente ocultada
+    }
+
+    hideToolbarTemporarily() {
+        if (!this.controlsToolbar) return;
+        this.controlsToolbar.classList.add("toolbar--hidden");
+    }
+
+    showToolbar() {
+        if (!this.collapseToolbar) return;
+        this.controlsToolbar.classList.remove("toolbar--hidden");
+    }
+
+    toggleCollapsedState() {
+        if (!this.controlsToolbar) return;
+        if (this.controlsToolbar.classList.contains("toolbar--collapsed")) this.expandToolbar();
+        else this.collapseToolbar();
+    }
+
     async toggleFullscreen() {
+        this.toggleCollapsedState();
         const doc = window.document;
         const docEl = doc.documentElement;
         const requestFull =
@@ -134,12 +163,13 @@ export class ControlsManager {
             !doc.msFullscreenElement
         ) {
             await requestFull.call(docEl);
-            enableWakeLock();
+            this.enableWakeLock();
         } else {
             await exitFull.call(doc);
-            disableWakeLock();
+            this.disableWakeLock();
         }
     }
+
     async enableWakeLock() {
         try {
             if ("wakeLock" in navigator) {

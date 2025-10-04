@@ -5,7 +5,7 @@ export const CONFIG = {
     ENABLE_LIVE_WORD_REGION: true,
     LIVE_WORD_REGION_ID: "live-word",
     LIVE_STATUS_REGION_ID: "live-status",
-    DEFAULT_VISUAL_MODE: "full", // render entire pdf file
+    DEFAULT_VIEW_MODE: "full", // render entire pdf file
 
     // Audio
     MAKE_WAV_COPY: false,
@@ -19,6 +19,7 @@ export const CONFIG = {
     BREAK_ON_LINE: false,
     SPLIT_ON_LINE_GAP: true,
     LINE_GAP_THRESHOLD: 2,
+    SENTENCE_END: [".", "?", "!", ":"],
 
     // TTS
     PREFETCH_AHEAD: 1,
@@ -52,4 +53,3 @@ export const CONFIG = {
     VIEWPORT_HEIGHT_CSS: () => Math.max(260, window.innerHeight * 0.82),
     MARGIN_TOP: () => (window.innerWidth < 700 ? 50 : 100),
 };
-

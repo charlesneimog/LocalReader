@@ -13,18 +13,28 @@ export class ControlsManager {
         this.btnPlayToggle = document.getElementById("play-toggle");
         this.btnNextPage = document.getElementById("next-page");
         this.btnPrevPage = document.getElementById("prev-page");
+        this.bntHelp = document.getElementById("help-button");
+        this.bntHelpClose = document.getElementById("help-close");
+        this.bntFullScreen = document.getElementById("toggle-fullscreen");
         this.toggleViewBtn = document.getElementById("toggle-view-mode");
         this.saveHighlightBtn = document.getElementById("save-highlight");
         this.exportHighlightsBtn = document.getElementById("export-highlights");
         this.highlightColorPicker = document.getElementById("highlight-color");
         this.infoBox = document.getElementById("info-box");
         this.ttsStatus = document.getElementById("tts-status");
+        this.overlayHelp = document.getElementById("help-overlay");
+        this.wakeLock = null;
     }
 
     _setupEventListeners() {
         if (this.btnNextSentence) this.btnNextSentence.addEventListener("click", () => this.app.nextSentence(true));
         if (this.btnPrevSentence) this.btnPrevSentence.addEventListener("click", () => this.app.prevSentence(true));
         if (this.btnPlayToggle) this.btnPlayToggle.addEventListener("click", () => this.app.togglePlay());
+        if (this.bntHelp) this.bntHelp.addEventListener("click", () => (this.overlayHelp.style.display = "block"));
+        if (this.bntFullScreen) this.bntFullScreen.addEventListener("click", () => this.toggleFullscreen());
+        if (this.bntHelpClose)
+            this.bntHelpClose.addEventListener("click", () => (this.overlayHelp.style.display = "none"));
+
         if (this.btnNextPage)
             this.btnNextPage.addEventListener("click", () => {
                 this.app.audioManager.stopPlayback(true);
@@ -79,11 +89,9 @@ export class ControlsManager {
             } else if (e.code === "KeyH") {
                 this.app.saveCurrentSentenceHighlight();
             }
-            console.log(e.code);
         });
 
         window.addEventListener("beforeunload", () => this.app.progressManager.saveProgress());
-
         window.addEventListener("resize", () => {
             const s = this.app.state;
             if (s.viewMode === "full") {
@@ -107,5 +115,45 @@ export class ControlsManager {
             }, 150);
         });
     }
-}
 
+    async toggleFullscreen() {
+        const doc = window.document;
+        const docEl = doc.documentElement;
+        const requestFull =
+            docEl.requestFullscreen ||
+            docEl.mozRequestFullScreen ||
+            docEl.webkitRequestFullscreen ||
+            docEl.msRequestFullscreen;
+        const exitFull =
+            doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+
+        if (
+            !doc.fullscreenElement &&
+            !doc.mozFullScreenElement &&
+            !doc.webkitFullscreenElement &&
+            !doc.msFullscreenElement
+        ) {
+            await requestFull.call(docEl);
+            enableWakeLock();
+        } else {
+            await exitFull.call(doc);
+            disableWakeLock();
+        }
+    }
+    async enableWakeLock() {
+        try {
+            if ("wakeLock" in navigator) {
+                this.wakeLock = await navigator.wakeLock.request("screen");
+                this.wakeLock.addEventListener("release", () => {});
+            }
+        } catch (err) {
+            console.error(`${err.name}, ${err.message}`);
+        }
+    }
+    disableWakeLock() {
+        if (this.wakeLock) {
+            this.wakeLock.release();
+            this.wakeLock = null;
+        }
+    }
+}

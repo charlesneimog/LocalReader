@@ -71,6 +71,7 @@ export class PDFLoader {
         const { app } = this;
         const { state, config } = app;
 
+        document.body.style.cursor = "wait";
         try {
             if (file instanceof File) {
                 state.currentPdfDescriptor = {
@@ -138,14 +139,6 @@ export class PDFLoader {
             console.error(e);
             app.ui.showInfo("Error: " + e.message);
         }
-
-        if (!state.piperInstance) {
-            console.error("Piper not loaded, this is a fatal error");
-            // state.piperInstance = new window.ProperPiperTTS(config.DEFAULT_PIPER_VOICE);
-            // await state.piperInstance.init();
-            // await state.piperInstance.getAvailableVoices();
-        }
-        // app.ttsEngine.initVoices();
+        document.body.style.cursor = "default";
     }
 }
-

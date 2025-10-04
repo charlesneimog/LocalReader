@@ -106,6 +106,9 @@
                         <option value="2.0">2.0x</option>
                     </select>
                 </div>
+                <button id="help-button">
+                    <i class="fa-regular fa-circle-question"></i>
+                </button>
             </div>
         </div>
 
@@ -122,8 +125,56 @@
         </div>
 
         <input type="file" id="file-input" accept="application/pdf" style="display: none" />
-
         <div id="drop-overlay">Drop a PDF to read it!</div>
+
+        <!--
+        !  ╭───────────────────────────────────╮
+        !  │             Help Div              │
+        !  ╰───────────────────────────────────╯
+        -->
+        <div
+            id="help-overlay"
+            style="
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 1);
+                color: white;
+                z-index: 1000;
+                padding: 40px;
+                overflow: auto;
+            "
+        >
+            <button
+                id="help-close"
+                style="
+                    position: absolute;
+                    top: 20px;
+                    right: 20px;
+                    font-size: 20px;
+                    background: none;
+                    border: 1px solid white;
+                    color: white;
+                    padding: 5px 10px;
+                    cursor: pointer;
+                "
+            >
+                Close
+            </button>
+            <h2>Help</h2>
+            <p>This is a simple description of how to use the PDF Word Highlighter + Piper TTS app:</p>
+            <ul>
+                <li>Open a PDF using the folder icon: <i class="fa-solid fa-folder-open"></i></li>
+                <li>Click sentences to play them using TTS.</li>
+                <li>Highlight text using the highlighter button.</li>
+                <li>Adjust voice and speed from the dropdowns.</li>
+                <li>Use <code>H</code> to Highlight the Current Sentence</li>
+                <li>Use <code>Arrows</code> to go to next/previous phrase</li>
+            </ul>
+        </div>
 
         <!-- App (modular) -->
         <script type="module">
@@ -185,60 +236,6 @@
             document.getElementById("toggle-view-mode").addEventListener("click", () => {
                 if (window.toggleViewMode) window.toggleViewMode();
             });
-
-            window.addEventListener("DOMContentLoaded", async () => {
-                // if (window.initializePdfApp) await window.initializePdfApp();
-                // else if (window.loadPDF) await window.loadPDF();
-            });
-        </script>
-        <script>
-            let wakeLock = null;
-            const btn = document.getElementById("toggle-fullscreen");
-            btn.addEventListener("click", () => {
-                toggleFullscreen();
-            });
-
-            async function toggleFullscreen() {
-                const doc = window.document;
-                const docEl = doc.documentElement;
-                const requestFull =
-                    docEl.requestFullscreen ||
-                    docEl.mozRequestFullScreen ||
-                    docEl.webkitRequestFullscreen ||
-                    docEl.msRequestFullscreen;
-                const exitFull =
-                    doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
-
-                if (
-                    !doc.fullscreenElement &&
-                    !doc.mozFullScreenElement &&
-                    !doc.webkitFullscreenElement &&
-                    !doc.msFullscreenElement
-                ) {
-                    await requestFull.call(docEl);
-                    enableWakeLock();
-                } else {
-                    await exitFull.call(doc);
-                    disableWakeLock();
-                }
-            }
-
-            async function enableWakeLock() {
-                try {
-                    if ("wakeLock" in navigator) {
-                        wakeLock = await navigator.wakeLock.request("screen");
-                        wakeLock.addEventListener("release", () => {});
-                    }
-                } catch (err) {
-                    console.error(`${err.name}, ${err.message}`);
-                }
-            }
-            function disableWakeLock() {
-                if (wakeLock) {
-                    wakeLock.release();
-                    wakeLock = null;
-                }
-            }
         </script>
     </body>
 </html>

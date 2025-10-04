@@ -18,7 +18,7 @@ export const CONFIG = {
     // Sentence processing
     BREAK_ON_LINE: false,
     SPLIT_ON_LINE_GAP: true,
-    LINE_GAP_THRESHOLD: 1.6,
+    LINE_GAP_THRESHOLD: 2,
 
     // TTS
     PREFETCH_AHEAD: 1,

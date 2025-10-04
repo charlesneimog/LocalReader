@@ -26,6 +26,7 @@ export class TTSEngine {
     }
 
     async ensurePiper(voice) {
+        document.body.style.cursor = "wait";
         const { state } = this.app;
         if (!window.ort) throw new Error("ONNX Runtime not loaded.");
         if (!window.ProperPiperTTS) throw new Error("Piper library not loaded.");
@@ -47,6 +48,7 @@ export class TTSEngine {
                 }
             }
         }
+        document.body.style.cursor = "default";
     }
 
     async safeDecodeAudioData(arrayBuffer) {
@@ -88,7 +90,10 @@ export class TTSEngine {
         const wavBlob = await retryAsync(async () => {
             try {
                 const cleaned = formatTextToSpeech(text);
-                return await state.piperInstance.synthesize(cleaned, state.CURRENT_SPEED);
+                document.body.style.cursor = "wait";
+                let result = await state.piperInstance.synthesize(cleaned, state.CURRENT_SPEED);
+                document.body.style.cursor = "default";
+                return result;
             } catch (e) {
                 await this.ensurePiper(voice);
                 throw e;
@@ -223,4 +228,3 @@ export class TTSEngine {
         }
     }
 }
-

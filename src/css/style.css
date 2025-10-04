@@ -167,8 +167,8 @@ button:disabled {
     gap: 8px;
     background: var(--btn-bg);
     border: 1px solid var(--border);
-    padding: 4px 10px;
-    border-radius: 12px;
+    padding: 0px 10px;
+    border-radius: 8px;
     transition:
         background 0.25s,
         border-color 0.25s;

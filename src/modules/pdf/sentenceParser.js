@@ -9,10 +9,12 @@ export class SentenceParser {
         const abbreviations = ["Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "e.g", "i.e.", "etc", "Fig", "p"];
 
         function isSentenceEnd(wordStr, nextWordStr) {
-            const w = wordStr.replace(/[.?!]+$/, "");
+            const endings = config.SENTENCE_END.map((c) => `\\${c}`).join("");
+            const sentenceEndRegex = new RegExp(`[${endings}]+$`);
+            const w = wordStr.replace(sentenceEndRegex, "");
             if (abbreviations.includes(w)) return false;
             if (nextWordStr && /^[0-9)]/.test(nextWordStr)) return false;
-            return /[.?!]$/.test(wordStr);
+            return sentenceEndRegex.test(wordStr);
         }
 
         state.sentences = [];
@@ -87,4 +89,3 @@ export class SentenceParser {
         };
     }
 }
-

@@ -80,7 +80,6 @@ async function getCachedJSON(key, url) {
     return data;
 }
 
-
 // Proper Piper TTS implementation using the actual phonemizer
 (function (window) {
     "use strict";

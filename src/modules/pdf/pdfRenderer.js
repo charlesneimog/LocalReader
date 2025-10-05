@@ -111,6 +111,8 @@ export class PDFRenderer {
 
             container.appendChild(wrapper);
             observer.observe(wrapper);
+
+            this.app.pdfHeaderFooterDetector.registerPageDomElement(p, wrapper);
         }
     }
 
@@ -450,4 +452,3 @@ export class PDFRenderer {
         this.app.eventBus.emit(EVENTS.SENTENCE_CHANGED, { index: idx, sentence });
     }
 }
-

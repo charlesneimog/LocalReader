@@ -1,10 +1,22 @@
-import { computePdfKeyFromSource } from "./textExtractor.js";
 import { EVENTS } from "../../constants/events.js";
 import { normalizeText } from "../utils/helpers.js";
 
 export class PDFLoader {
     constructor(app) {
         this.app = app;
+        this._headerFooterStylesInjected = false;
+        // Stores { header, footer, debug } by pageNumber until DOM is ready
+        this._pendingHFResults = new Map();
+    }
+
+    computePdfKeyFromSource(source) {
+        if (!source) return null;
+        if (source.type === "url") return `url::${source.name}`;
+        if (source.type === "file") {
+            const { name, size = 0, lastModified = 0 } = source;
+            return `file::${name}::${size}::${lastModified}`;
+        }
+        return null;
     }
 
     async preprocessPage(pageNumber) {
@@ -23,16 +35,20 @@ export class PDFLoader {
 
         const textContent = await page.getTextContent();
         const pageWords = [];
+
         for (const item of textContent.items) {
             if (!item?.transform || !item.str) continue;
             if (!item.str.trim()) continue;
+
             const [a, , , d, e, f] = item.transform;
             const x = e * displayScale;
             const y = viewportDisplay.height - f * displayScale;
             const width = (item.width || Math.abs(a)) * displayScale;
             const height = (item.height || Math.abs(d)) * displayScale;
+
             const tokens = item.str.split(/(\s+)/).filter((t) => t.trim().length > 0);
             const markLineBreak = !!item.hasEOL;
+
             if (tokens.length <= 1) {
                 pageWords.push({
                     pageNumber,
@@ -61,10 +77,14 @@ export class PDFLoader {
                     });
                     cursorX += w;
                 }
-                if (markLineBreak && pageWords.length) pageWords[pageWords.length - 1].lineBreak = true;
+                if (markLineBreak && pageWords.length) {
+                    pageWords[pageWords.length - 1].lineBreak = true;
+                }
             }
         }
+
         page.pageWords = pageWords;
+        const headerFooterResult = this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(page);
     }
 
     async loadPDF(file = null, { resume = true } = {}) {
@@ -83,7 +103,6 @@ export class PDFLoader {
                 };
                 document.getElementById("pdf-open")?.classList.remove("fa-beat");
             } else {
-                // Initialization path without file (original early init)
                 if (!state.piperInstance) {
                     state.piperInstance = new window.ProperPiperTTS(config.DEFAULT_PIPER_VOICE);
                     await state.piperInstance.init();
@@ -95,12 +114,13 @@ export class PDFLoader {
                 return;
             }
 
-            state.currentPdfKey = computePdfKeyFromSource(state.currentPdfDescriptor);
+            state.currentPdfKey = this.computePdfKeyFromSource(state.currentPdfDescriptor);
             app.cache.clearAll();
             state.sentences = [];
             state.currentSentenceIndex = -1;
             state.hoveredSentenceIndex = -1;
             state.pageSentencesIndex.clear();
+            this._pendingHFResults.clear();
 
             let arrayBuffer;
             if (file instanceof File) {
@@ -113,20 +133,27 @@ export class PDFLoader {
             state.pdf = await loadingTask.promise;
             if (!state.pdf.numPages) throw new Error("PDF has no pages.");
 
-            for (let p = 1; p <= state.pdf.numPages; p++) await this.preprocessPage(p);
+            for (let p = 1; p <= state.pdf.numPages; p++) {
+                await this.preprocessPage(p);
+            }
+
             app.sentenceParser.buildSentences();
 
             if (state.viewMode === "full") {
                 await app.pdfRenderer.renderFullDocumentIfNeeded();
+                // After full render, if renderer called registerPageDomElement per page,
+                // overlays are already applied; otherwise you can force:
+                // this.applyAllPendingOverlays();
             }
 
             let startIndex = 0;
-            if (resume && state.currentPdfKey) {
+            if (state.currentPdfKey) {
                 const saved = app.progressManager.loadSavedPosition(state.currentPdfKey);
                 if (saved && typeof saved.sentenceIndex === "number") {
                     startIndex = Math.min(Math.max(saved.sentenceIndex, 0), state.sentences.length - 1);
                 }
             }
+
             state.savedHighlights = app.highlightsStorage.loadSavedHighlights(state.currentPdfKey);
             await app.pdfRenderer.renderSentence(startIndex);
             app.ui.showInfo(`Total sentences: ${state.sentences.length}`);
@@ -138,7 +165,8 @@ export class PDFLoader {
         } catch (e) {
             console.error(e);
             app.ui.showInfo("Error: " + e.message);
+        } finally {
+            document.body.style.cursor = "default";
         }
-        document.body.style.cursor = "default";
     }
 }

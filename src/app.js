@@ -8,6 +8,7 @@ import { ensureAriaRegions } from "./modules/utils/ariaManager.js";
 
 import { PDFLoader } from "./modules/pdf/pdfLoader.js";
 import { PDFRenderer } from "./modules/pdf/pdfRenderer.js";
+import { PDFHeaderFooterDetector } from "./modules/pdf/pdfHeaderFooterDetector.js";
 import { SentenceParser } from "./modules/pdf/sentenceParser.js";
 
 import { TTSEngine } from "./modules/tts/ttsEngine.js";
@@ -50,6 +51,7 @@ export class PDFTTSApp {
         // PDF / Text
         this.pdfLoader = new PDFLoader(this);
         this.pdfRenderer = new PDFRenderer(this);
+        this.pdfHeaderFooterDetector = new PDFHeaderFooterDetector(this);
         this.sentenceParser = new SentenceParser(this);
 
         // TTS / Audio

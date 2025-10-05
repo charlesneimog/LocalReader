@@ -22,6 +22,10 @@ export class PDFRenderer {
         const offCtx = off.getContext("2d");
         await page.render({ canvasContext: offCtx, viewport: viewportRender }).promise;
         state.fullPageRenderCache.set(pageNumber, off);
+
+        // classify page
+        this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(pageNumber);
+
         return off;
     }
 
@@ -112,30 +116,12 @@ export class PDFRenderer {
             container.appendChild(wrapper);
             observer.observe(wrapper);
 
-            this.app.pdfHeaderFooterDetector.registerPageDomElement(p, wrapper);
-        }
-    }
-
-    async renderFullDocumentIfNeeded_OLD() {
-        const { state, config } = this.app;
-        if (state.viewMode !== "full") return;
-        const container = document.getElementById("pdf-doc-container");
-        if (!container) return;
-        container.innerHTML = "";
-        for (let p = 1; p <= state.pdf.numPages; p++) {
-            const viewportDisplay = state.viewportDisplayByPage.get(p);
-            await this.ensureFullPageRendered(p);
-            const offscreen = state.fullPageRenderCache.get(p);
-            const wrapper = document.createElement("div");
-            wrapper.className = "pdf-page-wrapper";
-            wrapper.dataset.pageNumber = p;
-            const c = document.createElement("canvas");
-            c.width = offscreen.width;
-            c.height = offscreen.height;
-            c.getContext("2d").drawImage(offscreen, 0, 0);
-            wrapper.appendChild(c);
-            container.appendChild(wrapper);
-            this.applyPageScale(wrapper, viewportDisplay);
+            const pageObject = state.pagesCache.get(p);
+            if (pageObject) {
+                this.app.pdfHeaderFooterDetector.registerPageDomElement(pageObject, wrapper);
+            } else {
+                console.warn(`[renderFullDocumentIfNeeded] No page object found in cache for page ${p}`);
+            }
         }
     }
 
@@ -329,6 +315,8 @@ export class PDFRenderer {
         const sentence = state.sentences[state.hoveredSentenceIndex];
         if (!sentence || sentence.pageNumber !== pageNumber) return;
         ctx.save();
+
+        // TODO: update to use style.css
         const cssVal =
             getComputedStyle(document.documentElement).getPropertyValue("--hover-highlight-color") ||
             "rgba(0,150,255,0.18)";

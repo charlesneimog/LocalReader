@@ -26,8 +26,30 @@ import { ProgressManager } from "./modules/storage/progressManager.js";
 import { HighlightsStorage } from "./modules/storage/highlightsStorage.js";
 import { ExportManager } from "./modules/storage/exportManager.js";
 
+import { AutoModel, AutoProcessor, RawImage, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5";
+
 export class PDFTTSApp {
     constructor() {
+        const threads = navigator.hardwareConcurrency;
+        env.backends.onnx.wasm.numThreads = threads;
+        env.backends.onnx.wasm.simd = true;
+        env.backends.onnx.backend = "wasm";
+        env.backends.onnx.logLevel = "error";
+        this.transformers = {
+            AutoModel,
+            AutoProcessor,
+            RawImage,
+            env,
+        };
+
+        // UI
+        this.ui = new UIService(this);
+        this.viewManager = new ViewManager(this);
+        this.interactionHandler = new InteractionHandler(this);
+        this.controlsManager = new ControlsManager(this);
+        this.highlightManager = new HighlightManager(this);
+
+        // config
         this.config = CONFIG;
         this.state = new StateManager(this);
         this.eventBus = new EventBus();
@@ -40,13 +62,6 @@ export class PDFTTSApp {
         this.progressManager = new ProgressManager(this);
         this.highlightsStorage = new HighlightsStorage(this);
         this.exportManager = new ExportManager(this);
-
-        // UI
-        this.ui = new UIService(this);
-        this.viewManager = new ViewManager(this);
-        this.interactionHandler = new InteractionHandler(this);
-        this.controlsManager = new ControlsManager(this);
-        this.highlightManager = new HighlightManager(this);
 
         // PDF / Text
         this.pdfLoader = new PDFLoader(this);

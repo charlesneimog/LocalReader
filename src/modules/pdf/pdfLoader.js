@@ -5,8 +5,7 @@ export class PDFLoader {
     constructor(app) {
         this.app = app;
         this._headerFooterStylesInjected = false;
-        // Stores { header, footer, debug } by pageNumber until DOM is ready
-        this._pendingHFResults = new Map();
+        // this._pendingHFResults = new Map();
     }
 
     computePdfKeyFromSource(source) {
@@ -84,7 +83,12 @@ export class PDFLoader {
         }
 
         page.pageWords = pageWords;
-        const headerFooterResult = this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(page);
+
+        // Store header/footer detection result for later use
+        // page.headerFooterResult = headerFooterResult;
+
+        // Store for potential overlay application later
+        // this._pendingHFResults.set(pageNumber, headerFooterResult);
     }
 
     async loadPDF(file = null, { resume = true } = {}) {
@@ -120,7 +124,6 @@ export class PDFLoader {
             state.currentSentenceIndex = -1;
             state.hoveredSentenceIndex = -1;
             state.pageSentencesIndex.clear();
-            this._pendingHFResults.clear();
 
             let arrayBuffer;
             if (file instanceof File) {
@@ -141,9 +144,6 @@ export class PDFLoader {
 
             if (state.viewMode === "full") {
                 await app.pdfRenderer.renderFullDocumentIfNeeded();
-                // After full render, if renderer called registerPageDomElement per page,
-                // overlays are already applied; otherwise you can force:
-                // this.applyAllPendingOverlays();
             }
 
             let startIndex = 0;

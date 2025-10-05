@@ -1,193 +1,236 @@
 export class PDFHeaderFooterDetector {
     constructor(app) {
         this.app = app;
-
-        this.MIN_REPETITION_RATIO = 0.4;
-        this.MAX_VERTICAL_VARIANCE = 0.012;
-        this.STYLE_RARITY_WEIGHT = 0.6;
-        this.REPETITION_WEIGHT = 1.8;
-        this.CLUSTER_EXTREMITY_WEIGHT = 1.0;
-        this.GAP_HINT_WEIGHT = 0.7;
-        this.PAGE_NUMBER_BONUS = 1.2;
+        this._overlayStylesInjected = false;
+        this._pageContainers = new Map();
+        this._pendingOverlayData = new Map();
+        this._detectionsByPage = new Map();
+        this.DETECTION_THRESHOLD = 0.2;
+        this.DETECTION_CLASSES = [
+            "caption",
+            "footnote",
+            "formula",
+            "list-item",
+            "page-footer",
+            "page-header",
+            "picture",
+            "section-header",
+            "table",
+            "text",
+        ];
+        this._modelReady = this._initModels();
     }
 
-    // ---------- Helpers ----------
-    average(arr) {
-        return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+    async _initModels() {
+        this.app.ui.showInfo("Loading models layout models...");
+        this.model = await this.app.transformers.AutoModel.from_pretrained(
+            "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis",
+            {
+                dtype: "fp32",
+            },
+        );
+        this.processor = await this.app.transformers.AutoProcessor.from_pretrained(
+            "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis",
+        );
+        this.app.ui.showInfo("Layout models loaded.");
     }
 
-    median(arr) {
-        if (!arr.length) return 0;
-        const s = [...arr].sort((a, b) => a - b);
-        const m = Math.floor(s.length / 2);
-        return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-    }
-
-    variance(arr) {
-        if (arr.length < 2) return 0;
-        const avg = this.average(arr);
-        return arr.reduce((a, b) => a + (b - avg) ** 2, 0) / arr.length;
-    }
-
-    normalizeToken(t) {
-        if (/^\d+$/.test(t)) return "<NUM>";
-        if (/^(page|p\.?)\s*\d+$/i.test(t)) return "<PAGE_NUM>";
-        if (/^[IVXLCDM]+$/i.test(t)) return "<ROMAN_NUM>";
-        return t.toLowerCase();
+    async _ensureModelReady() {
+        if (!this._modelReady) {
+            this._modelReady = this._initModels();
+        }
+        return this._modelReady;
     }
 
     // ---------- Main Detection ----------
-    detectHeadersAndFooters(pagesOrSingle) {
-        const pagesWordData = Array.isArray(pagesOrSingle) ? pagesOrSingle : [pagesOrSingle];
-        if (!pagesWordData.length) {
-            console.warn("[detectHeadersAndFooters] No pages provided.");
-            return { header: null, footer: null, debug: { reason: "no_pages" } };
+    async detectHeadersAndFooters(pageNumber, scaleFactor = 0.3) {
+        await this._ensureModelReady();
+
+        const { state } = this.app;
+        const canvas = state.fullPageRenderCache.get(pageNumber);
+        if (!canvas) return null;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+
+        // 🔹 Criar canvas temporário reduzido
+        const tmpCanvas = document.createElement("canvas");
+        tmpCanvas.width = Math.floor(canvas.width * scaleFactor);
+        tmpCanvas.height = Math.floor(canvas.height * scaleFactor);
+        const tmpCtx = tmpCanvas.getContext("2d");
+        tmpCtx.drawImage(canvas, 0, 0, tmpCanvas.width, tmpCanvas.height);
+
+        // 🔹 Criar RawImage a partir do canvas reduzido
+        const rawImage = this.app.transformers.RawImage.fromCanvas(tmpCanvas);
+        const { pixel_values, reshaped_input_sizes } = await this.processor(rawImage);
+        const modelOutput = await this.model({ images: pixel_values });
+
+        const outputArray =
+            typeof modelOutput.output0?.tolist === "function" ? modelOutput.output0.tolist() : modelOutput.output0;
+        const predictions = Array.isArray(outputArray) ? outputArray[0] || [] : [];
+
+        // 🔹 Escala para o canvas original
+        const [newHeight, newWidth] = reshaped_input_sizes?.[0] || [tmpCanvas.height, tmpCanvas.width];
+        const scaleX = canvas.width / newWidth;
+        const scaleY = canvas.height / newHeight;
+
+        const detections = [];
+        ctx.save();
+        ctx.lineWidth = 2;
+        ctx.font = "16px sans-serif";
+
+        for (const prediction of predictions) {
+            const [xmin, ymin, xmax, ymax, score, id] = prediction;
+            if (score < this.DETECTION_THRESHOLD) continue;
+
+            const x1 = Math.max(0, xmin * scaleX);
+            const y1 = Math.max(0, ymin * scaleY);
+            const x2 = Math.min(canvas.width, xmax * scaleX);
+            const y2 = Math.min(canvas.height, ymax * scaleY);
+            const w = Math.max(0, x2 - x1);
+            const h = Math.max(0, y2 - y1);
+
+            const label = this.DETECTION_CLASSES[id] || `class-${id}`;
+            const colors = this._getStyleForClass(label);
+            const labelText = `${label} ${(score * 100).toFixed(1)}%`;
+            const textWidth = ctx.measureText(labelText).width;
+
+            // 🔹 Desenhar boxes no canvas original
+            ctx.strokeStyle = colors.stroke;
+            ctx.globalAlpha = colors.alpha;
+            ctx.fillStyle = colors.fill;
+            ctx.fillRect(x1, y1, w, h);
+            ctx.globalAlpha = 1;
+            ctx.strokeRect(x1, y1, w, h);
+
+            const labelBoxHeight = 20;
+            const labelY = Math.max(0, y1 - labelBoxHeight - 2);
+            ctx.fillStyle = colors.stroke;
+            ctx.fillRect(x1, labelY, textWidth + 8, labelBoxHeight);
+            ctx.fillStyle = "black";
+            ctx.fillText(labelText, x1 + 4, labelY + labelBoxHeight - 6);
+
+            detections.push({
+                pageNumber,
+                classId: id,
+                label,
+                score,
+                x1,
+                y1,
+                x2,
+                y2,
+                width: w,
+                height: h,
+                normalized: {
+                    left: x1 / canvas.width,
+                    top: y1 / canvas.height,
+                    right: x2 / canvas.width,
+                    bottom: y2 / canvas.height,
+                },
+            });
         }
 
-        const normalizedPages = pagesWordData.map((page, i) => {
-            if (Array.isArray(page)) return page;
-            if (page.pageWords && Array.isArray(page.pageWords)) return page.pageWords;
-            console.warn(`[detectHeadersAndFooters] Could not coerce page ${i} to word array.`);
-            return [];
-        });
+        ctx.restore();
 
-        // Aqui entraria a detecção real (simplificada aqui):
-        const firstPage = normalizedPages[0];
-        const lastPage = normalizedPages[normalizedPages.length - 1];
-        const height = this.median(firstPage.map((w) => w.y + w.height));
+        const overlayPayload = { detections, canvasWidth: canvas.width, canvasHeight: canvas.height };
+        this._detectionsByPage.set(pageNumber, overlayPayload);
+        this.showHeaderFooterOverlay(pageNumber, overlayPayload);
 
-        const header = { lines: [] };
-        const footer = { lines: [] };
+        return detections;
+    }
 
-        // Heurística simples só pra visual feedback:
-        if (firstPage.length) {
-            const topWords = firstPage.filter((w) => w.y < height * 0.1);
-            const bottomWords = lastPage.filter((w) => w.y > height * 0.9);
-            if (topWords.length)
-                header.lines.push({
-                    words: topWords,
-                    xLeft: 0,
-                    xRight: 800,
-                    yTop: topWords[0].y,
-                    yBottom: topWords[0].y + 20,
-                });
-            if (bottomWords.length)
-                footer.lines.push({
-                    words: bottomWords,
-                    xLeft: 0,
-                    xRight: 800,
-                    yTop: bottomWords[0].y,
-                    yBottom: bottomWords[0].y + 20,
-                });
+    _getStyleForClass(label) {
+        switch (label) {
+            case "page-header":
+                return { stroke: "rgba(66, 135, 245, 0.95)", fill: "rgba(66, 135, 245, 0.18)", alpha: 1 };
+            case "page-footer":
+                return { stroke: "rgba(240, 99, 164, 0.95)", fill: "rgba(240, 99, 164, 0.2)", alpha: 1 };
+            case "section-header":
+                return { stroke: "rgba(255, 184, 77, 0.95)", fill: "rgba(255, 184, 77, 0.22)", alpha: 1 };
+            default:
+                return { stroke: "rgba(48, 199, 90, 0.95)", fill: "rgba(48, 199, 90, 0.18)", alpha: 0.4 };
+        }
+    }
+
+    showHeaderFooterOverlay(pageNumber, overlayPayload) {
+        const { detections, canvasWidth, canvasHeight } = overlayPayload;
+        if (!Array.isArray(detections)) return;
+
+        const pageContainer =
+            this._pageContainers.get(pageNumber) ||
+            document.querySelector(`.pdf-page-wrapper[data-page-number="${pageNumber}"]`);
+        if (!pageContainer) {
+            this._pendingOverlayData.set(pageNumber, overlayPayload);
+            return;
         }
 
-        return { header, footer, debug: { pagesAnalyzed: normalizedPages.length } };
-    }
+        let overlay = pageContainer.querySelector(".pdf-hf-overlay");
+        if (!overlay) {
+            overlay = document.createElement("div");
+            overlay.className = "pdf-hf-overlay";
+            pageContainer.appendChild(overlay);
+        }
 
-    // ---------- Overlay ----------
-    ensureHeaderFooterStyles() {
-        if (document.getElementById("pdf-hf-styles")) return;
-        const style = document.createElement("style");
-        style.id = "pdf-hf-styles";
-        style.innerHTML = `
-            .pdf-hf-overlay-container { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
-            .pdf-hf-overlay-line-header { background: rgba(255,0,0,0.25); position: absolute; border: 1px solid red; }
-            .pdf-hf-overlay-line-footer { background: rgba(0,0,255,0.25); position: absolute; border: 1px solid blue; }
-            .pdf-hf-overlay-word { border: 1px dotted rgba(0,0,0,0.2); position: absolute; }
-        `;
-        document.head.appendChild(style);
-    }
+        overlay.innerHTML = "";
+        overlay.dataset.pageNumber = String(pageNumber);
 
-    showHeaderFooterOverlay(pages, headerFooterResult) {
-        this.ensureHeaderFooterStyles();
+        if (!detections.length) {
+            overlay.remove();
+            return;
+        }
 
-        pages.forEach((page, i) => {
-            if (!page.domElement) {
-                console.warn("[showHeaderFooterOverlay] Missing domElement for page", i);
-                return;
-            }
+        detections.forEach((det, index) => {
+            const box = document.createElement("div");
+            box.className = "pdf-hf-overlay-box";
+            box.dataset.class = det.label;
+            const leftPct = det.normalized.left * 100;
+            const topPct = det.normalized.top * 100;
+            const widthPct = (det.width / canvasWidth) * 100;
+            const heightPct = (det.height / canvasHeight) * 100;
 
-            let overlay = page.domElement.querySelector(".pdf-hf-overlay-container");
-            if (!overlay) {
-                overlay = document.createElement("div");
-                overlay.className = "pdf-hf-overlay-container";
-                page.domElement.style.position = "relative";
-                page.domElement.appendChild(overlay);
-            } else {
-                overlay.innerHTML = "";
-            }
+            box.style.left = `${leftPct}%`;
+            box.style.top = `${topPct}%`;
+            box.style.width = `${widthPct}%`;
+            box.style.height = `${heightPct}%`;
 
-            const addLineRect = (line, role) => {
-                const rect = document.createElement("div");
-                rect.className = "pdf-hf-overlay-line-" + (role === "header" ? "header" : "footer");
-                rect.dataset.role = role + "-line";
-                rect.style.left = `${line.xLeft}px`;
-                rect.style.top = `${line.yTop}px`;
-                rect.style.width = `${line.xRight - line.xLeft}px`;
-                rect.style.height = `${line.yBottom - line.yTop}px`;
-                overlay.appendChild(rect);
+            const colors = this._getStyleForClass(det.label);
+            box.style.borderColor = colors.stroke;
+            box.style.backgroundColor = colors.fill;
 
-                line.words.forEach((w) => {
-                    const wDiv = document.createElement("div");
-                    wDiv.className = "pdf-hf-overlay-word";
-                    wDiv.dataset.role = role + "-word";
-                    wDiv.title = `${role.toUpperCase()}: ${w.str}`;
-                    wDiv.style.left = `${w.x}px`;
-                    wDiv.style.top = `${w.y}px`;
-                    wDiv.style.width = `${w.width}px`;
-                    wDiv.style.height = `${w.height}px`;
-                    overlay.appendChild(wDiv);
-                });
-            };
+            const label = document.createElement("span");
+            label.className = "pdf-hf-overlay-box-label";
+            label.textContent = `${det.label} ${(det.score * 100).toFixed(1)}%`;
+            label.style.backgroundColor = colors.stroke;
+            box.appendChild(label);
 
-            if (headerFooterResult.header?.lines) {
-                headerFooterResult.header.lines.forEach((l) => addLineRect(l, "header"));
-            }
-            if (headerFooterResult.footer?.lines) {
-                headerFooterResult.footer.lines.forEach((l) => addLineRect(l, "footer"));
-            }
+            overlay.appendChild(box);
         });
+
+        if (!overlay.parentElement) {
+            pageContainer.appendChild(overlay);
+        }
     }
 
-    // ---------- Page Registration ----------
     registerPageDomElement(pageObj, pageContainer) {
         if (!pageObj || typeof pageObj !== "object") {
             console.error("[registerPageDomElement] Invalid page object:", pageObj);
             return;
         }
+        if (!pageContainer || !pageContainer.nodeType) {
+            console.error("[registerPageDomElement] Invalid page container:", pageContainer);
+            return;
+        }
+
         pageObj.domElement = pageContainer;
-    }
 
-    // ---------- Example Integration ----------
-    async preprocessPage(pdfPage, pageNumber, pdfViewerContainer) {
-        const viewport = pdfPage.getViewport({ scale: 1.5 });
-        const textContent = await pdfPage.getTextContent();
-
-        // Cria container DOM
-        const container = document.createElement("div");
-        container.id = `page-container-${pageNumber}`;
-        container.className = "pdf-page-container";
-        container.style.position = "relative";
-        container.style.width = `${viewport.width}px`;
-        container.style.height = `${viewport.height}px`;
-        pdfViewerContainer.appendChild(container);
-
-        // Extrai palavras
-        const pageWords = textContent.items.map((item) => ({
-            str: item.str,
-            x: item.transform[4],
-            y: viewport.height - item.transform[5],
-            width: item.width,
-            height: item.height || 10,
-            fontName: item.fontName,
-        }));
-
-        // Registra DOM e palavras
-        pdfPage.pageWords = pageWords;
-        this.registerPageDomElement(pdfPage, container);
-
-        // Detecta e mostra overlay
-        const hfResult = this.detectHeadersAndFooters(pdfPage);
-        this.showHeaderFooterOverlay([pdfPage], hfResult);
+        const inferredPageNumber = Number(pageContainer.dataset?.pageNumber ?? pageObj.pageNumber);
+        if (Number.isFinite(inferredPageNumber)) {
+            this._pageContainers.set(inferredPageNumber, pageContainer);
+            const pending = this._pendingOverlayData.get(inferredPageNumber);
+            if (pending) {
+                this.showHeaderFooterOverlay(inferredPageNumber, pending);
+                this._pendingOverlayData.delete(inferredPageNumber);
+            }
+        }
     }
 }

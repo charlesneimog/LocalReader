@@ -416,3 +416,83 @@ html {
 #controls.toolbar--collapsed .select-cluster {
     display: none !important;
 }
+
+.pdf-hf-overlay-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+.pdf-hf-overlay-line-header {
+    background: rgba(255, 0, 0, 0.2);
+    position: absolute;
+    border: 2px solid rgba(255, 0, 0, 0.8);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(255, 0, 0, 0.3);
+}
+.pdf-hf-overlay-line-footer {
+    background: rgba(0, 0, 255, 0.2);
+    position: absolute;
+    border: 2px solid rgba(0, 0, 255, 0.8);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 255, 0.3);
+}
+.pdf-hf-overlay-word {
+    border: 1px dotted rgba(0, 0, 0, 0.3);
+    position: absolute;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+}
+.pdf-hf-debug-info {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 12px;
+    z-index: 20;
+    max-width: 300px;
+    white-space: pre-wrap;
+}
+
+/*
+ *╭─────────────────────────────────────╮
+ *│          Layout Detection           │
+ *╰─────────────────────────────────────╯
+*/
+
+.pdf-hf-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 30;
+}
+.pdf-hf-overlay-box {
+    position: absolute;
+    border: 2px solid rgba(48, 199, 90, 0.9);
+    background: rgba(48, 199, 90, 0.18);
+    border-radius: 4px;
+    font: 12px/1.2 sans-serif;
+    color: #0b2a13;
+    box-sizing: border-box;
+}
+.pdf-hf-overlay-box-label {
+    position: absolute;
+    left: 0;
+    top: -20px;
+    padding: 0 6px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    border-radius: 3px;
+    background: rgba(48, 199, 90, 0.95);
+    color: #03130a;
+    font-weight: 600;
+    white-space: nowrap;
+}

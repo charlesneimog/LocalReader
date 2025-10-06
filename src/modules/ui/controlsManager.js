@@ -16,7 +16,6 @@ export class ControlsManager {
         this.bntHelp = document.getElementById("help-button");
         this.bntHelpClose = document.getElementById("help-close");
         this.bntFullScreen = document.getElementById("toggle-fullscreen");
-        this.toggleViewBtn = document.getElementById("toggle-view-mode");
         this.saveHighlightBtn = document.getElementById("save-highlight");
         this.exportHighlightsBtn = document.getElementById("export-highlights");
         this.highlightColorPicker = document.getElementById("highlight-color");

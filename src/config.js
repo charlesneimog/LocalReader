@@ -52,4 +52,7 @@ export const CONFIG = {
     BASE_WIDTH_CSS: () => Math.max(360, Math.min(window.innerWidth, 1400)),
     VIEWPORT_HEIGHT_CSS: () => Math.max(260, window.innerHeight * 0.82),
     MARGIN_TOP: () => (window.innerWidth < 700 ? 50 : 100),
+
+    // Header detection
+    TOLERANCE: 10, // pixels around detection boxes to tolerate small misalignments
 };

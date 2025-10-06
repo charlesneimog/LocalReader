@@ -47,9 +47,6 @@
                 <button id="export-highlights" class="icon-btn" title="Export PDF with highlights">
                     <i class="fa-solid fa-floppy-disk"></i>
                 </button>
-                <button id="toggle-view-mode" class="icon-btn" title="Toggle Full Document / Single Page">
-                    <i class="fa-solid fa-clone"></i>
-                </button>
                 <button data-essential="true" id="toggle-fullscreen" class="icon-btn" title="Toggle Full Screen">
                     <i class="fa-solid fa-expand"></i>
                 </button>
@@ -250,10 +247,6 @@
                 if (file && /\.pdf$/i.test(file.name)) {
                     if (window.loadPDF) await window.loadPDF(file);
                 } else alert("Not a valid PDF file!");
-            });
-
-            document.getElementById("toggle-view-mode").addEventListener("click", () => {
-                if (window.toggleViewMode) window.toggleViewMode();
             });
         </script>
     </body>

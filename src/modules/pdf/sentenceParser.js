@@ -50,6 +50,8 @@ export class SentenceParser {
                     normalizedText: null,
                     wordBoundaries: [],
                     playbackWordTimers: [],
+                    layoutProcessed: false,
+                    isTextToRead: false,
                 };
                 state.sentences.push(sentence);
                 if (!state.pageSentencesIndex.has(p)) state.pageSentencesIndex.set(p, []);
@@ -60,17 +62,30 @@ export class SentenceParser {
             for (let i = 0; i < page.pageWords.length; i++) {
                 const w = page.pageWords[i];
                 let gapBreak = false;
+
+                // Check vertical gap (existing)
                 if (config.SPLIT_ON_LINE_GAP && lastY !== null) {
                     const verticalDelta = Math.abs(lastY - w.y);
                     if (lastHeight && verticalDelta > lastHeight * config.LINE_GAP_THRESHOLD) gapBreak = true;
                 }
+
+                // Check horizontal gap
+                if (!gapBreak && buffer.length > 0) {
+                    const lastWord = buffer[buffer.length - 1];
+                    const horizontalGap = w.x - (lastWord.x + lastWord.width);
+                    if (horizontalGap > config.TOLERANCE) gapBreak = true;
+                }
+
                 if (gapBreak && buffer.length) flush();
                 buffer.push(w);
+
                 const nextWord = page.pageWords[i + 1]?.str || "";
                 if (isSentenceEnd(w.str, nextWord) || (config.BREAK_ON_LINE && w.lineBreak)) flush();
+
                 lastY = w.y;
                 lastHeight = w.height;
             }
+
             flush();
         }
     }
@@ -81,11 +96,21 @@ export class SentenceParser {
         const ysTop = words.map((w) => w.y - w.height);
         const ysBottom = words.map((w) => w.y);
         const ws = words.map((w) => w.x + w.width);
+        const x1 = Math.min(...xs);
+        const y1 = Math.min(...ysTop);
+        const x2 = Math.max(...ws);
+        const y2 = Math.max(...ysBottom);
         return {
-            x: Math.min(...xs),
-            y: Math.min(...ysTop),
-            width: Math.max(...ws) - Math.min(...xs),
-            height: Math.max(...ysBottom) - Math.min(...ysTop),
+            x: x1,
+            y: y1,
+            width: x2 - x1,
+            height: y2 - y1,
+            x1,
+            y1,
+            x2,
+            y2,
+            centerX: (x1 + x2) / 2,
+            centerY: (y1 + y2) / 2,
         };
     }
 }

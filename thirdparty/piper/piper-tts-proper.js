@@ -546,8 +546,10 @@ async function getCachedJSON(key, url) {
                     `Unknown voice: ${voiceId}. Available voices: ${Object.keys(this.availableVoices).join(", ")}`,
                 );
             }
-
-            // console.log(`Changing voice from ${this.voiceId} to ${voiceId}`);
+            if (this.voiceId === voiceId) {
+                console.log(`Voice already set to ${voiceId}`);
+                return;
+            }
 
             // Clear any pending speech
             this.clearQueue();

@@ -38,6 +38,7 @@ export class StateManager {
         this.piperLoading = false;
 
         // View
+        // TODO: Disable single view and remove code
         this.viewMode = this.app.config.DEFAULT_VIEW_MODE;
 
         // Highlights
@@ -53,4 +54,3 @@ export class StateManager {
         return this.sentences[this.currentSentenceIndex];
     }
 }
-

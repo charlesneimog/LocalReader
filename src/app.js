@@ -85,10 +85,8 @@ export class PDFTTSApp {
     }
 
     async initialize() {
-        this.viewManager.applyViewModeUI();
         await this._ensureAriaRegions();
         await this._loadInitialPDF();
-
         await this.ttsEngine.ensurePiper(this.config.DEFAULT_PIPER_VOICE);
     }
 

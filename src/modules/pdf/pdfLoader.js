@@ -83,12 +83,6 @@ export class PDFLoader {
         }
 
         page.pageWords = pageWords;
-
-        // Store header/footer detection result for later use
-        // page.headerFooterResult = headerFooterResult;
-
-        // Store for potential overlay application later
-        // this._pendingHFResults.set(pageNumber, headerFooterResult);
     }
 
     async loadPDF(file = null, { resume = true } = {}) {

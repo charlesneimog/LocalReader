@@ -24,7 +24,12 @@ export class PDFRenderer {
         state.fullPageRenderCache.set(pageNumber, off);
 
         // classify page
-        this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(pageNumber);
+        if (this.app.state.generationEnabled) {
+            this.app.ui.showInfo("Running layout detection...");
+            this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(pageNumber);
+        } else {
+            this.app.ui.showInfo("");
+        }
 
         return off;
     }
@@ -355,6 +360,12 @@ export class PDFRenderer {
         const sentence = state.sentences[idx];
         const pageNumber = sentence.pageNumber;
 
+        if (!sentence.isTextToRead && sentence.layoutProcessed) {
+            //console.log("Skipping non-readable sentence:", sentence.text);
+            this.app.nextSentence(true);
+            return;
+        }
+
         const pdfCanvas = document.getElementById("pdf-canvas");
         const pdfDocContainer = document.getElementById("pdf-doc-container");
 
@@ -364,73 +375,8 @@ export class PDFRenderer {
             this.updateHighlightFullDoc(sentence);
             this.scrollSentenceIntoView(sentence);
         } else {
-            if (pdfDocContainer) pdfDocContainer.style.display = "none";
-            if (pdfCanvas) pdfCanvas.style.display = "block";
-            const ctx = pdfCanvas.getContext("2d");
-            const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
-            const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
-            state.currentSingleViewPageNumber = pageNumber;
-            let offsetYDisplay = 0;
-
-            const mobile = window.innerWidth <= config.MOBILE_BREAKPOINT;
-            if (mobile) {
-                const scaleCSS = getPageDisplayScale(viewportDisplay, config);
-                pdfCanvas.width = Math.round(viewportDisplay.width * state.deviceScale);
-                pdfCanvas.height = Math.round(viewportDisplay.height * state.deviceScale);
-                pdfCanvas.style.width = viewportDisplay.width * scaleCSS + "px";
-                pdfCanvas.style.height = viewportDisplay.height * scaleCSS + "px";
-                ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
-                ctx.drawImage(
-                    fullPageCanvas,
-                    0,
-                    0,
-                    fullPageCanvas.width,
-                    fullPageCanvas.height,
-                    0,
-                    0,
-                    pdfCanvas.width,
-                    fullPageCanvas.height,
-                );
-                state.currentSingleViewOffsetY = 0;
-                this.renderSavedHighlightsSingleCanvas(ctx, pageNumber, 0);
-                this.drawHoveredSentenceSingleCanvas(ctx, pageNumber, 0);
-                this.highlightSentenceSingleCanvas(ctx, sentence, 0);
-            } else {
-                const pageHeightDisplay = viewportDisplay.height;
-                const pageWidthDisplay = viewportDisplay.width;
-                pdfCanvas.style.width = pageWidthDisplay + "px";
-                const viewportH = config.VIEWPORT_HEIGHT_CSS();
-                pdfCanvas.style.height = viewportH + "px";
-                pdfCanvas.width = Math.round(pageWidthDisplay * state.deviceScale);
-                pdfCanvas.height = Math.round(viewportH * state.deviceScale);
-
-                if (sentence.bbox) {
-                    const targetTop = sentence.bbox.y - config.MARGIN_TOP();
-                    const maxOffset = Math.max(0, pageHeightDisplay - viewportH);
-                    offsetYDisplay = clamp(targetTop, 0, maxOffset);
-                }
-                state.currentSingleViewOffsetY = offsetYDisplay;
-                const offsetYRender = offsetYDisplay * state.deviceScale;
-                const sliceHeightRender = pdfCanvas.height;
-                const maxAvail = fullPageCanvas.height - offsetYRender;
-                const effectiveSliceHeight = Math.min(sliceHeightRender, maxAvail);
-
-                ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
-                ctx.drawImage(
-                    fullPageCanvas,
-                    0,
-                    offsetYRender,
-                    fullPageCanvas.width,
-                    effectiveSliceHeight,
-                    0,
-                    0,
-                    pdfCanvas.width,
-                    effectiveSliceHeight,
-                );
-                this.renderSavedHighlightsSingleCanvas(ctx, pageNumber, offsetYDisplay);
-                this.drawHoveredSentenceSingleCanvas(ctx, pageNumber, offsetYDisplay);
-                this.highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay);
-            }
+            alert("OLD CODE DETECTED");
+            return;
         }
 
         this.app.ui.showInfo(`Sentence ${sentence.index + 1}/${state.sentences.length} (Page ${pageNumber})`);

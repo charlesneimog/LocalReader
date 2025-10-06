@@ -5,7 +5,7 @@ export class PDFHeaderFooterDetector {
         this._pageContainers = new Map();
         this._pendingOverlayData = new Map();
         this._detectionsByPage = new Map();
-        this.DETECTION_THRESHOLD = 0.2;
+        this.DETECTION_THRESHOLD = 0.35;
         this.DETECTION_CLASSES = [
             "caption",
             "footnote",
@@ -18,6 +18,9 @@ export class PDFHeaderFooterDetector {
             "table",
             "text",
         ];
+
+        this.ITEMS_TO_READ = ["list-item", "section-header", "text"];
+
         this._modelReady = this._initModels();
     }
 
@@ -33,13 +36,132 @@ export class PDFHeaderFooterDetector {
             "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis",
         );
         this.app.ui.showInfo("Layout models loaded.");
+        this._modelReady = true;
+        return true;
     }
 
     async _ensureModelReady() {
         if (!this._modelReady) {
-            this._modelReady = this._initModels();
+            await this._initModels();
         }
         return this._modelReady;
+    }
+
+    _markUnreadableText(pageNumber, detections, sourceCanvas = null) {
+        const { state } = this.app;
+        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+        if (!viewportDisplay) return;
+
+        const sentenceIndices = state.pageSentencesIndex.get(pageNumber) || [];
+        if (!sentenceIndices.length) return;
+        const sentences = sentenceIndices
+            .map((i) => state.sentences[i])
+            .filter(Boolean);
+        if (!sentences.length) return;
+
+        const canvas = sourceCanvas || state.fullPageRenderCache.get(pageNumber);
+        const canvasWidth = canvas?.width || viewportDisplay.width;
+        const canvasHeight = canvas?.height || viewportDisplay.height;
+        const scaleX = canvasWidth ? viewportDisplay.width / canvasWidth : 1;
+        const scaleY = canvasHeight ? viewportDisplay.height / canvasHeight : 1;
+
+        const toDetectionBox = (det) => {
+            if (!det) return null;
+            if (det.normalized) {
+                return {
+                    x1: det.normalized.left * viewportDisplay.width,
+                    y1: det.normalized.top * viewportDisplay.height,
+                    x2: det.normalized.right * viewportDisplay.width,
+                    y2: det.normalized.bottom * viewportDisplay.height,
+                };
+            }
+            if ([det.x1, det.y1, det.x2, det.y2].every((v) => typeof v === "number")) {
+                return {
+                    x1: det.x1 * scaleX,
+                    y1: det.y1 * scaleY,
+                    x2: det.x2 * scaleX,
+                    y2: det.y2 * scaleY,
+                };
+            }
+            return null;
+        };
+
+        const toSentenceBox = (sentence) => {
+            const bbox = sentence?.bbox;
+            if (!bbox) return null;
+            const x1 = bbox.x1 ?? bbox.x ?? 0;
+            const y1 = bbox.y1 ?? bbox.y ?? 0;
+            const x2 = bbox.x2 ?? (bbox.x ?? 0) + (bbox.width ?? 0);
+            const y2 = bbox.y2 ?? (bbox.y ?? 0) + (bbox.height ?? 0);
+            if ([x1, y1, x2, y2].some((v) => Number.isNaN(v))) return null;
+            return { x1, y1, x2, y2 };
+        };
+
+        const TOLERANCE = 20; // pixels around detection boxes to tolerate small misalignments
+        const clampBox = (box) => ({
+            x1: Math.max(0, box.x1 - TOLERANCE),
+            y1: Math.max(0, box.y1 - TOLERANCE),
+            x2: Math.min(viewportDisplay.width, box.x2 + TOLERANCE),
+            y2: Math.min(viewportDisplay.height, box.y2 + TOLERANCE),
+        });
+
+        const detectionBoxes = detections
+            .map((det) => ({ det, box: toDetectionBox(det) }))
+            .filter(({ box }) => !!box);
+
+        const readableBoxes = detectionBoxes
+            .filter(({ det }) => this.ITEMS_TO_READ.includes(det.label))
+            .map(({ box }) => clampBox(box));
+
+        const ignoreBoxes = detectionBoxes
+            .filter(({ det }) => !this.ITEMS_TO_READ.includes(det.label))
+            .map(({ box }) => clampBox(box));
+
+        const overlaps = (a, b) => {
+            const overlapX = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+            const overlapY = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+            return overlapX > 0 && overlapY > 0;
+        };
+
+        const annotatedSentences = sentences
+            .map((sentence) => ({ sentence, box: toSentenceBox(sentence) }))
+            .filter(({ box }) => !!box);
+
+        for (const { sentence, box } of annotatedSentences) {
+            const insideReadable = readableBoxes.some((r) => overlaps(box, r));
+            const overlapsIgnored = ignoreBoxes.some((r) => overlaps(box, r));
+            const shouldRead = insideReadable && !overlapsIgnored;
+
+            sentence.isTextToRead = shouldRead;
+            sentence.layoutProcessed = true;
+            sentence.layoutFlags = { insideReadable, overlapsIgnored, readableBoxes: readableBoxes.length, ignoreBoxes: ignoreBoxes.length };
+
+            for (const w of sentence.words) {
+                w.isTextToRead = shouldRead;
+                w.layoutProcessed = true;
+            }
+        }
+
+        const unreadable = annotatedSentences
+            .filter(({ sentence }) => !sentence.isTextToRead)
+            .map(({ sentence }) => sentence);
+
+    
+        /*
+        if (unreadable.length > 0) {
+            console.group(`Unreadable sentences on page ${pageNumber}`);
+            console.table(
+                unreadable.map((s) => ({
+                    index: s.index,
+                    text: s.text,
+                    bbox: s.bbox ? `${s.bbox.x1 ?? s.bbox.x},${s.bbox.y1 ?? s.bbox.y},${(s.bbox.x2 ?? (s.bbox.x ?? 0) + (s.bbox.width ?? 0))},${(s.bbox.y2 ?? (s.bbox.y ?? 0) + (s.bbox.height ?? 0))}` : "(none)",
+                    insideReadable: s.layoutFlags?.insideReadable || false,
+                    overlapsIgnored: s.layoutFlags?.overlapsIgnored || false,
+                })),
+            );
+            console.groupEnd();
+        }
+        */
     }
 
     // ---------- Main Detection ----------
@@ -48,28 +170,27 @@ export class PDFHeaderFooterDetector {
 
         const { state } = this.app;
         const canvas = state.fullPageRenderCache.get(pageNumber);
+        const pagesCache = state.pagesCache.get(pageNumber);
+
         if (!canvas) return null;
 
         const ctx = canvas.getContext("2d");
         if (!ctx) return null;
 
-        // 🔹 Criar canvas temporário reduzido
+        // temp canvas
         const tmpCanvas = document.createElement("canvas");
         tmpCanvas.width = Math.floor(canvas.width * scaleFactor);
         tmpCanvas.height = Math.floor(canvas.height * scaleFactor);
         const tmpCtx = tmpCanvas.getContext("2d");
         tmpCtx.drawImage(canvas, 0, 0, tmpCanvas.width, tmpCanvas.height);
 
-        // 🔹 Criar RawImage a partir do canvas reduzido
+        // get raw image
         const rawImage = this.app.transformers.RawImage.fromCanvas(tmpCanvas);
         const { pixel_values, reshaped_input_sizes } = await this.processor(rawImage);
         const modelOutput = await this.model({ images: pixel_values });
+        const predictions = modelOutput.output0.tolist()[0];
 
-        const outputArray =
-            typeof modelOutput.output0?.tolist === "function" ? modelOutput.output0.tolist() : modelOutput.output0;
-        const predictions = Array.isArray(outputArray) ? outputArray[0] || [] : [];
-
-        // 🔹 Escala para o canvas original
+        // downscale
         const [newHeight, newWidth] = reshaped_input_sizes?.[0] || [tmpCanvas.height, tmpCanvas.width];
         const scaleX = canvas.width / newWidth;
         const scaleY = canvas.height / newHeight;
@@ -78,7 +199,6 @@ export class PDFHeaderFooterDetector {
         ctx.save();
         ctx.lineWidth = 2;
         ctx.font = "16px sans-serif";
-
         for (const prediction of predictions) {
             const [xmin, ymin, xmax, ymax, score, id] = prediction;
             if (score < this.DETECTION_THRESHOLD) continue;
@@ -95,7 +215,6 @@ export class PDFHeaderFooterDetector {
             const labelText = `${label} ${(score * 100).toFixed(1)}%`;
             const textWidth = ctx.measureText(labelText).width;
 
-            // 🔹 Desenhar boxes no canvas original
             ctx.strokeStyle = colors.stroke;
             ctx.globalAlpha = colors.alpha;
             ctx.fillStyle = colors.fill;
@@ -133,9 +252,10 @@ export class PDFHeaderFooterDetector {
         ctx.restore();
 
         const overlayPayload = { detections, canvasWidth: canvas.width, canvasHeight: canvas.height };
-        this._detectionsByPage.set(pageNumber, overlayPayload);
-        this.showHeaderFooterOverlay(pageNumber, overlayPayload);
-
+    this._detectionsByPage.set(pageNumber, overlayPayload);
+    //this.showHeaderFooterOverlay(pageNumber, overlayPayload);
+    this._markUnreadableText(pageNumber, detections, canvas);
+        this.app.ui.showInfo("");
         return detections;
     }
 
@@ -179,10 +299,15 @@ export class PDFHeaderFooterDetector {
             return;
         }
 
-        detections.forEach((det, index) => {
+        for (const det of detections) {
+            if (!this.ITEMS_TO_READ.includes(det.label)) {
+                continue;
+            }
+
             const box = document.createElement("div");
             box.className = "pdf-hf-overlay-box";
             box.dataset.class = det.label;
+
             const leftPct = det.normalized.left * 100;
             const topPct = det.normalized.top * 100;
             const widthPct = (det.width / canvasWidth) * 100;
@@ -204,7 +329,7 @@ export class PDFHeaderFooterDetector {
             box.appendChild(label);
 
             overlay.appendChild(box);
-        });
+        }
 
         if (!overlay.parentElement) {
             pageContainer.appendChild(overlay);
@@ -228,7 +353,7 @@ export class PDFHeaderFooterDetector {
             this._pageContainers.set(inferredPageNumber, pageContainer);
             const pending = this._pendingOverlayData.get(inferredPageNumber);
             if (pending) {
-                this.showHeaderFooterOverlay(inferredPageNumber, pending);
+                //this.showHeaderFooterOverlay(inferredPageNumber, pending);
                 this._pendingOverlayData.delete(inferredPageNumber);
             }
         }

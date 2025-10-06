@@ -196,13 +196,20 @@ export class PDFRenderer {
             const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
             if (!wrapper) continue;
             const scale = parseFloat(wrapper.dataset.scale) || 1;
+            const canvas = wrapper.querySelector("canvas.page-canvas");
+            if (!canvas) continue;
+
+            const canvasRect = canvas.getBoundingClientRect();
+            const wrapperRect = wrapper.getBoundingClientRect();
+            const offsetTop = canvasRect.top - wrapperRect.top;
+            const offsetLeft = canvasRect.left - wrapperRect.left;
 
             for (const word of sentence.words) {
                 const div = document.createElement("div");
                 div.className = "persistent-highlight";
                 if (sentenceIndex === state.currentSentenceIndex) div.classList.add("current-playing");
-                div.style.left = word.x * scale + "px";
-                div.style.top = (word.y - word.height) * scale + "px";
+                div.style.left = offsetLeft + word.x * scale + "px";
+                div.style.top = offsetTop + (word.y - word.height) * scale + "px";
                 div.style.width = word.width * scale + "px";
                 div.style.height = word.height * scale + "px";
                 div.style.backgroundColor = highlightData.color;
@@ -226,18 +233,26 @@ export class PDFRenderer {
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${s.pageNumber}"]`);
         if (!wrapper) return;
         const scale = parseFloat(wrapper.dataset.scale) || 1;
+        const canvas = wrapper.querySelector("canvas.page-canvas");
+        if (!canvas) return;
+
+        const canvasRect = canvas.getBoundingClientRect();
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const offsetTop = canvasRect.top - wrapperRect.top;
+        const offsetLeft = canvasRect.left - wrapperRect.left;
+
         for (const w of s.words) {
             const div = document.createElement("div");
             div.className = "hover-highlight";
-            div.style.left = w.x * scale + "px";
-            div.style.top = (w.y - w.height) * scale + "px";
+            div.style.left = offsetLeft + w.x * scale + "px";
+            div.style.top = offsetTop + (w.y - w.height) * scale + "px";
             div.style.width = w.width * scale + "px";
             div.style.height = w.height * scale + "px";
             wrapper.appendChild(div);
         }
     }
 
-    updateHighlightFullDoc(sentence) {
+    updateHighlightFullDocOLD(sentence) {
         const { state } = this.app;
         if (state.viewMode !== "full") return;
         const container = document.getElementById("pdf-doc-container");
@@ -251,6 +266,36 @@ export class PDFRenderer {
             div.className = "pdf-word-highlight";
             div.style.left = w.x * scale + "px";
             div.style.top = (w.y - w.height) * scale + "px";
+            div.style.width = w.width * scale + "px";
+            div.style.height = w.height * scale + "px";
+            wrapper.appendChild(div);
+        }
+        this.renderSavedHighlightsFullDoc();
+        this.renderHoverHighlightFullDoc();
+    }
+
+    updateHighlightFullDoc(sentence) {
+        const { state } = this.app;
+        if (state.viewMode !== "full") return;
+        const container = document.getElementById("pdf-doc-container");
+        if (!container || !sentence) return;
+        container.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
+        const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
+        if (!wrapper) return;
+        const scale = parseFloat(wrapper.dataset.scale) || 1;
+        const canvas = wrapper.querySelector("canvas.page-canvas");
+        if (!canvas) return;
+
+        const canvasRect = canvas.getBoundingClientRect();
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const offsetTop = canvasRect.top - wrapperRect.top;
+        const offsetLeft = canvasRect.left - wrapperRect.left;
+
+        for (const w of sentence.words) {
+            const div = document.createElement("div");
+            div.className = "pdf-word-highlight";
+            div.style.left = offsetLeft + w.x * scale + "px";
+            div.style.top = offsetTop + (w.y - w.height) * scale + "px";
             div.style.width = w.width * scale + "px";
             div.style.height = w.height * scale + "px";
             wrapper.appendChild(div);

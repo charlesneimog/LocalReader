@@ -204,10 +204,9 @@ export class PDFRenderer {
             const canvas = wrapper.querySelector("canvas.page-canvas");
             if (!canvas) continue;
 
-            const canvasRect = canvas.getBoundingClientRect();
-            const wrapperRect = wrapper.getBoundingClientRect();
-            const offsetTop = canvasRect.top - wrapperRect.top;
-            const offsetLeft = canvasRect.left - wrapperRect.left;
+            // Use offsetTop/offsetLeft for consistent positioning across devices
+            const offsetTop = canvas.offsetTop;
+            const offsetLeft = canvas.offsetLeft;
 
             for (const word of sentence.words) {
                 const div = document.createElement("div");
@@ -241,10 +240,9 @@ export class PDFRenderer {
         const canvas = wrapper.querySelector("canvas.page-canvas");
         if (!canvas) return;
 
-        const canvasRect = canvas.getBoundingClientRect();
-        const wrapperRect = wrapper.getBoundingClientRect();
-        const offsetTop = canvasRect.top - wrapperRect.top;
-        const offsetLeft = canvasRect.left - wrapperRect.left;
+        // Use offsetTop/offsetLeft for consistent positioning across devices
+        const offsetTop = canvas.offsetTop;
+        const offsetLeft = canvas.offsetLeft;
 
         for (const w of s.words) {
             const div = document.createElement("div");
@@ -255,28 +253,6 @@ export class PDFRenderer {
             div.style.height = w.height * scale + "px";
             wrapper.appendChild(div);
         }
-    }
-
-    updateHighlightFullDocOLD(sentence) {
-        const { state } = this.app;
-        if (state.viewMode !== "full") return;
-        const container = document.getElementById("pdf-doc-container");
-        if (!container || !sentence) return;
-        container.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
-        const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
-        if (!wrapper) return;
-        const scale = parseFloat(wrapper.dataset.scale) || 1;
-        for (const w of sentence.words) {
-            const div = document.createElement("div");
-            div.className = "pdf-word-highlight";
-            div.style.left = w.x * scale + "px";
-            div.style.top = (w.y - w.height) * scale + "px";
-            div.style.width = w.width * scale + "px";
-            div.style.height = w.height * scale + "px";
-            wrapper.appendChild(div);
-        }
-        this.renderSavedHighlightsFullDoc();
-        this.renderHoverHighlightFullDoc();
     }
 
     updateHighlightFullDoc(sentence) {
@@ -291,10 +267,9 @@ export class PDFRenderer {
         const canvas = wrapper.querySelector("canvas.page-canvas");
         if (!canvas) return;
 
-        const canvasRect = canvas.getBoundingClientRect();
-        const wrapperRect = wrapper.getBoundingClientRect();
-        const offsetTop = canvasRect.top - wrapperRect.top;
-        const offsetLeft = canvasRect.left - wrapperRect.left;
+        // Use offsetTop/offsetLeft instead of getBoundingClientRect to avoid scroll/viewport issues
+        const offsetTop = canvas.offsetTop;
+        const offsetLeft = canvas.offsetLeft;
 
         for (const w of sentence.words) {
             const div = document.createElement("div");

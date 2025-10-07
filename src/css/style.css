@@ -283,7 +283,7 @@ button:disabled {
 }
 .pdf-word-highlight {
     position: absolute;
-    background: rgba(255, 255, 0, 0.28);
+    background: rgba(12, 163, 223, 0.2);
     pointer-events: none;
     border-radius: 2px;
 }

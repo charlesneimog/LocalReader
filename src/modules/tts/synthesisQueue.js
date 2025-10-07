@@ -13,6 +13,21 @@ export class TTSQueueManager {
         if (!state.generationEnabled) return;
         const s = state.sentences[idx];
         if (!s || s.audioReady || s.audioInProgress) return;
+
+        if (!s.layoutProcessed) {
+            this.app.ui.showInfo("Detecting layout of page" + s.pageNumber);
+            const icon = document.querySelector("#play-toggle i");
+            if (icon) icon.className = "fa-solid fa-spinner fa-spin";
+            this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(s.pageNumber);
+            if (icon) icon.className = "fa-solid fa-spinner fa-spin";
+            if (icon) icon.className = state.isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
+            this.app.ui.showInfo("");
+        }
+
+        if (!s.isTextToRead) {
+            return;
+        }
+
         if (this.queue.includes(idx) || this.inFlight.has(idx)) return;
         s.prefetchQueued = true;
         priority ? this.queue.unshift(idx) : this.queue.push(idx);

@@ -5,6 +5,8 @@ export class PDFHeaderFooterDetector {
         this._pageContainers = new Map();
         this._pendingOverlayData = new Map();
         this._detectionsByPage = new Map();
+
+        // TODO: Move this to threashold
         this.DETECTION_THRESHOLD = 0.35;
         this.DETECTION_CLASSES = [
             "caption",
@@ -20,7 +22,6 @@ export class PDFHeaderFooterDetector {
         ];
 
         this.ITEMS_TO_READ = ["list-item", "section-header", "text"];
-
         this._modelReady = this._initModels();
     }
 
@@ -54,9 +55,7 @@ export class PDFHeaderFooterDetector {
 
         const sentenceIndices = state.pageSentencesIndex.get(pageNumber) || [];
         if (!sentenceIndices.length) return;
-        const sentences = sentenceIndices
-            .map((i) => state.sentences[i])
-            .filter(Boolean);
+        const sentences = sentenceIndices.map((i) => state.sentences[i]).filter(Boolean);
         if (!sentences.length) return;
 
         const canvas = sourceCanvas || state.fullPageRenderCache.get(pageNumber);
@@ -105,9 +104,7 @@ export class PDFHeaderFooterDetector {
             y2: Math.min(viewportDisplay.height, box.y2 + TOLERANCE),
         });
 
-        const detectionBoxes = detections
-            .map((det) => ({ det, box: toDetectionBox(det) }))
-            .filter(({ box }) => !!box);
+        const detectionBoxes = detections.map((det) => ({ det, box: toDetectionBox(det) })).filter(({ box }) => !!box);
 
         const readableBoxes = detectionBoxes
             .filter(({ det }) => this.ITEMS_TO_READ.includes(det.label))
@@ -134,7 +131,12 @@ export class PDFHeaderFooterDetector {
 
             sentence.isTextToRead = shouldRead;
             sentence.layoutProcessed = true;
-            sentence.layoutFlags = { insideReadable, overlapsIgnored, readableBoxes: readableBoxes.length, ignoreBoxes: ignoreBoxes.length };
+            sentence.layoutFlags = {
+                insideReadable,
+                overlapsIgnored,
+                readableBoxes: readableBoxes.length,
+                ignoreBoxes: ignoreBoxes.length,
+            };
 
             for (const w of sentence.words) {
                 w.isTextToRead = shouldRead;
@@ -146,7 +148,6 @@ export class PDFHeaderFooterDetector {
             .filter(({ sentence }) => !sentence.isTextToRead)
             .map(({ sentence }) => sentence);
 
-    
         /*
         if (unreadable.length > 0) {
             console.group(`Unreadable sentences on page ${pageNumber}`);
@@ -168,6 +169,10 @@ export class PDFHeaderFooterDetector {
     async detectHeadersAndFooters(pageNumber, scaleFactor = 0.3) {
         await this._ensureModelReady();
 
+        if (this._detectionsByPage.has(pageNumber)) {
+            return this._detectionsByPage.get(pageNumber).detections;
+        }
+
         const { state } = this.app;
         const canvas = state.fullPageRenderCache.get(pageNumber);
         const pagesCache = state.pagesCache.get(pageNumber);
@@ -175,7 +180,10 @@ export class PDFHeaderFooterDetector {
         if (!canvas) return null;
 
         const ctx = canvas.getContext("2d");
-        if (!ctx) return null;
+        if (!ctx) {
+            if (icon) icon.className = this.app.state.isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
+            return null;
+        }
 
         // temp canvas
         const tmpCanvas = document.createElement("canvas");
@@ -252,10 +260,10 @@ export class PDFHeaderFooterDetector {
         ctx.restore();
 
         const overlayPayload = { detections, canvasWidth: canvas.width, canvasHeight: canvas.height };
-    this._detectionsByPage.set(pageNumber, overlayPayload);
-    //this.showHeaderFooterOverlay(pageNumber, overlayPayload);
-    this._markUnreadableText(pageNumber, detections, canvas);
+        this._detectionsByPage.set(pageNumber, overlayPayload);
+        this._markUnreadableText(pageNumber, detections, canvas);
         this.app.ui.showInfo("");
+
         return detections;
     }
 
@@ -272,90 +280,7 @@ export class PDFHeaderFooterDetector {
         }
     }
 
-    showHeaderFooterOverlay(pageNumber, overlayPayload) {
-        const { detections, canvasWidth, canvasHeight } = overlayPayload;
-        if (!Array.isArray(detections)) return;
-
-        const pageContainer =
-            this._pageContainers.get(pageNumber) ||
-            document.querySelector(`.pdf-page-wrapper[data-page-number="${pageNumber}"]`);
-        if (!pageContainer) {
-            this._pendingOverlayData.set(pageNumber, overlayPayload);
-            return;
-        }
-
-        let overlay = pageContainer.querySelector(".pdf-hf-overlay");
-        if (!overlay) {
-            overlay = document.createElement("div");
-            overlay.className = "pdf-hf-overlay";
-            pageContainer.appendChild(overlay);
-        }
-
-        overlay.innerHTML = "";
-        overlay.dataset.pageNumber = String(pageNumber);
-
-        if (!detections.length) {
-            overlay.remove();
-            return;
-        }
-
-        for (const det of detections) {
-            if (!this.ITEMS_TO_READ.includes(det.label)) {
-                continue;
-            }
-
-            const box = document.createElement("div");
-            box.className = "pdf-hf-overlay-box";
-            box.dataset.class = det.label;
-
-            const leftPct = det.normalized.left * 100;
-            const topPct = det.normalized.top * 100;
-            const widthPct = (det.width / canvasWidth) * 100;
-            const heightPct = (det.height / canvasHeight) * 100;
-
-            box.style.left = `${leftPct}%`;
-            box.style.top = `${topPct}%`;
-            box.style.width = `${widthPct}%`;
-            box.style.height = `${heightPct}%`;
-
-            const colors = this._getStyleForClass(det.label);
-            box.style.borderColor = colors.stroke;
-            box.style.backgroundColor = colors.fill;
-
-            const label = document.createElement("span");
-            label.className = "pdf-hf-overlay-box-label";
-            label.textContent = `${det.label} ${(det.score * 100).toFixed(1)}%`;
-            label.style.backgroundColor = colors.stroke;
-            box.appendChild(label);
-
-            overlay.appendChild(box);
-        }
-
-        if (!overlay.parentElement) {
-            pageContainer.appendChild(overlay);
-        }
-    }
-
     registerPageDomElement(pageObj, pageContainer) {
-        if (!pageObj || typeof pageObj !== "object") {
-            console.error("[registerPageDomElement] Invalid page object:", pageObj);
-            return;
-        }
-        if (!pageContainer || !pageContainer.nodeType) {
-            console.error("[registerPageDomElement] Invalid page container:", pageContainer);
-            return;
-        }
-
-        pageObj.domElement = pageContainer;
-
-        const inferredPageNumber = Number(pageContainer.dataset?.pageNumber ?? pageObj.pageNumber);
-        if (Number.isFinite(inferredPageNumber)) {
-            this._pageContainers.set(inferredPageNumber, pageContainer);
-            const pending = this._pendingOverlayData.get(inferredPageNumber);
-            if (pending) {
-                //this.showHeaderFooterOverlay(inferredPageNumber, pending);
-                this._pendingOverlayData.delete(inferredPageNumber);
-            }
-        }
+        return;
     }
 }

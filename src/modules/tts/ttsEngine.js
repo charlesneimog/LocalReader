@@ -148,11 +148,6 @@ export class TTSEngine {
         if (s.audioReady && s.lastVoice === voice && s.lastSpeed === state.CURRENT_SPEED) return;
         if (s.audioInProgress) return;
 
-        if (!s.isTextToRead && s.layoutProcessed) {
-            this.synthesizeSequential(idx + 1);
-            return;
-        }
-
         const norm = normalizeText(s.text);
         s.normalizedText = norm;
         const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;

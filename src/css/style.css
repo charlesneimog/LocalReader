@@ -222,13 +222,15 @@ button:disabled {
     border: 0;
 }
 
-#info-box,
-#tts-status {
+#info-box {
     text-align: center;
     font-size: 13px;
     padding: 4px 10px;
     color: var(--info-color);
     min-height: 20px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 #viewer-region {

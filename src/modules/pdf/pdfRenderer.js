@@ -25,8 +25,13 @@ export class PDFRenderer {
 
         // classify page
         if (this.app.state.generationEnabled) {
-            this.app.ui.showInfo("Running layout detection...");
+            this.app.ui.showInfo("Detecting layout of page" + pageNumber);
+            const icon = document.querySelector("#play-toggle i");
+            if (icon) icon.className = "fa-solid fa-spinner fa-spin";
             this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(pageNumber);
+            if (icon) icon.className = "fa-solid fa-spinner fa-spin";
+            if (icon) icon.className = state.isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
+            this.app.ui.showInfo("");
         } else {
             this.app.ui.showInfo("");
         }

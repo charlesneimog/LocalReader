@@ -1,4 +1,4 @@
-import { clamp, hexToRgb } from "../utils/helpers.js";
+import { isMobile, clamp, hexToRgb } from "../utils/helpers.js";
 import { getPageDisplayScale } from "../utils/responsive.js";
 import { EVENTS } from "../../constants/events.js";
 
@@ -204,16 +204,17 @@ export class PDFRenderer {
             const canvas = wrapper.querySelector("canvas.page-canvas");
             if (!canvas) continue;
 
-            // Use offsetTop/offsetLeft for consistent positioning across devices
-            const offsetTop = canvas.offsetTop;
-            const offsetLeft = canvas.offsetLeft;
+            // Use getBoundingClientRect for accurate positioning across devices
+            const wrapperRect = wrapper.getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect();
+            const offsetTop = canvasRect.top - wrapperRect.top;
+            const offsetLeft = canvasRect.left - wrapperRect.left;
 
             for (const word of sentence.words) {
                 const div = document.createElement("div");
                 div.className = "persistent-highlight";
                 if (sentenceIndex === state.currentSentenceIndex) div.classList.add("current-playing");
                 div.style.left = offsetLeft + word.x * scale + "px";
-                div.style.top = offsetTop + (word.y - word.height) * scale + "px";
                 div.style.width = word.width * scale + "px";
                 div.style.height = word.height * scale + "px";
                 div.style.backgroundColor = highlightData.color;
@@ -240,15 +241,22 @@ export class PDFRenderer {
         const canvas = wrapper.querySelector("canvas.page-canvas");
         if (!canvas) return;
 
-        // Use offsetTop/offsetLeft for consistent positioning across devices
-        const offsetTop = canvas.offsetTop;
-        const offsetLeft = canvas.offsetLeft;
+        // Use getBoundingClientRect for accurate positioning across devices
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const offsetTop = canvasRect.top - wrapperRect.top;
+        const offsetLeft = canvasRect.left - wrapperRect.left;
 
         for (const w of s.words) {
             const div = document.createElement("div");
             div.className = "hover-highlight";
             div.style.left = offsetLeft + w.x * scale + "px";
             div.style.top = offsetTop + (w.y - w.height) * scale + "px";
+            if (isMobile()){
+                div.style.top = offsetTop + w.y * scale + "px";
+            } else {
+                div.style.top = offsetTop + (w.y - w.height) * scale + "px";
+            }
             div.style.width = w.width * scale + "px";
             div.style.height = w.height * scale + "px";
             wrapper.appendChild(div);
@@ -260,26 +268,43 @@ export class PDFRenderer {
         if (state.viewMode !== "full") return;
         const container = document.getElementById("pdf-doc-container");
         if (!container || !sentence) return;
+
+        // Clear old highlights
         container.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
+
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
         if (!wrapper) return;
         const scale = parseFloat(wrapper.dataset.scale) || 1;
         const canvas = wrapper.querySelector("canvas.page-canvas");
         if (!canvas) return;
 
-        // Use offsetTop/offsetLeft instead of getBoundingClientRect to avoid scroll/viewport issues
-        const offsetTop = canvas.offsetTop;
-        const offsetLeft = canvas.offsetLeft;
+        // Ensure position relative on wrapper
+        if (getComputedStyle(wrapper).position === "static") wrapper.style.position = "relative";
+
+        // Use getBoundingClientRect for accurate positioning across devices
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const offsetTop = canvasRect.top - wrapperRect.top;
+        const offsetLeft = canvasRect.left - wrapperRect.left;
 
         for (const w of sentence.words) {
             const div = document.createElement("div");
             div.className = "pdf-word-highlight";
+            div.style.position = "absolute";
             div.style.left = offsetLeft + w.x * scale + "px";
-            div.style.top = offsetTop + (w.y - w.height) * scale + "px";
-            div.style.width = w.width * scale + "px";
-            div.style.height = w.height * scale + "px";
+            if (isMobile()){
+                div.style.top = offsetTop + w.y * scale + "px";
+            } else {
+                div.style.top = offsetTop + (w.y - w.height) * scale + "px";
+            }
+            div.style.width = Math.max(1, w.width * scale) + "px";      
+            div.style.height = Math.max(1, w.height * scale) + "px";
+            div.style.pointerEvents = "none";
             wrapper.appendChild(div);
         }
+
+
+        // Maintain original functions
         this.renderSavedHighlightsFullDoc();
         this.renderHoverHighlightFullDoc();
     }

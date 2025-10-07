@@ -55,6 +55,8 @@ export class InteractionHandler {
             pdfCanvas.addEventListener("mousemove", e => this.handlePointerMove(e));
             pdfCanvas.addEventListener("mouseleave", () => this.setHoveredSentence(-1));
             pdfCanvas.addEventListener("click", e => this.handlePointerClick(e));
+            
+            // Enhanced touch support for mobile
             pdfCanvas.addEventListener("touchstart", (e) => {
                 if (e.touches && e.touches[0]) {
                     const touch = e.touches[0];
@@ -65,13 +67,32 @@ export class InteractionHandler {
                     };
                     this.handlePointerClick(synthetic);
                 }
-            });
+            }, { passive: true });
+            
+            // Add touchmove for hover effect on mobile
+            pdfCanvas.addEventListener("touchmove", (e) => {
+                if (e.touches && e.touches[0]) {
+                    const touch = e.touches[0];
+                    const synthetic = {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        target: document.elementFromPoint(touch.clientX, touch.clientY)
+                    };
+                    this.handlePointerMove(synthetic);
+                }
+            }, { passive: true });
+            
+            pdfCanvas.addEventListener("touchend", () => {
+                this.setHoveredSentence(-1);
+            }, { passive: true });
         }
 
         if (pdfDocContainer) {
             pdfDocContainer.addEventListener("mousemove", e => this.handlePointerMove(e));
             pdfDocContainer.addEventListener("mouseleave", () => this.setHoveredSentence(-1));
             pdfDocContainer.addEventListener("click", e => this.handlePointerClick(e));
+            
+            // Enhanced touch support for mobile
             pdfDocContainer.addEventListener("touchstart", (e) => {
                 if (e.touches && e.touches[0]) {
                     const touch = e.touches[0];
@@ -82,7 +103,24 @@ export class InteractionHandler {
                     };
                     this.handlePointerClick(synthetic);
                 }
-            });
+            }, { passive: true });
+            
+            // Add touchmove for hover effect on mobile
+            pdfDocContainer.addEventListener("touchmove", (e) => {
+                if (e.touches && e.touches[0]) {
+                    const touch = e.touches[0];
+                    const synthetic = {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        target: document.elementFromPoint(touch.clientX, touch.clientY)
+                    };
+                    this.handlePointerMove(synthetic);
+                }
+            }, { passive: true });
+            
+            pdfDocContainer.addEventListener("touchend", () => {
+                this.setHoveredSentence(-1);
+            }, { passive: true });
         }
     }
 }

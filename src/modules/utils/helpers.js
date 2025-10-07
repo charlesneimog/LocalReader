@@ -69,6 +69,6 @@ export function formatTextToSpeech(text) {
     return text;
 }
 
-export function isMobile(config) {
-    return window.innerWidth <= config.MOBILE_BREAKPOINT;
+export function isMobile() {
+    return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }

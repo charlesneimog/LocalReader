@@ -130,6 +130,8 @@ export class PDFTTSApp {
     }
 
     togglePlay() {
+        const icon = document.querySelector("#play-toggle i");
+        if (icon) icon.className = "fa-solid fa-spinner fa-spin";
         this.audioManager.togglePlay();
     }
 

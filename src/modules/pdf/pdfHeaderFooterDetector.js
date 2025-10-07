@@ -6,6 +6,8 @@ export class PDFHeaderFooterDetector {
         this._pendingOverlayData = new Map();
         this._detectionsByPage = new Map();
 
+        this.debug = false;
+
         // TODO: Move this to threashold
         this.DETECTION_THRESHOLD = 0.35;
         this.DETECTION_CLASSES = [
@@ -46,6 +48,77 @@ export class PDFHeaderFooterDetector {
             await this._initModels();
         }
         return this._modelReady;
+    }
+
+    _drawIgnoredDetectionsOverlay(pageNumber, detections, baseCanvas) {
+        const { state } = this.app;
+        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+        let container = document.querySelector(`[data-page-number="${pageNumber}"]`);
+        if (!container) {
+            console.error("No container found for page", pageNumber);
+            return;
+        }
+        const existingOverlay = container.querySelector(".ignored-overlay");
+        if (existingOverlay) {
+            existingOverlay.remove();
+        }
+        const overlay = document.createElement("canvas");
+        overlay.width = viewportDisplay.width;
+        overlay.height = viewportDisplay.height;
+        overlay.style.position = "absolute";
+        overlay.style.top = "0";
+        overlay.style.left = "0";
+        overlay.style.pointerEvents = "none";
+        overlay.style.zIndex = "1000";
+        overlay.className = "ignored-overlay";
+
+        const ctx = overlay.getContext("2d");
+        ctx.fillStyle = "rgba(255, 0, 0, 0.05)";
+
+        // **CORREÇÃO: Usar a mesma escala do _markUnreadableText**
+        const canvasWidth = baseCanvas?.width || viewportDisplay.width;
+        const canvasHeight = baseCanvas?.height || viewportDisplay.height;
+        const scaleX = viewportDisplay.width / canvasWidth;
+        const scaleY = viewportDisplay.height / canvasHeight;
+
+        console.log(`Scaling factors: scaleX=${scaleX}, scaleY=${scaleY}`);
+
+        let drawnCount = 0;
+        for (const det of detections) {
+            if (!this.ITEMS_TO_READ.includes(det.label)) {
+                let x1, y1, width, height;
+
+                if (det.normalized) {
+                    // Converte para coordenadas do viewport
+                    x1 = det.normalized.left * viewportDisplay.width;
+                    y1 = det.normalized.top * viewportDisplay.height;
+                    width = (det.normalized.right - det.normalized.left) * viewportDisplay.width;
+                    height = (det.normalized.bottom - det.normalized.top) * viewportDisplay.height;
+                } else {
+                    // Usa escala se não tiver coordenadas normalizadas
+                    x1 = det.x1 * scaleX;
+                    y1 = det.y1 * scaleY;
+                    width = (det.width || det.x2 - det.x1) * scaleX;
+                    height = (det.height || det.y2 - det.y1) * scaleY;
+                }
+
+                console.log(
+                    `Drawing ${det.label}: (${x1.toFixed(1)}, ${y1.toFixed(1)}) ${width.toFixed(1)}x${height.toFixed(1)}`,
+                );
+
+                if (width > 0 && height > 0 && x1 < overlay.width && y1 < overlay.height) {
+                    ctx.fillRect(x1, y1, width, height);
+                    drawnCount++;
+                }
+            }
+        }
+
+        console.log(`Drawn ${drawnCount} ignored regions`);
+
+        if (drawnCount > 0) {
+            container.appendChild(overlay);
+            console.log("Overlay appended successfully");
+        }
     }
 
     _markUnreadableText(pageNumber, detections, sourceCanvas = null) {
@@ -147,22 +220,6 @@ export class PDFHeaderFooterDetector {
         const unreadable = annotatedSentences
             .filter(({ sentence }) => !sentence.isTextToRead)
             .map(({ sentence }) => sentence);
-
-        /*
-        if (unreadable.length > 0) {
-            console.group(`Unreadable sentences on page ${pageNumber}`);
-            console.table(
-                unreadable.map((s) => ({
-                    index: s.index,
-                    text: s.text,
-                    bbox: s.bbox ? `${s.bbox.x1 ?? s.bbox.x},${s.bbox.y1 ?? s.bbox.y},${(s.bbox.x2 ?? (s.bbox.x ?? 0) + (s.bbox.width ?? 0))},${(s.bbox.y2 ?? (s.bbox.y ?? 0) + (s.bbox.height ?? 0))}` : "(none)",
-                    insideReadable: s.layoutFlags?.insideReadable || false,
-                    overlapsIgnored: s.layoutFlags?.overlapsIgnored || false,
-                })),
-            );
-            console.groupEnd();
-        }
-        */
     }
 
     // ---------- Main Detection ----------
@@ -219,23 +276,11 @@ export class PDFHeaderFooterDetector {
             const h = Math.max(0, y2 - y1);
 
             const label = this.DETECTION_CLASSES[id] || `class-${id}`;
-            const colors = this._getStyleForClass(label);
             const labelText = `${label} ${(score * 100).toFixed(1)}%`;
             const textWidth = ctx.measureText(labelText).width;
 
-            ctx.strokeStyle = colors.stroke;
-            ctx.globalAlpha = colors.alpha;
-            ctx.fillStyle = colors.fill;
-            ctx.fillRect(x1, y1, w, h);
-            ctx.globalAlpha = 1;
-            ctx.strokeRect(x1, y1, w, h);
-
             const labelBoxHeight = 20;
             const labelY = Math.max(0, y1 - labelBoxHeight - 2);
-            ctx.fillStyle = colors.stroke;
-            ctx.fillRect(x1, labelY, textWidth + 8, labelBoxHeight);
-            ctx.fillStyle = "black";
-            ctx.fillText(labelText, x1 + 4, labelY + labelBoxHeight - 6);
 
             detections.push({
                 pageNumber,
@@ -263,21 +308,9 @@ export class PDFHeaderFooterDetector {
         this._detectionsByPage.set(pageNumber, overlayPayload);
         this._markUnreadableText(pageNumber, detections, canvas);
         this.app.ui.showInfo("");
+        this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
 
         return detections;
-    }
-
-    _getStyleForClass(label) {
-        switch (label) {
-            case "page-header":
-                return { stroke: "rgba(66, 135, 245, 0.95)", fill: "rgba(66, 135, 245, 0.18)", alpha: 1 };
-            case "page-footer":
-                return { stroke: "rgba(240, 99, 164, 0.95)", fill: "rgba(240, 99, 164, 0.2)", alpha: 1 };
-            case "section-header":
-                return { stroke: "rgba(255, 184, 77, 0.95)", fill: "rgba(255, 184, 77, 0.22)", alpha: 1 };
-            default:
-                return { stroke: "rgba(48, 199, 90, 0.95)", fill: "rgba(48, 199, 90, 0.18)", alpha: 0.4 };
-        }
     }
 
     registerPageDomElement(pageObj, pageContainer) {

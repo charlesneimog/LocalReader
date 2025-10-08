@@ -28,8 +28,13 @@ import { ExportManager } from "./modules/storage/exportManager.js";
 
 import { AutoModel, AutoProcessor, RawImage, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5";
 
+import { Login } from "./modules/login/auth.js";
+
 export class PDFTTSApp {
     constructor() {
+        this.login = new Login(this);
+        this.login.init();
+
         const threads = navigator.hardwareConcurrency;
         env.backends.onnx.wasm.numThreads = threads;
         env.backends.onnx.wasm.simd = true;

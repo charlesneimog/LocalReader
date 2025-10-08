@@ -252,7 +252,7 @@ export class PDFRenderer {
             div.className = "hover-highlight";
             div.style.left = offsetLeft + w.x * scale + "px";
             div.style.top = offsetTop + (w.y - w.height) * scale + "px";
-            if (isMobile()){
+            if (isMobile()) {
                 div.style.top = offsetTop + w.y * scale + "px";
             } else {
                 div.style.top = offsetTop + (w.y - w.height) * scale + "px";
@@ -292,17 +292,16 @@ export class PDFRenderer {
             div.className = "pdf-word-highlight";
             div.style.position = "absolute";
             div.style.left = offsetLeft + w.x * scale + "px";
-            if (isMobile()){
+            if (isMobile()) {
                 div.style.top = offsetTop + w.y * scale + "px";
             } else {
                 div.style.top = offsetTop + (w.y - w.height) * scale + "px";
             }
-            div.style.width = Math.max(1, w.width * scale) + "px";      
+            div.style.width = Math.max(1, w.width * scale) + "px";
             div.style.height = Math.max(1, w.height * scale) + "px";
             div.style.pointerEvents = "none";
             wrapper.appendChild(div);
         }
-
 
         // Maintain original functions
         this.renderSavedHighlightsFullDoc();

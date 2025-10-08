@@ -89,6 +89,7 @@ export class TTSEngine {
 
         const wavBlob = await retryAsync(async () => {
             try {
+                console.log("Synthesizing:", text);
                 const cleaned = formatTextToSpeech(text);
                 document.body.style.cursor = "wait";
                 let result = await state.piperInstance.synthesize(cleaned, state.CURRENT_SPEED);
@@ -171,22 +172,28 @@ export class TTSEngine {
         s.audioInProgress = true;
         s.audioError = null;
 
-        const icon = document.querySelector("#play-toggle i");
-        if (icon) icon.className = "fa-solid fa-spinner fa-spin";
-        this.app.ui.updateStatus(`Generating audio (sentence ${s.index + 1})...`);
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        if (icon) {
+            icon.textContent = "hourglass_empty";
+            icon.classList.add("animate-spin");
+        }
+
+        this.app.ui.showInfo(`Generating audio (sentence ${s.index + 1})...`);
         this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_START, { index: idx });
 
         try {
             await this.buildPiperAudio(s, voice, norm);
-            this.app.ui.updateStatus("");
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
         } catch (err) {
             s.audioError = err;
-            this.app.ui.updateStatus(`TTS error (sentence ${s.index + 1})`);
+            this.app.ui.showInfo(`TTS error (sentence ${s.index + 1})`);
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
         } finally {
             s.audioInProgress = false;
-            if (icon) icon.className = this.app.state.isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
+            if (icon) {
+                icon.textContent = "play_arrow";
+                icon.classList.remove("animate-spin");
+            }
         }
     }
 

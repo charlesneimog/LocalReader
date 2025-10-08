@@ -22,8 +22,8 @@ export const CONFIG = {
     SENTENCE_END: [".", "?", "!", ":"],
 
     // TTS
-    PREFETCH_AHEAD: 1,
-    MAX_CONCURRENT_SYNTH: 2,
+    PREFETCH_AHEAD: 2,
+    MAX_CONCURRENT_SYNTH: 4,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,
     PIPER_VOICES: [
@@ -56,4 +56,3 @@ export const CONFIG = {
     // Header detection
     TOLERANCE: 30, // pixels around detection boxes to tolerate small misalignments
 };
-

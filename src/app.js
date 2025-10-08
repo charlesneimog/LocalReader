@@ -16,7 +16,6 @@ import { AudioManager } from "./modules/tts/audioManager.js";
 import { TTSQueueManager } from "./modules/tts/synthesisQueue.js";
 import { WordHighlighter } from "./modules/tts/wordHighlighter.js";
 
-import { ViewManager } from "./modules/ui/viewManager.js";
 import { InteractionHandler } from "./modules/ui/interactionHandler.js";
 import { ControlsManager } from "./modules/ui/controlsManager.js";
 import { HighlightManager } from "./modules/ui/highlightManager.js";
@@ -49,7 +48,6 @@ export class PDFTTSApp {
 
         // UI
         this.ui = new UIService(this);
-        this.viewManager = new ViewManager(this);
         this.interactionHandler = new InteractionHandler(this);
         this.controlsManager = new ControlsManager(this);
         this.highlightManager = new HighlightManager(this);
@@ -90,13 +88,28 @@ export class PDFTTSApp {
     }
 
     async initialize() {
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        if (icon) {
+            icon.textContent = "hourglass_empty";
+            icon.classList.add("animate-spin");
+        }
+
         await this._ensureAriaRegions();
         await this._loadInitialPDF();
         await this.ttsEngine.ensurePiper(this.config.DEFAULT_PIPER_VOICE);
+
+        if (icon) {
+            icon.textContent = "play_arrow";
+            icon.classList.remove("animate-spin");
+        }
     }
 
     // Public API methods preserving original signatures:
     async loadPDF(file = null, options = {}) {
+        if (file !== null) {
+            const nopdf = document.getElementById("no-pdf-overlay");
+            nopdf.style.display = "none";
+        }
         return this.pdfLoader.loadPDF(file, options);
     }
 
@@ -135,9 +148,16 @@ export class PDFTTSApp {
     }
 
     togglePlay() {
-        const icon = document.querySelector("#play-toggle i");
-        if (icon) icon.className = "fa-solid fa-spinner fa-spin";
-        this.audioManager.togglePlay();
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        if (!icon) return;
+
+        if (this.audioManager.isPlaying) {
+            this.audioManager.togglePlay();
+            icon.textContent = "play_arrow";
+        } else {
+            this.audioManager.togglePlay();
+            icon.textContent = "pause";
+        }
     }
 
     toggleViewMode() {

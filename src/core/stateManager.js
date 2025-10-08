@@ -45,6 +45,11 @@ export class StateManager {
         this.savedHighlights = new Map();
         this.autoHighlightEnabled = false;
 
+        // Layout Detection Cache
+        this.layoutDetectionCache = new Map(); // pageNumber → { detections, validWordIndices, timestamp }
+        this.layoutCacheVersion = 1; // increment to invalidate
+        this.layoutDetectionInProgress = new Map(); // pageNumber → Promise
+
         // Other runtime
         this.CURRENT_SPEED = 1.0;
         this.audioCtx = null;

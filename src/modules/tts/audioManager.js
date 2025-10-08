@@ -36,11 +36,11 @@ export class AudioManager {
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             this.app.ttsQueue.run();
             try {
-                await waitFor(() => s.audioReady || s.audioError, 45000);
+                await waitFor(() => s.audioReady || s.audioError, 5000);
             } catch {}
         }
         if (!s.audioReady || s.audioError || !s.audioBuffer) {
-            this.app.ui.updateStatus("❌ Audio not ready.");
+            this.app.ui.showInfo("❌ Audio not ready.");
             return;
         }
 
@@ -48,8 +48,14 @@ export class AudioManager {
         state.stopRequested = false;
 
         try {
-            if (state.currentSource) try { state.currentSource.disconnect(); } catch {}
-            if (state.currentGain) try { state.currentGain.disconnect(); } catch {}
+            if (state.currentSource)
+                try {
+                    state.currentSource.disconnect();
+                } catch {}
+            if (state.currentGain)
+                try {
+                    state.currentGain.disconnect();
+                } catch {}
 
             state.currentSource = state.audioCtx.createBufferSource();
             state.currentSource.buffer = s.audioBuffer;
@@ -84,11 +90,12 @@ export class AudioManager {
             state.autoAdvanceActive = true;
             this.updatePlayButton();
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
-
         } catch (err) {
             console.error("Playback error:", err);
-            this.app.ui.updateStatus("Playback error; resetting context.");
-            try { if (state.audioCtx) await state.audioCtx.close(); } catch {}
+            this.app.ui.showInfo("Playback error; resetting context.");
+            try {
+                if (state.audioCtx) await state.audioCtx.close();
+            } catch {}
             state.audioCtx = null;
         }
     }
@@ -106,15 +113,30 @@ export class AudioManager {
                         state.currentGain.gain.setValueAtTime(val, now);
                         state.currentGain.gain.linearRampToValueAtTime(config.MIN_GAIN, now + config.FADE_OUT_SEC);
                     }
-                    setTimeout(() => {
-                        try { state.currentSource.stop(); } catch {}
-                        try { state.currentSource.disconnect(); } catch {}
-                        try { if (state.currentGain) state.currentGain.disconnect(); } catch {}
-                    }, config.FADE_OUT_SEC * 1000 + 10);
+                    setTimeout(
+                        () => {
+                            try {
+                                state.currentSource.stop();
+                            } catch {}
+                            try {
+                                state.currentSource.disconnect();
+                            } catch {}
+                            try {
+                                if (state.currentGain) state.currentGain.disconnect();
+                            } catch {}
+                        },
+                        config.FADE_OUT_SEC * 1000 + 10,
+                    );
                 } else {
-                    try { state.currentSource.stop(); } catch {}
-                    try { state.currentSource.disconnect(); } catch {}
-                    try { if (state.currentGain) state.currentGain.disconnect(); } catch {}
+                    try {
+                        state.currentSource.stop();
+                    } catch {}
+                    try {
+                        state.currentSource.disconnect();
+                    } catch {}
+                    try {
+                        if (state.currentGain) state.currentGain.disconnect();
+                    } catch {}
                 }
             } catch (e) {
                 console.warn("Stop error:", e);

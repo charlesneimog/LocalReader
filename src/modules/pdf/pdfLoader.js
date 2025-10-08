@@ -89,6 +89,12 @@ export class PDFLoader {
         const { app } = this;
         const { state, config } = app;
 
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        if (icon) {
+            icon.textContent = "hourglass_empty";
+            icon.classList.add("animate-spin");
+        }
+
         document.body.style.cursor = "wait";
         try {
             if (file instanceof File) {
@@ -134,11 +140,30 @@ export class PDFLoader {
                 await this.preprocessPage(p);
             }
 
-            app.sentenceParser.buildSentences();
-
-            if (state.viewMode === "full") {
-                await app.pdfRenderer.renderFullDocumentIfNeeded();
+            // NEW: Optionally pre-detect layouts for all pages before sentence parsing
+            // This ensures consistent behavior and better performance
+            if (state.generationEnabled) {
+                console.log("[PDFLoader] Pre-detecting layouts for all pages...");
+                app.ui.showInfo("Analyzing document layout...");
+                
+                // Render all pages first (needed for layout detection)
+                for (let p = 1; p <= state.pdf.numPages; p++) {
+                    await app.pdfRenderer.ensureFullPageRendered(p);
+                }
+                
+                // Then detect layouts in batch
+                const detectionPromises = [];
+                for (let p = 1; p <= state.pdf.numPages; p++) {
+                    detectionPromises.push(
+                        app.pdfHeaderFooterDetector.detectHeadersAndFooters(p)
+                    );
+                }
+                await Promise.all(detectionPromises);
+                console.log("[PDFLoader] Layout detection complete for all pages");
             }
+
+            // Build sentences (now with layout filtering)
+            await app.sentenceParser.buildSentences(1);
 
             let startIndex = 0;
             if (state.currentPdfKey) {
@@ -146,6 +171,10 @@ export class PDFLoader {
                 if (saved && typeof saved.sentenceIndex === "number") {
                     startIndex = Math.min(Math.max(saved.sentenceIndex, 0), state.sentences.length - 1);
                 }
+            }
+
+            if (state.viewMode === "full") {
+                await app.pdfRenderer.renderFullDocumentIfNeeded();
             }
 
             state.savedHighlights = app.highlightsStorage.loadSavedHighlights(state.currentPdfKey);
@@ -161,6 +190,10 @@ export class PDFLoader {
             app.ui.showInfo("Error: " + e.message);
         } finally {
             document.body.style.cursor = "default";
+            if (icon) {
+                icon.textContent = "play_arrow";
+                icon.classList.remove("animate-spin");
+            }
         }
     }
 }

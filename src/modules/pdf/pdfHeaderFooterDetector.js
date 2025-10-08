@@ -4,11 +4,10 @@ export class PDFHeaderFooterDetector {
         this._overlayStylesInjected = false;
         this._pageContainers = new Map();
         this._pendingOverlayData = new Map();
-        this._detectionsByPage = new Map();
 
         this.debug = false;
 
-        // TODO: Move this to threashold
+        // Detection configuration
         this.DETECTION_THRESHOLD = 0.35;
         this.DETECTION_CLASSES = [
             "caption",
@@ -23,6 +22,7 @@ export class PDFHeaderFooterDetector {
             "text",
         ];
 
+        // Only these regions contain text that should be read
         this.ITEMS_TO_READ = ["list-item", "section-header", "text"];
         this._modelReady = this._initModels();
     }
@@ -51,6 +51,8 @@ export class PDFHeaderFooterDetector {
     }
 
     _drawIgnoredDetectionsOverlay(pageNumber, detections, baseCanvas) {
+        if (!this.debug) return; // Only draw in debug mode
+
         const { state } = this.app;
         const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
         let container = document.querySelector(`[data-page-number="${pageNumber}"]`);
@@ -73,15 +75,12 @@ export class PDFHeaderFooterDetector {
         overlay.className = "ignored-overlay";
 
         const ctx = overlay.getContext("2d");
-        ctx.fillStyle = "rgba(255, 0, 0, 0.05)";
+        ctx.fillStyle = "rgba(200, 200, 200, 0.2)";
 
-        // **CORREÇÃO: Usar a mesma escala do _markUnreadableText**
         const canvasWidth = baseCanvas?.width || viewportDisplay.width;
         const canvasHeight = baseCanvas?.height || viewportDisplay.height;
         const scaleX = viewportDisplay.width / canvasWidth;
         const scaleY = viewportDisplay.height / canvasHeight;
-
-        console.log(`Scaling factors: scaleX=${scaleX}, scaleY=${scaleY}`);
 
         let drawnCount = 0;
         for (const det of detections) {
@@ -89,22 +88,16 @@ export class PDFHeaderFooterDetector {
                 let x1, y1, width, height;
 
                 if (det.normalized) {
-                    // Converte para coordenadas do viewport
                     x1 = det.normalized.left * viewportDisplay.width;
                     y1 = det.normalized.top * viewportDisplay.height;
                     width = (det.normalized.right - det.normalized.left) * viewportDisplay.width;
                     height = (det.normalized.bottom - det.normalized.top) * viewportDisplay.height;
                 } else {
-                    // Usa escala se não tiver coordenadas normalizadas
                     x1 = det.x1 * scaleX;
                     y1 = det.y1 * scaleY;
                     width = (det.width || det.x2 - det.x1) * scaleX;
                     height = (det.height || det.y2 - det.y1) * scaleY;
                 }
-
-                console.log(
-                    `Drawing ${det.label}: (${x1.toFixed(1)}, ${y1.toFixed(1)}) ${width.toFixed(1)}x${height.toFixed(1)}`,
-                );
 
                 if (width > 0 && height > 0 && x1 < overlay.width && y1 < overlay.height) {
                     ctx.fillRect(x1, y1, width, height);
@@ -113,134 +106,57 @@ export class PDFHeaderFooterDetector {
             }
         }
 
-        console.log(`Drawn ${drawnCount} ignored regions`);
-
         if (drawnCount > 0) {
             container.appendChild(overlay);
-            console.log("Overlay appended successfully");
         }
-    }
-
-    _markUnreadableText(pageNumber, detections, sourceCanvas = null) {
-        const { state } = this.app;
-        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
-        if (!viewportDisplay) return;
-
-        const sentenceIndices = state.pageSentencesIndex.get(pageNumber) || [];
-        if (!sentenceIndices.length) return;
-        const sentences = sentenceIndices.map((i) => state.sentences[i]).filter(Boolean);
-        if (!sentences.length) return;
-
-        const canvas = sourceCanvas || state.fullPageRenderCache.get(pageNumber);
-        const canvasWidth = canvas?.width || viewportDisplay.width;
-        const canvasHeight = canvas?.height || viewportDisplay.height;
-        const scaleX = canvasWidth ? viewportDisplay.width / canvasWidth : 1;
-        const scaleY = canvasHeight ? viewportDisplay.height / canvasHeight : 1;
-
-        const toDetectionBox = (det) => {
-            if (!det) return null;
-            if (det.normalized) {
-                return {
-                    x1: det.normalized.left * viewportDisplay.width,
-                    y1: det.normalized.top * viewportDisplay.height,
-                    x2: det.normalized.right * viewportDisplay.width,
-                    y2: det.normalized.bottom * viewportDisplay.height,
-                };
-            }
-            if ([det.x1, det.y1, det.x2, det.y2].every((v) => typeof v === "number")) {
-                return {
-                    x1: det.x1 * scaleX,
-                    y1: det.y1 * scaleY,
-                    x2: det.x2 * scaleX,
-                    y2: det.y2 * scaleY,
-                };
-            }
-            return null;
-        };
-
-        const toSentenceBox = (sentence) => {
-            const bbox = sentence?.bbox;
-            if (!bbox) return null;
-            const x1 = bbox.x1 ?? bbox.x ?? 0;
-            const y1 = bbox.y1 ?? bbox.y ?? 0;
-            const x2 = bbox.x2 ?? (bbox.x ?? 0) + (bbox.width ?? 0);
-            const y2 = bbox.y2 ?? (bbox.y ?? 0) + (bbox.height ?? 0);
-            if ([x1, y1, x2, y2].some((v) => Number.isNaN(v))) return null;
-            return { x1, y1, x2, y2 };
-        };
-
-        const TOLERANCE = 20; // pixels around detection boxes to tolerate small misalignments
-        const clampBox = (box) => ({
-            x1: Math.max(0, box.x1 - TOLERANCE),
-            y1: Math.max(0, box.y1 - TOLERANCE),
-            x2: Math.min(viewportDisplay.width, box.x2 + TOLERANCE),
-            y2: Math.min(viewportDisplay.height, box.y2 + TOLERANCE),
-        });
-
-        const detectionBoxes = detections.map((det) => ({ det, box: toDetectionBox(det) })).filter(({ box }) => !!box);
-
-        const readableBoxes = detectionBoxes
-            .filter(({ det }) => this.ITEMS_TO_READ.includes(det.label))
-            .map(({ box }) => clampBox(box));
-
-        const ignoreBoxes = detectionBoxes
-            .filter(({ det }) => !this.ITEMS_TO_READ.includes(det.label))
-            .map(({ box }) => clampBox(box));
-
-        const overlaps = (a, b) => {
-            const overlapX = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
-            const overlapY = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
-            return overlapX > 0 && overlapY > 0;
-        };
-
-        const annotatedSentences = sentences
-            .map((sentence) => ({ sentence, box: toSentenceBox(sentence) }))
-            .filter(({ box }) => !!box);
-
-        for (const { sentence, box } of annotatedSentences) {
-            const insideReadable = readableBoxes.some((r) => overlaps(box, r));
-            const overlapsIgnored = ignoreBoxes.some((r) => overlaps(box, r));
-            const shouldRead = insideReadable && !overlapsIgnored;
-
-            sentence.isTextToRead = shouldRead;
-            sentence.layoutProcessed = true;
-            sentence.layoutFlags = {
-                insideReadable,
-                overlapsIgnored,
-                readableBoxes: readableBoxes.length,
-                ignoreBoxes: ignoreBoxes.length,
-            };
-
-            for (const w of sentence.words) {
-                w.isTextToRead = shouldRead;
-                w.layoutProcessed = true;
-            }
-        }
-
-        const unreadable = annotatedSentences
-            .filter(({ sentence }) => !sentence.isTextToRead)
-            .map(({ sentence }) => sentence);
     }
 
     // ---------- Main Detection ----------
     async detectHeadersAndFooters(pageNumber, scaleFactor = 0.3) {
         await this._ensureModelReady();
 
-        if (this._detectionsByPage.has(pageNumber)) {
-            return this._detectionsByPage.get(pageNumber).detections;
+        // Check cache first
+        const cached = this.app.state.layoutDetectionCache.get(pageNumber);
+        if (cached && cached.cacheVersion === this.app.state.layoutCacheVersion) {
+            console.log(`[Layout] Using cached detection for page ${pageNumber}`);
+            return cached.detections;
         }
 
+        // Check if detection is already in progress for this page
+        if (this.app.state.layoutDetectionInProgress.has(pageNumber)) {
+            console.log(`[Layout] Detection already in progress for page ${pageNumber}, waiting...`);
+            return await this.app.state.layoutDetectionInProgress.get(pageNumber);
+        }
+
+        // Start new detection
+        const detectionPromise = this._performDetection(pageNumber, scaleFactor);
+        this.app.state.layoutDetectionInProgress.set(pageNumber, detectionPromise);
+
+        try {
+            const result = await detectionPromise;
+            return result;
+        } finally {
+            this.app.state.layoutDetectionInProgress.delete(pageNumber);
+        }
+    }
+
+    async _performDetection(pageNumber, scaleFactor) {
         const { state } = this.app;
         const canvas = state.fullPageRenderCache.get(pageNumber);
-        const pagesCache = state.pagesCache.get(pageNumber);
 
-        if (!canvas) return null;
+        if (!canvas) {
+            console.warn(`[Layout] No canvas found for page ${pageNumber}, rendering first...`);
+            await this.app.pdfRenderer.ensureFullPageRendered(pageNumber);
+            return this.detectHeadersAndFooters(pageNumber, scaleFactor); // retry
+        }
 
         const ctx = canvas.getContext("2d");
         if (!ctx) {
-            if (icon) icon.className = this.app.state.isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
+            console.error(`[Layout] Failed to get canvas context for page ${pageNumber}`);
             return null;
         }
+
+        console.log(`[Layout] Running detection for page ${pageNumber}...`);
 
         // temp canvas
         const tmpCanvas = document.createElement("canvas");
@@ -261,9 +177,6 @@ export class PDFHeaderFooterDetector {
         const scaleY = canvas.height / newHeight;
 
         const detections = [];
-        ctx.save();
-        ctx.lineWidth = 2;
-        ctx.font = "16px sans-serif";
         for (const prediction of predictions) {
             const [xmin, ymin, xmax, ymax, score, id] = prediction;
             if (score < this.DETECTION_THRESHOLD) continue;
@@ -276,11 +189,6 @@ export class PDFHeaderFooterDetector {
             const h = Math.max(0, y2 - y1);
 
             const label = this.DETECTION_CLASSES[id] || `class-${id}`;
-            const labelText = `${label} ${(score * 100).toFixed(1)}%`;
-            const textWidth = ctx.measureText(labelText).width;
-
-            const labelBoxHeight = 20;
-            const labelY = Math.max(0, y1 - labelBoxHeight - 2);
 
             detections.push({
                 pageNumber,
@@ -302,18 +210,98 @@ export class PDFHeaderFooterDetector {
             });
         }
 
-        ctx.restore();
+        // Cache the results with word filtering information
+        const cacheEntry = {
+            pageNumber,
+            detections,
+            timestamp: Date.now(),
+            cacheVersion: state.layoutCacheVersion,
+            modelVersion: "yolov10m-doclaynet-v1",
+        };
 
-        const overlayPayload = { detections, canvasWidth: canvas.width, canvasHeight: canvas.height };
-        this._detectionsByPage.set(pageNumber, overlayPayload);
-        this._markUnreadableText(pageNumber, detections, canvas);
-        this.app.ui.showInfo("");
-        this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
+        state.layoutDetectionCache.set(pageNumber, cacheEntry);
+        console.log(`[Layout] Cached ${detections.length} detections for page ${pageNumber}`);
+
+        // Draw overlay if in debug mode
+        if (this.debug) {
+            this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
+        }
 
         return detections;
     }
 
     registerPageDomElement(pageObj, pageContainer) {
         return;
+    }
+
+    /**
+     * NEW METHOD: Filter words based on layout detections
+     * Returns only words that fall inside readable regions
+     */
+    filterReadableWords(pageNumber, words) {
+        const cached = this.app.state.layoutDetectionCache.get(pageNumber);
+
+        // If no layout detection yet, return all words (will be filtered later)
+        if (!cached || !cached.detections) {
+            console.warn(`[Layout] No cached detections for page ${pageNumber}, returning all words`);
+            return words;
+        }
+
+        const detections = cached.detections;
+        const viewportDisplay = this.app.state.viewportDisplayByPage.get(pageNumber);
+        if (!viewportDisplay) return words;
+
+        // Build readable and ignore regions
+        const readableBoxes = [];
+        const ignoreBoxes = [];
+
+        for (const det of detections) {
+            const box = {
+                x1: det.normalized.left * viewportDisplay.width,
+                y1: det.normalized.top * viewportDisplay.height,
+                x2: det.normalized.right * viewportDisplay.width,
+                y2: det.normalized.bottom * viewportDisplay.height,
+            };
+
+            if (this.ITEMS_TO_READ.includes(det.label)) {
+                readableBoxes.push(this._expandBox(box, viewportDisplay));
+            } else {
+                ignoreBoxes.push(this._expandBox(box, viewportDisplay));
+            }
+        }
+
+        // Filter words
+        const filteredWords = words.filter((word) => {
+            const wordBox = {
+                x1: word.x,
+                y1: word.y - word.height,
+                x2: word.x + word.width,
+                y2: word.y,
+            };
+
+            const insideReadable = readableBoxes.some((r) => this._overlaps(wordBox, r));
+            const overlapsIgnored = ignoreBoxes.some((r) => this._overlaps(wordBox, r));
+
+            return insideReadable && !overlapsIgnored;
+        });
+
+        console.log(`[Layout] Page ${pageNumber}: Filtered ${words.length} → ${filteredWords.length} words`);
+        return filteredWords;
+    }
+
+    _expandBox(box, viewportDisplay) {
+        const TOLERANCE = 20;
+        return {
+            x1: Math.max(0, box.x1 - TOLERANCE),
+            y1: Math.max(0, box.y1 - TOLERANCE),
+            x2: Math.min(viewportDisplay.width, box.x2 + TOLERANCE),
+            y2: Math.min(viewportDisplay.height, box.y2 + TOLERANCE),
+        };
+    }
+
+    _overlaps(a, b) {
+        const overlapX = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+        const overlapY = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+        return overlapX > 0 && overlapY > 0;
     }
 }

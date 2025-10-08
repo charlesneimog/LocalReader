@@ -15,13 +15,12 @@ export class TTSQueueManager {
         if (!s || s.audioReady || s.audioInProgress) return;
 
         if (!s.layoutProcessed) {
-            this.app.ui.showInfo("Detecting layout of page" + s.pageNumber);
-            const icon = document.querySelector("#play-toggle i");
-            if (icon) icon.className = "fa-solid fa-spinner fa-spin";
-            this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(s.pageNumber);
-            if (icon) icon.className = "fa-solid fa-spinner fa-spin";
-            if (icon) icon.className = state.isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
-            this.app.ui.showInfo("");
+            const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+            if (!icon) return;
+            icon.textContent = "autorenew";
+            this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(s.pageNumber).then(() => {
+                icon.textContent = state.isPlaying ? "pause" : "play_arrow";
+            });
         }
 
         if (!s.isTextToRead) {

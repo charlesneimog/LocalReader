@@ -1,13 +1,17 @@
 <!doctype html>
 <html lang="en">
     <head>
-        <meta charset="UTF-8" />
-        <title>PDF Word Highlighter + Piper TTS</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-        <link rel="manifest" href="manifest.webmanifest" />
-        <meta name="theme-color" content="#2b2b2b" />
+        <meta charset="utf-8" />
+        <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+        <title>PDF Reader</title>
 
-        <!-- Threads (activate CORS) -->
+        <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+        <link href="https://fonts.googleapis.com" rel="preconnect" />
+        <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+        <link rel="stylesheet" href="src/css/style.css" />
+
         <script src="./threads.js"></script>
 
         <!-- PDF.js -->
@@ -23,246 +27,244 @@
         <!-- pdf-lib for exporting annotated PDF -->
         <script src="thirdparty/pdf/pdf-lib.js"></script>
 
-        <!-- Font Awesome -->
-        <link rel="stylesheet" href="thirdparty/font-awesome/all.css" />
-        <link rel="stylesheet" href="src/css/style.css" />
-
         <!-- Kinde Auth -->
         <script src="https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.umd.min.js"></script>
 
-        <style></style>
-    </head>
-    <body>
         <script>
-            if ("serviceWorker" in navigator) {
-                navigator.serviceWorker
-                    .register("service-worker.js")
-                    .then((reg) => console.log("Service Worker registrado:", reg.scope))
-                    .catch((err) => console.error("Erro no Service Worker:", err));
-            }
+            tailwind.config = {
+                darkMode: "class",
+                theme: {
+                    extend: {
+                        colors: {
+                            primary: "#137fec",
+                            "background-light": "#f6f7f8",
+                            "background-dark": "#101922",
+                            "highlight-yellow": "#fff8b0",
+                        },
+                        fontFamily: { display: ["Inter"] },
+                        borderRadius: { DEFAULT: "0.25rem", full: "9999px" },
+                    },
+                },
+            };
         </script>
 
-        <div id="controls" class="toolbar">
-            <div class="btn-group">
-                <button id="open-file" class="icon-btn" title="Open PDF (File Dialog)">
-                    <i id="pdf-open" class="fa-solid fa-folder-open"></i>
-                </button>
-                <button id="export-highlights" class="icon-btn" title="Export PDF with highlights">
-                    <i class="fa-solid fa-floppy-disk"></i>
-                </button>
-                <button data-essential="true" id="toggle-fullscreen" class="icon-btn" title="Toggle Full Screen">
-                    <i class="fa-solid fa-expand"></i>
-                </button>
-            </div>
+        <style>
+            html,
+            body {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                overflow: hidden;
+            }
+            #pdf-container {
+                position: fixed;
+                inset: 0;
+                background: #fff;
+            }
+            .group:hover .group-hover-block {
+                display: block;
+            }
+            .peer:checked ~ .peer-checked-block {
+                display: block;
+            }
+        </style>
+    </head>
+    <body class="bg-background-light dark:bg-background-dark font-display text-slate-800 dark:text-slate-200">
+        <!-- Área do PDF em tela cheia -->
+        <div style="display: none" id="viewer-wrapper">
+            <canvas id="pdf-canvas"></canvas>
+        </div>
+        <div id="pdf-doc-container"></div>
 
-            <div class="btn-group">
-                <button data-essential="true" id="prev-page" class="icon-btn" title="Previous Page">
-                    <i class="fa-solid fa-circle-left"></i>
-                </button>
-                <button
-                    data-essential="true"
-                    id="prev-sentence"
-                    class="icon-btn"
-                    title="Previous Sentence (Arrow Left)"
-                >
-                    <i class="fa-solid fa-backward" aria-hidden="true"></i>
-                </button>
-                <button
-                    data-essential="true"
-                    id="play-toggle"
-                    class="icon-btn"
-                    data-state="play"
-                    title="Play / Pause (Space)"
-                >
-                    <i class="fa-solid fa-play" aria-hidden="true" id="play-toggle-icon"></i>
-                </button>
-                <button data-essential="true" id="next-sentence" class="icon-btn" title="Next Sentence (Arrow Right)">
-                    <i class="fa-solid fa-forward" aria-hidden="true"></i>
-                </button>
-                <button data-essential="true" id="next-page" class="icon-btn" title="Next Page">
-                    <i class="fa-solid fa-circle-right"></i>
-                </button>
-            </div>
-
-            <div class="btn-group">
-                <input
-                    type="color"
-                    id="highlight-color"
-                    value="#ffeb3b"
-                    title="Highlight Color"
-                    aria-label="Highlight Color"
-                />
-                <button id="save-highlight" class="icon-btn" title="Save current sentence highlight">
-                    <i class="fa-solid fa-highlighter"></i>
-                </button>
-            </div>
-
-            <!-- <div class="spacer" aria-hidden="true"></div> -->
-            <!-- <div class="book-tts-info"> -->
-            <div aria-hidden="true" id="info-box" style="padding: 10px; flex: 1"></div>
-            <!-- </div> -->
-
-            <div class="select-cluster">
-                <div class="select-group" title="Voice">
-                    <i id="mic-icon" class="fa-solid fa-spin fa-spinner" aria-hidden="true"></i>
-                    <label for="voice-select" class="sr-only">Voice</label>
-                    <select id="voice-select" aria-label="Voice"></select>
-                </div>
-                <div class="select-group" title="Playback Speed">
-                    <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
-                    <label for="rate-select" class="sr-only">Playback Speed</label>
-                    <select id="rate-select" aria-label="Playback Speed">
-                        <option value="0.5">0.5x</option>
-                        <option value="0.75">0.75x</option>
-                        <option value="1.0" selected>1.0x</option>
-                        <option value="1.25">1.25x</option>
-                        <option value="1.5">1.5x</option>
-                        <option value="1.75">1.75x</option>
-                        <option value="2.0">2.0x</option>
-                    </select>
-                </div>
-                <button id="help-button">
-                    <i class="fa-regular fa-circle-question"></i>
-                </button>
-                <span id="user-avatar"></span>
-            </div>
+        <!-- Overlay centralizado -->
+        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" id="no-pdf-overlay">
+            <span class="material-symbols-outlined text-6xl text-slate-400 dark:text-slate-500"> picture_as_pdf </span>
+            <p class="mt-4 text-slate-500 dark:text-slate-400 text-center">No PDF opened. Please open a PDF file.</p>
         </div>
 
-        <div id="viewer-region">
-            <div style="display: none" id="viewer-wrapper">
-                <canvas id="pdf-canvas"></canvas>
-            </div>
-            <div id="pdf-doc-container"></div>
-        </div>
-
-        <input type="file" id="file-input" accept="application/pdf" style="display: none" />
-        <div style="display: block" id="drop-overlay">Drop a PDF to read it!</div>
-
+        <!-- Config Menu -->
         <div
-            id="access-warning"
-            style="
-                display: none;
-                padding: 12px;
-                border: 1px solid red;
-                background-color: #ffe5e5;
-                color: #a00;
-                border-radius: 8px;
-                margin: 12px 0;
-                font-size: 14px;
-            "
+            style="display: none"
+            class="relative w-full max-w-sm rounded-xl bg-background-light dark:bg-background-dark shadow-2xl m-4"
+        >
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
+                    <button
+                        class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:bg-primary/10 dark:hover:bg-primary/20 hover:text-primary dark:hover:text-primary"
+                    >
+                        <span class="material-symbols-outlined"> close </span>
+                    </button>
+                </div>
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2" for="language"
+                            >Change voice language</label
+                        >
+                        <select
+                            class="form-select w-full rounded-lg bg-background-light dark:bg-background-dark border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-primary focus:border-primary"
+                            id="language"
+                            name="language"
+                        >
+                            <option>English (United States)</option>
+                            <option>Español (España)</option>
+                            <option>Français (France)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2" for="voice"
+                            >Select speaker/voice</label
+                        >
+                        <select
+                            class="form-select w-full rounded-lg bg-background-light dark:bg-background-dark border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-primary focus:border-primary"
+                            id="voice"
+                            name="voice"
+                        >
+                            <option>David (Male)</option>
+                            <option>Zira (Female)</option>
+                            <option>Mark (Male)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2" for="speed"
+                            >Adjust reading speed</label
+                        >
+                        <div class="flex items-center gap-4">
+                            <span class="material-symbols-outlined text-slate-500 dark:text-slate-400">tornado</span>
+                            <input
+                                class="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-primary"
+                                id="speed"
+                                max="2"
+                                min="0.5"
+                                step="0.1"
+                                type="range"
+                                value="1"
+                            />
+                            <span class="material-symbols-outlined text-slate-500 dark:text-slate-400">pets</span>
+                        </div>
+                        <div class="text-center text-sm text-slate-500 dark:text-slate-400 mt-2">1.0x</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Barra de controle flutuante -->
+        <div class="fixed bottom-4 inset-x-0 flex justify-center z-20">
+            <div
+                class="flex items-center gap-2 rounded-lg bg-background-light/80 p-2 shadow-lg backdrop-blur-md dark:bg-background-dark/80"
+            >
+                <div class="flex items-center gap-2">
+                    <span id="user-avatar"></span>
+                    <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
+                </div>
+
+                <button
+                    id="open-file"
+                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                >
+                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">folder_open</span>
+                </button>
+
+                <button
+                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                >
+                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">save</span>
+                </button>
+                <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
+                <button
+                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                >
+                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">skip_previous</span>
+                </button>
+                <button
+                    id="play-toggle"
+                    class="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-white"
+                >
+                    <span class="material-symbols-outlined">play_arrow</span>
+                </button>
+                <button
+                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                >
+                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">skip_next</span>
+                </button>
+                <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
+                <button
+                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                >
+                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300"
+                        >format_ink_highlighter</span
+                    >
+                </button>
+
+                <div class="relative">
+                    <input class="peer sr-only" id="color-menu-toggle" type="checkbox" />
+                    <label
+                        class="flex cursor-pointer items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                        for="color-menu-toggle"
+                    >
+                        <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">palette</span>
+                    </label>
+                    <div
+                        class="peer-checked-block absolute bottom-full mb-2 hidden w-40 rounded-lg bg-background-light/90 p-2 shadow-lg backdrop-blur-md dark:bg-background-dark/90"
+                    >
+                        <p class="px-2 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                            Highlight Color
+                        </p>
+                        <div class="mt-1 grid grid-cols-4 gap-2">
+                            <button class="h-8 w-8 rounded-full border-2 border-primary bg-[#fff8b0]"></button>
+                            <button
+                                class="h-8 w-8 rounded-full bg-[#bde6f4] hover:border-2 hover:border-primary/50"
+                            ></button>
+                            <button
+                                class="h-8 w-8 rounded-full bg-[#c9f9c9] hover:border-2 hover:border-primary/50"
+                            ></button>
+                            <button
+                                class="h-8 w-8 rounded-full bg-[#fdd9e1] hover:border-2 hover:border-primary/50"
+                            ></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
+                    <button
+                        id="settings-button"
+                        class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                    >
+                        <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">settings</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mensagem de status -->
+        <div
+            id="info-box"
+            class="fixed bottom-4 right-4 z-30 rounded-lg bg-background-light/80 px-4 py-2 text-sm text-slate-600 shadow-lg backdrop-blur-md dark:bg-background-dark/80 dark:text-slate-300"
         ></div>
 
-        <!--
-        !  ╭───────────────────────────────────╮
-        !  │             Help Div              │
-        !  ╰───────────────────────────────────╯
-        -->
-        <div
-            id="help-overlay"
-            style="
-                display: none;
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0, 0, 0, 0.8);
-                color: white;
-                z-index: 1000;
-                padding: 40px;
-                overflow: auto;
-            "
-        >
-            <button
-                id="help-close"
-                style="
-                    position: absolute;
-                    top: 20px;
-                    right: 20px;
-                    font-size: 20px;
-                    background: none;
-                    border: 1px solid white;
-                    color: white;
-                    padding: 5px 10px;
-                    cursor: pointer;
-                "
-            >
-                Close
-            </button>
+        <!-- input file -->
+        <input type="file" id="file-input" accept="application/pdf" style="display: none" />
 
-            <div style="max-width: 600px; margin: 200px auto">
-                <h2 style="text-align: center">Help</h2>
-                <p style="text-align: center">
-                    This is a simple description of how to use the PDF Word Highlighter + Piper TTS app:
-                </p>
-                <ul>
-                    <li>Open a PDF using the folder icon: <i class="fa-solid fa-folder-open"></i></li>
-                    <li>Click sentences to play them using TTS.</li>
-                    <li>Adjust voice and speed from the dropdowns.</li>
-                    <hr />
-
-                    <li>Press <code>Space</code> to toggle Play/Pause</li>
-                    <li>Highlight text using the highlighter button or press <code>H</code>.</li>
-                    <li>Use <code>Arrows</code> to go to next/previous phrase</li>
-                </ul>
-            </div>
-        </div>
-
-        <!-- App (modular) -->
         <script type="module">
             import { app } from "./src/app.js";
-            window.initializePdfApp = () => app.initialize();
-            window.loadPDF = (file, options) => app.loadPDF(file, options);
-            window.toggleViewMode = () => app.toggleViewMode();
-            window.nextSentence = () => app.nextSentence(true);
-            window.prevSentence = () => app.prevSentence(true);
-            window.playSentence = () => app.audioManager.playCurrentSentence();
-            window.togglePlay = () => app.togglePlay();
 
-            window.listSavedProgress = () => app.listSavedProgress();
-            window.clearPdfProgress = (key) => app.clearPdfProgress(key);
-
-            window.listSavedHighlights = () => app.listSavedHighlights();
-            window.clearPdfHighlights = (key) => app.clearPdfHighlights(key);
-            window.exportHighlights = () => app.exportPdfWithHighlights();
-            window.saveHighlight = () => app.saveCurrentSentenceHighlight();
-
-            window.addEventListener("DOMContentLoaded", async () => {
-                await app.initialize();
-            });
-        </script>
-
-        <script>
-            const dropOverlay = document.getElementById("drop-overlay");
-            let dragCounter = 0;
-            window.addEventListener("dragenter", (e) => {
-                e.preventDefault();
-                dragCounter++;
-                dropOverlay.classList.add("active");
-            });
-            window.addEventListener("dragover", (e) => e.preventDefault());
-            window.addEventListener("dragleave", (e) => {
-                e.preventDefault();
-                dragCounter = Math.max(0, dragCounter - 1);
-                if (!dragCounter) dropOverlay.classList.remove("active");
-            });
-            window.addEventListener("drop", async (e) => {
-                e.preventDefault();
-                dragCounter = 0;
-                dropOverlay.classList.remove("active");
-                const file = e.dataTransfer.files[0];
-                if (file && /\.pdf$/i.test(file.name)) {
-                    if (window.loadPDF) await window.loadPDF(file);
-                } else alert("Not a valid PDF file!");
-            });
-
-            const fileInput = document.getElementById("file-input");
+            // File Open
             document.getElementById("open-file").addEventListener("click", () => fileInput.click());
+            const fileInput = document.getElementById("file-input");
             fileInput.addEventListener("change", async (e) => {
                 const file = e.target.files[0];
                 if (file && /\.pdf$/i.test(file.name)) {
                     if (window.loadPDF) await window.loadPDF(file);
                 } else alert("Not a valid PDF file!");
+            });
+
+            // Initialize
+            window.addEventListener("DOMContentLoaded", async () => {
+                setTimeout(() => {
+                    app.initialize();
+                    const fileInput = document.getElementById("file-input");
+                }, 500);
             });
         </script>
     </body>

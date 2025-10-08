@@ -12,7 +12,7 @@ export class ExportManager {
             return;
         }
         try {
-            this.app.ui.updateStatus("Preparing PDF export...");
+            this.app.ui.showInfo("Preparing PDF export...");
             let pdfBytes;
             if (state.currentPdfDescriptor.type === "file") {
                 if (state.currentPdfDescriptor.fileObject) {
@@ -38,7 +38,7 @@ export class ExportManager {
                 highlightsByPage.get(pageNum).push({
                     sentence,
                     color: highlightData.color,
-                    text: sentence.text
+                    text: sentence.text,
                 });
             }
 
@@ -67,7 +67,7 @@ export class ExportManager {
                             width: pdfWidth,
                             height: pdfHeight,
                             color: pdfColor,
-                            opacity: 0.3
+                            opacity: 0.3,
                         });
                     }
                 }
@@ -86,11 +86,12 @@ export class ExportManager {
             a.download = filename;
             a.click();
             URL.revokeObjectURL(url);
-            this.app.ui.updateStatus(`Exported: ${filename}`);
+            this.app.ui.showInfo(`Exported: ${filename}`);
         } catch (error) {
             console.error("Export failed:", error);
-            this.app.ui.updateStatus("Export failed: " + error.message);
+            this.app.ui.showInfo("Export failed: " + error.message);
             alert("Failed to export PDF: " + error.message);
         }
     }
 }
+

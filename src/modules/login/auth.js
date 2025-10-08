@@ -43,13 +43,15 @@ export class Login {
         const avatarSpan = document.getElementById("user-avatar");
         const user = await client.getUserProfile();
         avatarSpan.innerHTML = "";
+
         const img = document.createElement("img");
         img.src = user?.picture || "default-avatar.png";
         img.alt = user?.given_name || "User avatar";
         img.id = "login-user";
-        img.style.width = "40px";
-        img.style.height = "40px";
-        img.style.borderRadius = "5px";
+
+        // Estilo redondo e tamanho igual aos botões
+        img.className = "w-10 rounded-full object-cover";
+
         avatarSpan.appendChild(img);
     }
 

@@ -36,6 +36,7 @@ export class InteractionHandler {
 
     handlePointerClick(e) {
         const { state } = this.app;
+
         const mapped = mapClientPointToPdf(e, state, this.app.config);
         if (!mapped) return;
         const idx = hitTestSentence(state, mapped.pageNumber, mapped.xDisplay, mapped.yDisplay);
@@ -52,75 +53,99 @@ export class InteractionHandler {
         const pdfDocContainer = document.getElementById("pdf-doc-container");
 
         if (pdfCanvas) {
-            pdfCanvas.addEventListener("mousemove", e => this.handlePointerMove(e));
+            pdfCanvas.addEventListener("mousemove", (e) => this.handlePointerMove(e));
             pdfCanvas.addEventListener("mouseleave", () => this.setHoveredSentence(-1));
-            pdfCanvas.addEventListener("click", e => this.handlePointerClick(e));
-            
+            pdfCanvas.addEventListener("click", (e) => this.handlePointerClick(e));
+
             // Enhanced touch support for mobile
-            pdfCanvas.addEventListener("touchstart", (e) => {
-                if (e.touches && e.touches[0]) {
-                    const touch = e.touches[0];
-                    const synthetic = {
-                        clientX: touch.clientX,
-                        clientY: touch.clientY,
-                        target: document.elementFromPoint(touch.clientX, touch.clientY)
-                    };
-                    this.handlePointerClick(synthetic);
-                }
-            }, { passive: true });
-            
+            pdfCanvas.addEventListener(
+                "touchstart",
+                (e) => {
+                    if (e.touches && e.touches[0]) {
+                        const touch = e.touches[0];
+                        const synthetic = {
+                            clientX: touch.clientX,
+                            clientY: touch.clientY,
+                            target: document.elementFromPoint(touch.clientX, touch.clientY),
+                        };
+                        this.handlePointerClick(synthetic);
+                    }
+                },
+                { passive: true },
+            );
+
             // Add touchmove for hover effect on mobile
-            pdfCanvas.addEventListener("touchmove", (e) => {
-                if (e.touches && e.touches[0]) {
-                    const touch = e.touches[0];
-                    const synthetic = {
-                        clientX: touch.clientX,
-                        clientY: touch.clientY,
-                        target: document.elementFromPoint(touch.clientX, touch.clientY)
-                    };
-                    this.handlePointerMove(synthetic);
-                }
-            }, { passive: true });
-            
-            pdfCanvas.addEventListener("touchend", () => {
-                this.setHoveredSentence(-1);
-            }, { passive: true });
+            pdfCanvas.addEventListener(
+                "touchmove",
+                (e) => {
+                    if (e.touches && e.touches[0]) {
+                        const touch = e.touches[0];
+                        const synthetic = {
+                            clientX: touch.clientX,
+                            clientY: touch.clientY,
+                            target: document.elementFromPoint(touch.clientX, touch.clientY),
+                        };
+                        this.handlePointerMove(synthetic);
+                    }
+                },
+                { passive: true },
+            );
+
+            pdfCanvas.addEventListener(
+                "touchend",
+                () => {
+                    this.setHoveredSentence(-1);
+                },
+                { passive: true },
+            );
         }
 
         if (pdfDocContainer) {
-            pdfDocContainer.addEventListener("mousemove", e => this.handlePointerMove(e));
+            pdfDocContainer.addEventListener("mousemove", (e) => this.handlePointerMove(e));
             pdfDocContainer.addEventListener("mouseleave", () => this.setHoveredSentence(-1));
-            pdfDocContainer.addEventListener("click", e => this.handlePointerClick(e));
-            
+            pdfDocContainer.addEventListener("click", (e) => this.handlePointerClick(e));
+
             // Enhanced touch support for mobile
-            pdfDocContainer.addEventListener("touchstart", (e) => {
-                if (e.touches && e.touches[0]) {
-                    const touch = e.touches[0];
-                    const synthetic = {
-                        clientX: touch.clientX,
-                        clientY: touch.clientY,
-                        target: document.elementFromPoint(touch.clientX, touch.clientY)
-                    };
-                    this.handlePointerClick(synthetic);
-                }
-            }, { passive: true });
-            
+            pdfDocContainer.addEventListener(
+                "touchstart",
+                (e) => {
+                    if (e.touches && e.touches[0]) {
+                        const touch = e.touches[0];
+                        const synthetic = {
+                            clientX: touch.clientX,
+                            clientY: touch.clientY,
+                            target: document.elementFromPoint(touch.clientX, touch.clientY),
+                        };
+                        this.handlePointerClick(synthetic);
+                    }
+                },
+                { passive: true },
+            );
+
             // Add touchmove for hover effect on mobile
-            pdfDocContainer.addEventListener("touchmove", (e) => {
-                if (e.touches && e.touches[0]) {
-                    const touch = e.touches[0];
-                    const synthetic = {
-                        clientX: touch.clientX,
-                        clientY: touch.clientY,
-                        target: document.elementFromPoint(touch.clientX, touch.clientY)
-                    };
-                    this.handlePointerMove(synthetic);
-                }
-            }, { passive: true });
-            
-            pdfDocContainer.addEventListener("touchend", () => {
-                this.setHoveredSentence(-1);
-            }, { passive: true });
+            pdfDocContainer.addEventListener(
+                "touchmove",
+                (e) => {
+                    if (e.touches && e.touches[0]) {
+                        const touch = e.touches[0];
+                        const synthetic = {
+                            clientX: touch.clientX,
+                            clientY: touch.clientY,
+                            target: document.elementFromPoint(touch.clientX, touch.clientY),
+                        };
+                        this.handlePointerMove(synthetic);
+                    }
+                },
+                { passive: true },
+            );
+
+            pdfDocContainer.addEventListener(
+                "touchend",
+                () => {
+                    this.setHoveredSentence(-1);
+                },
+                { passive: true },
+            );
         }
     }
 }

@@ -8,6 +8,7 @@ export class ControlsManager {
     _cacheDOMElements() {
         this.voiceSelect = document.getElementById("voice-select");
         this.speedSelect = document.getElementById("rate-select");
+
         this.btnNextSentence = document.getElementById("next-sentence");
         this.btnPrevSentence = document.getElementById("prev-sentence");
         this.btnPlayToggle = document.getElementById("play-toggle");
@@ -16,6 +17,7 @@ export class ControlsManager {
         this.bntHelp = document.getElementById("help-button");
         this.bntHelpClose = document.getElementById("help-close");
         this.bntFullScreen = document.getElementById("toggle-fullscreen");
+
         this.saveHighlightBtn = document.getElementById("save-highlight");
         this.exportHighlightsBtn = document.getElementById("export-highlights");
         this.highlightColorPicker = document.getElementById("highlight-color");
@@ -52,8 +54,7 @@ export class ControlsManager {
         if (this.saveHighlightBtn) {
             this.saveHighlightBtn.addEventListener("click", () => {
                 this.app.highlightManager.saveCurrentSentenceHighlight();
-                this.app.ui.updateStatus("Highlight saved!");
-                setTimeout(() => this.app.ui.updateStatus(""), 2000);
+                this.app.ui.showInfo("Highlight saved!");
             });
         }
         if (this.exportHighlightsBtn) {

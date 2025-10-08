@@ -22,20 +22,10 @@ export class PDFRenderer {
         const offCtx = off.getContext("2d");
         await page.render({ canvasContext: offCtx, viewport: viewportRender }).promise;
         state.fullPageRenderCache.set(pageNumber, off);
-
-        // classify page
-        if (this.app.state.generationEnabled) {
-            this.app.ui.showInfo("Detecting layout of page" + pageNumber);
-            const icon = document.querySelector("#play-toggle i");
-            if (icon) icon.className = "fa-solid fa-spinner fa-spin";
-            this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(pageNumber);
-            if (icon) icon.className = "fa-solid fa-spinner fa-spin";
-            if (icon) icon.className = state.isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
-            this.app.ui.showInfo("");
-        } else {
-            this.app.ui.showInfo("");
-        }
-
+        
+        // Layout detection is now handled separately in PDFLoader
+        // No need to run it here on every render
+        
         return off;
     }
 
@@ -407,28 +397,23 @@ export class PDFRenderer {
         if (idx < 0 || idx >= state.sentences.length) return;
         state.currentSentenceIndex = idx;
         const sentence = state.sentences[idx];
+
+        // Layout is already processed during sentence creation
+        // No need to check or re-run detection here
+
         const pageNumber = sentence.pageNumber;
-
-        if (!sentence.isTextToRead && sentence.layoutProcessed) {
-            //console.log("Skipping non-readable sentence:", sentence.text);
-            this.app.nextSentence(true);
-            return;
-        }
-
         const pdfCanvas = document.getElementById("pdf-canvas");
         const pdfDocContainer = document.getElementById("pdf-doc-container");
 
-        if (state.viewMode === "full") {
-            if (pdfCanvas) pdfCanvas.style.display = "none";
-            if (pdfDocContainer) pdfDocContainer.style.display = "block";
-            this.updateHighlightFullDoc(sentence);
-            this.scrollSentenceIntoView(sentence);
-        } else {
-            alert("OLD CODE DETECTED");
-            return;
-        }
+        if (pdfCanvas) pdfCanvas.style.display = "none";
+        if (pdfDocContainer) pdfDocContainer.style.display = "block";
+        this.updateHighlightFullDoc(sentence);
+        this.scrollSentenceIntoView(sentence);
 
         this.app.ui.showInfo(`Sentence ${sentence.index + 1}/${state.sentences.length} (Page ${pageNumber})`);
+        this.app.ttsQueue.add(state.currentSentenceIndex, true);
+        this.app.ttsQueue.run();
+
         this.app.audioManager.updatePlayButton();
         this.app.ttsEngine.schedulePrefetch();
         this.app.progressManager.saveProgress();

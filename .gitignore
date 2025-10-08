@@ -1,0 +1,4 @@
+src/modules/tts/.cache/clangd/index
+src/modules/tts/build
+src/modules/tts/en_US-hfc_female-medium.onnx
+src/modules/tts/en_US-hfc_female-medium.onnx.json

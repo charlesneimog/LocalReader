@@ -27,6 +27,9 @@
         <link rel="stylesheet" href="thirdparty/font-awesome/all.css" />
         <link rel="stylesheet" href="src/css/style.css" />
 
+        <!-- Kinde Auth -->
+        <script src="https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.umd.min.js"></script>
+
         <style></style>
     </head>
     <body>
@@ -121,6 +124,7 @@
                 <button id="help-button">
                     <i class="fa-regular fa-circle-question"></i>
                 </button>
+                <span id="user-avatar"></span>
             </div>
         </div>
 
@@ -133,6 +137,20 @@
 
         <input type="file" id="file-input" accept="application/pdf" style="display: none" />
         <div style="display: block" id="drop-overlay">Drop a PDF to read it!</div>
+
+        <div
+            id="access-warning"
+            style="
+                display: none;
+                padding: 12px;
+                border: 1px solid red;
+                background-color: #ffe5e5;
+                color: #a00;
+                border-radius: 8px;
+                margin: 12px 0;
+                font-size: 14px;
+            "
+        ></div>
 
         <!--
         !  ╭───────────────────────────────────╮

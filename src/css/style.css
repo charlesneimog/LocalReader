@@ -109,6 +109,25 @@ body {
     }
 }
 
+#login-user {
+    font: inherit;
+    border: 1px solid var(--border);
+    background: var(--btn-bg);
+    color: var(--fg);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition:
+        background 0.25s,
+        border-color 0.25s,
+        transform 0.15s;
+    min-height: 40px;
+}
+
 button,
 select,
 input[type="color"] {

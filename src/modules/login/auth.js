@@ -19,11 +19,15 @@ export class Login {
     }
 
     async init() {
+        let returnUrl = window.location.href;
+        if (window.location.href.includes("charlesneimog")) {
+            returnUrl = "https://charlesneimog.github.io/pdf-tts-reader/";
+        }
+
         const client = await createKindeClient({
             domain: "https://pdfcastia.kinde.com",
             client_id: "28453f64b8634f94b45bcec091eadc89",
-            redirect_uri: window.location.origin,
-            logout_uri: window.location.origin,
+            redirect_uri: returnUrl,
         });
 
         const isAuthenticated = await client.isAuthenticated();

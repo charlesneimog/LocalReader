@@ -1,6 +1,6 @@
 {
-  "name": "PDF Local IA Podcast",
-  "short_name": "PDF IA Podcast",
+  "name": "PDFCastia",
+  "short_name": "PDFCastia",
   "description": "Listen to your podcasts with local IA",
   "start_url": "./index.html",
   "display": "standalone",
@@ -23,6 +23,19 @@
       "src": "assets/screenshots/screenshot1.png",
       "sizes": "1900x1080",
       "type": "image/png"
-    },
-  ]
+    }
+  ],
+  "icons": [
+  {
+    "src": "assets/icons/icon-192x192.png",
+    "sizes": "192x192",
+    "type": "image/png"
+  },
+  {
+    "src": "assets/icons/icon-512x512.png",
+    "sizes": "512x512",
+    "type": "image/png"
+  }
+]
+
 }

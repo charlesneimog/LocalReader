@@ -47,99 +47,6 @@
                 },
             };
         </script>
-
-        <style>
-            html,
-            body {
-                margin: 0;
-                padding: 0;
-                height: 100%;
-                overflow: hidden;
-            }
-
-            #pdf-container {
-                position: fixed;
-                inset: 0;
-                background: #fff;
-            }
-
-            .group:hover .group-hover-block {
-                display: block;
-            }
-
-            .peer:checked ~ .peer-checked-block {
-                display: block;
-            }
-
-            /* ----------------------------- */
-            /* ✅ RESPONSIVE FIXES BELOW     */
-            /* ----------------------------- */
-
-            @media (max-width: 768px) {
-                /* Compress floating toolbar on mobile */
-                .fixed.bottom-4.inset-x-0 > div {
-                    flex-wrap: wrap;
-                    gap: 0.25rem;
-                    padding: 0.5rem;
-                    max-width: 95vw;
-                    margin: 0 auto;
-                }
-
-                .fixed.bottom-4.inset-x-0 button {
-                    padding: 0.4rem;
-                }
-
-                .fixed.bottom-4.inset-x-0 .material-symbols-outlined {
-                    font-size: 1.25rem !important;
-                }
-
-                /* Make config menu into centered modal */
-                #config-menu {
-                    position: fixed !important;
-                    bottom: auto !important;
-                    top: 50% !important;
-                    left: 50% !important;
-                    transform: translate(-50%, -50%) !important;
-                    width: 90vw !important;
-                    max-height: 80vh !important;
-                    overflow-y: auto !important;
-                    padding: 1rem !important;
-                    z-index: 50 !important;
-                }
-
-                /* Fix highlight color menu overflow */
-                #color-menu-toggle + label + div {
-                    position: fixed !important;
-                    bottom: 6rem !important;
-                    left: 50% !important;
-                    transform: translateX(-50%) !important;
-                    width: 12rem !important;
-                    max-width: 90vw !important;
-                    z-index: 50 !important;
-                }
-            }
-
-            /* Prevent menus from going off-screen */
-            #config-menu,
-            #color-menu-toggle + label + div {
-                max-width: 95vw;
-                word-wrap: break-word;
-            }
-
-            /* Background overlay for mobile modal */
-            #mobile-overlay {
-                display: none;
-                position: fixed;
-                inset: 0;
-                background: rgba(0, 0, 0, 0.5);
-                backdrop-filter: blur(2px);
-                z-index: 40;
-            }
-
-            #mobile-overlay.active {
-                display: block;
-            }
-        </style>
     </head>
 
     <body class="bg-background-light dark:bg-background-dark font-display text-slate-800 dark:text-slate-200">
@@ -155,9 +62,6 @@
             <p class="mt-4 text-slate-500 dark:text-slate-400 text-center">Please open a PDF file.</p>
         </div>
 
-        <!-- Mobile background overlay -->
-        <div id="mobile-overlay"></div>
-
         <!-- Floating Toolbar -->
         <div class="fixed bottom-4 inset-x-0 flex flex-wrap justify-center z-20">
             <div
@@ -165,9 +69,7 @@
             >
                 <!-- wrapper igual ao botão (mesmo padding e hover) -->
                 <!-- Hidden on small screens, visible on medium and up -->
-                <div
-                    class="hidden md:flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
-                >
+                <div class="items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20">
                     <span
                         id="user-avatar"
                         class="inline-block w-5 h-5 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700"
@@ -267,7 +169,7 @@
                     </div>
                 </div>
 
-                <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
+                <!-- <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div> -->
 
                 <!-- Settings Menu -->
                 <div class="relative">
@@ -336,12 +238,12 @@
         </div>
 
         <!-- Status Message -->
+        <!-- Status Message -->
+        <!-- Status Message -->
         <div
             id="info-box"
-            class="fixed bottom-4 sm:bottom-20 right-4 z-40 rounded-lg bg-background-light/80 px-4 py-2 text-sm text-slate-600 shadow-lg backdrop-blur-md dark:bg-background-dark/80 dark:text-slate-300"
+            class="fixed z-30 rounded-lg bg-background-light/80 px-4 py-2 text-sm text-slate-600 shadow-lg backdrop-blur-md dark:bg-background-dark/80 dark:text-slate-300 bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm md:bottom-4 md:right-4 md:left-auto md:translate-x-0 md:w-auto"
         ></div>
-
-        <input type="file" id="file-input" accept="application/pdf" style="display: none" />
 
         <script type="module">
             import { app } from "./src/app.js";

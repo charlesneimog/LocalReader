@@ -24,7 +24,7 @@
         <script src="thirdparty/ort.js"></script>
         <script src="thirdparty/piper/piper-tts-proper.js"></script>
 
-        <!-- pdf-lib for exporting annotated PDF -->
+        <!-- pdf-lib -->
         <script src="thirdparty/pdf/pdf-lib.js"></script>
 
         <!-- Kinde Auth -->
@@ -32,7 +32,7 @@
 
         <script>
             tailwind.config = {
-                darkMode: "class",
+                darkMode: "media",
                 theme: {
                     extend: {
                         colors: {
@@ -56,90 +56,186 @@
                 height: 100%;
                 overflow: hidden;
             }
+
             #pdf-container {
                 position: fixed;
                 inset: 0;
                 background: #fff;
             }
+
             .group:hover .group-hover-block {
                 display: block;
             }
+
             .peer:checked ~ .peer-checked-block {
+                display: block;
+            }
+
+            /* ----------------------------- */
+            /* ✅ RESPONSIVE FIXES BELOW     */
+            /* ----------------------------- */
+
+            @media (max-width: 768px) {
+                /* Compress floating toolbar on mobile */
+                .fixed.bottom-4.inset-x-0 > div {
+                    flex-wrap: wrap;
+                    gap: 0.25rem;
+                    padding: 0.5rem;
+                    max-width: 95vw;
+                    margin: 0 auto;
+                }
+
+                .fixed.bottom-4.inset-x-0 button {
+                    padding: 0.4rem;
+                }
+
+                .fixed.bottom-4.inset-x-0 .material-symbols-outlined {
+                    font-size: 1.25rem !important;
+                }
+
+                /* Make config menu into centered modal */
+                #config-menu {
+                    position: fixed !important;
+                    bottom: auto !important;
+                    top: 50% !important;
+                    left: 50% !important;
+                    transform: translate(-50%, -50%) !important;
+                    width: 90vw !important;
+                    max-height: 80vh !important;
+                    overflow-y: auto !important;
+                    padding: 1rem !important;
+                    z-index: 50 !important;
+                }
+
+                /* Fix highlight color menu overflow */
+                #color-menu-toggle + label + div {
+                    position: fixed !important;
+                    bottom: 6rem !important;
+                    left: 50% !important;
+                    transform: translateX(-50%) !important;
+                    width: 12rem !important;
+                    max-width: 90vw !important;
+                    z-index: 50 !important;
+                }
+            }
+
+            /* Prevent menus from going off-screen */
+            #config-menu,
+            #color-menu-toggle + label + div {
+                max-width: 95vw;
+                word-wrap: break-word;
+            }
+
+            /* Background overlay for mobile modal */
+            #mobile-overlay {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(2px);
+                z-index: 40;
+            }
+
+            #mobile-overlay.active {
                 display: block;
             }
         </style>
     </head>
+
     <body class="bg-background-light dark:bg-background-dark font-display text-slate-800 dark:text-slate-200">
-        <!-- Área do PDF em tela cheia -->
+        <!-- PDF Display -->
         <div style="display: none" id="viewer-wrapper">
             <canvas id="pdf-canvas"></canvas>
         </div>
         <div id="pdf-doc-container"></div>
 
-        <!-- Overlay centralizado -->
+        <!-- No PDF Overlay -->
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" id="no-pdf-overlay">
             <span class="material-symbols-outlined text-6xl text-slate-400 dark:text-slate-500"> picture_as_pdf </span>
             <p class="mt-4 text-slate-500 dark:text-slate-400 text-center">Please open a PDF file.</p>
         </div>
 
-        <!-- Barra de controle flutuante -->
-        <div class="fixed bottom-4 inset-x-0 flex justify-center z-20">
+        <!-- Mobile background overlay -->
+        <div id="mobile-overlay"></div>
+
+        <!-- Floating Toolbar -->
+        <div class="fixed bottom-4 inset-x-0 flex flex-wrap justify-center z-20">
             <div
-                class="flex items-center gap-2 rounded-lg bg-background-light/80 p-2 shadow-lg backdrop-blur-md dark:bg-background-dark/80"
+                class="flex flex-wrap items-center gap-2 rounded-lg bg-background-light/80 p-2 shadow-lg backdrop-blur-md dark:bg-background-dark/80"
             >
-                <div class="flex items-center gap-2">
-                    <span id="user-avatar"></span>
-                    <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
+                <!-- wrapper igual ao botão (mesmo padding e hover) -->
+                <!-- Hidden on small screens, visible on medium and up -->
+                <div
+                    class="hidden md:flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                >
+                    <span
+                        id="user-avatar"
+                        class="inline-block w-5 h-5 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700"
+                    ></span>
                 </div>
 
                 <button
                     id="open-file"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
-                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">folder_open</span>
+                    <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
+                        >folder_open</span
+                    >
                 </button>
 
                 <button
-                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                     id="export-highlights"
+                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
-                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">save</span>
+                    <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300">save</span>
                 </button>
+
                 <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
+
                 <button
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
-                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">skip_previous</span>
+                    <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
+                        >skip_previous</span
+                    >
                 </button>
+
                 <button
                     id="play-toggle"
                     class="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-white"
                 >
                     <span class="material-symbols-outlined">play_arrow</span>
                 </button>
+
                 <button
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
-                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">skip_next</span>
+                    <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300">skip_next</span>
                 </button>
+
                 <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
+
                 <button
-                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                     id="save-highlight"
+                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
-                    <span class="material-symbols-outlined text-slate-600 dark:text-slate-300"
+                    <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
                         >format_ink_highlighter</span
                     >
                 </button>
 
+                <!-- Highlight Color Menu -->
                 <div class="relative">
                     <input class="peer sr-only" id="color-menu-toggle" type="checkbox" />
                     <label
                         class="flex cursor-pointer items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                         for="color-menu-toggle"
                     >
-                        <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">palette</span>
+                        <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
+                            >palette</span
+                        >
                     </label>
+
                     <div
                         class="peer-checked-block absolute bottom-full mb-2 hidden w-40 rounded-lg bg-background-light/90 p-2 shadow-lg backdrop-blur-md dark:bg-background-dark/90"
                     >
@@ -149,54 +245,50 @@
                         <div class="mt-1 grid grid-cols-4 gap-2" id="highlight-color-options">
                             <button
                                 type="button"
-                                class="h-8 w-8 rounded-full highlight-color-option"
+                                class="h-8 w-8 rounded-full bg-yellow-200 highlight-color-option"
                                 data-highlight-color="#fff8b0"
-                                aria-label="Yellow highlight"
                             ></button>
                             <button
                                 type="button"
-                                class="h-8 w-8 rounded-full highlight-color-option"
+                                class="h-8 w-8 rounded-full bg-blue-200 highlight-color-option"
                                 data-highlight-color="#bde6f4"
-                                aria-label="Blue highlight"
                             ></button>
                             <button
                                 type="button"
-                                class="h-8 w-8 rounded-full highlight-color-option"
+                                class="h-8 w-8 rounded-full bg-green-200 highlight-color-option"
                                 data-highlight-color="#c9f9c9"
-                                aria-label="Green highlight"
                             ></button>
                             <button
                                 type="button"
-                                class="h-8 w-8 rounded-full highlight-color-option"
+                                class="h-8 w-8 rounded-full bg-pink-200 highlight-color-option"
                                 data-highlight-color="#fdd9e1"
-                                aria-label="Pink highlight"
                             ></button>
                         </div>
                     </div>
                 </div>
 
-                <div class="flex gap-2">
-                    <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
-                </div>
+                <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
 
+                <!-- Settings Menu -->
                 <div class="relative">
                     <button
                         id="settings-button"
                         class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                     >
-                        <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">settings</span>
+                        <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
+                            >settings</span
+                        >
                     </button>
 
-                    <!-- Config Menu -->
                     <div
                         id="config-menu"
-                        class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 hidden flex-col gap-2 rounded-lg bg-background-light/90 p-6 shadow-lg backdrop-blur-md dark:bg-background-dark/100 z-30 w-96"
+                        class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 hidden flex-col gap-2 rounded-lg p-4 sm:p-6 shadow-lg bg-background-light/90 dark:bg-background-dark/90 z-30 w-72 sm:w-96"
                     >
                         <div class="flex items-center justify-between mb-6">
                             <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
                             <button
                                 id="config-menu-close"
-                                class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:bg-primary/10 dark:hover:bg-primary/20 hover:text-primary dark:hover:text-primary"
+                                class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary"
                             >
                                 <span class="material-symbols-outlined">close</span>
                             </button>
@@ -204,63 +296,38 @@
 
                         <div class="space-y-6">
                             <div>
-                                <label
-                                    class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
-                                    for="language"
+                                <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
                                     >Change voice language</label
                                 >
                                 <select
+                                    id="voice-select"
                                     class="form-select w-full rounded-lg bg-background-light dark:bg-background-dark border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-primary focus:border-primary"
-                                    id="language"
-                                    name="language"
-                                >
-                                    <option>English (United States)</option>
-                                    <option>Español (España)</option>
-                                    <option>Français (France)</option>
-                                </select>
+                                ></select>
                             </div>
 
                             <div>
-                                <label
-                                    class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
-                                    for="voice"
-                                    >Select speaker/voice</label
-                                >
-                                <select
-                                    class="form-select w-full rounded-lg bg-background-light dark:bg-background-dark border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-primary focus:border-primary"
-                                    id="voice"
-                                    name="voice"
-                                >
-                                    <option>David (Male)</option>
-                                    <option>Zira (Female)</option>
-                                    <option>Mark (Male)</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label
-                                    class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
-                                    for="speed"
+                                <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
                                     >Adjust reading speed</label
                                 >
                                 <div class="flex items-center gap-4">
-                                    <span class="material-symbols-outlined text-slate-500 dark:text-slate-400"
-                                        >tornado</span
-                                    >
+                                    <span class="mdi mdi-tortoise text-slate-500 dark:text-slate-400"></span>
                                     <input
-                                        class="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-primary"
-                                        id="speed"
-                                        max="2"
-                                        min="0.5"
-                                        step="0.1"
+                                        id="reading-speed"
                                         type="range"
+                                        min="0.5"
+                                        max="2"
+                                        step="0.1"
                                         value="1"
+                                        class="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-primary"
                                     />
-                                    <span class="material-symbols-outlined text-slate-500 dark:text-slate-400"
-                                        >pets</span
-                                    >
+                                    <span class="mdi mdi-hare text-slate-500 dark:text-slate-400"></span>
                                 </div>
-                                <div class="text-center text-sm text-slate-500 dark:text-slate-400 mt-2">1.0x</div>
+                                <div
+                                    id="reading-speed-value"
+                                    class="text-center text-sm text-slate-500 dark:text-slate-400 mt-2"
+                                >
+                                    1.0x
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -268,44 +335,59 @@
             </div>
         </div>
 
-        <!-- Mensagem de status -->
+        <!-- Status Message -->
         <div
             id="info-box"
-            class="fixed bottom-4 right-4 z-30 rounded-lg bg-background-light/80 px-4 py-2 text-sm text-slate-600 shadow-lg backdrop-blur-md dark:bg-background-dark/80 dark:text-slate-300"
+            class="fixed bottom-4 sm:bottom-20 right-4 z-40 rounded-lg bg-background-light/80 px-4 py-2 text-sm text-slate-600 shadow-lg backdrop-blur-md dark:bg-background-dark/80 dark:text-slate-300"
         ></div>
 
-        <!-- input file -->
         <input type="file" id="file-input" accept="application/pdf" style="display: none" />
 
         <script type="module">
             import { app } from "./src/app.js";
 
-            // File Open
-            document.getElementById("open-file").addEventListener("click", () => fileInput.click());
-            const fileInput = document.getElementById("file-input");
-            fileInput.addEventListener("change", async (e) => {
-                const file = e.target.files[0];
-                if (file && /\.pdf$/i.test(file.name)) {
-                    if (window.loadPDF) await window.loadPDF(file);
-                } else alert("Not a valid PDF file!");
-            });
-
-            // Initialize
             window.addEventListener("DOMContentLoaded", async () => {
-                setTimeout(() => {
-                    app.initialize();
-                    const fileInput = document.getElementById("file-input");
-                }, 2000);
-            });
-            const settingsBtn = document.getElementById("settings-button");
-            const settingsMenu = document.getElementById("config-menu");
-            const configMenuClose = document.getElementById("config-menu-close");
+                const fileInput = document.getElementById("file-input");
+                const settingsBtn = document.getElementById("settings-button");
+                const settingsMenu = document.getElementById("config-menu");
+                const configMenuClose = document.getElementById("config-menu-close");
+                const overlay = document.getElementById("mobile-overlay");
 
-            settingsBtn.addEventListener("click", () => {
-                settingsMenu.classList.toggle("hidden");
-            });
-            configMenuClose.addEventListener("click", () => {
-                settingsMenu.classList.toggle("hidden");
+                document.getElementById("open-file").addEventListener("click", () => fileInput.click());
+                fileInput.addEventListener("change", async (e) => {
+                    const file = e.target.files[0];
+                    if (file && /\.pdf$/i.test(file.name)) {
+                        if (window.loadPDF) await window.loadPDF(file);
+                    } else alert("Not a valid PDF file!");
+                });
+
+                // Toggle settings modal
+                settingsBtn.addEventListener("click", () => {
+                    settingsMenu.classList.toggle("hidden");
+                    overlay.classList.toggle("active");
+                });
+
+                configMenuClose.addEventListener("click", () => {
+                    settingsMenu.classList.add("hidden");
+                    overlay.classList.remove("active");
+                });
+
+                // Close menus when clicking outside
+                document.addEventListener("click", (e) => {
+                    const colorMenu = document.querySelector("#color-menu-toggle + label + div");
+                    const colorCheckbox = document.getElementById("color-menu-toggle");
+
+                    if (!settingsMenu.contains(e.target) && !settingsBtn.contains(e.target)) {
+                        settingsMenu.classList.add("hidden");
+                        overlay.classList.remove("active");
+                    }
+
+                    if (!colorMenu.contains(e.target) && !colorCheckbox.contains(e.target)) {
+                        colorCheckbox.checked = false;
+                    }
+                });
+
+                app.initialize();
             });
         </script>
     </body>

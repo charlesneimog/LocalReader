@@ -144,12 +144,21 @@ export class TTSEngine {
         if (!state.generationEnabled) return;
         const s = state.sentences[idx];
         if (!s) return;
+        if (!s.isTextToRead) {
+            return;
+        }
         const voiceSelect = document.getElementById("voice-select");
         const voice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
         if (s.audioReady && s.lastVoice === voice && s.lastSpeed === state.CURRENT_SPEED) return;
         if (s.audioInProgress) return;
 
-        const norm = normalizeText(s.text);
+        const sourceText = s.readableText && s.readableText.trim().length ? s.readableText : s.text;
+        if (!sourceText || !sourceText.trim().length) {
+            s.audioError = new Error("No readable text available for synthesis");
+            return;
+        }
+
+        const norm = normalizeText(sourceText);
         s.normalizedText = norm;
         const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;
         if (state.audioCache.has(cacheKey)) {
@@ -191,7 +200,7 @@ export class TTSEngine {
         } finally {
             s.audioInProgress = false;
             if (icon) {
-                icon.textContent = "play_arrow";
+                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
                 icon.classList.remove("animate-spin");
             }
         }

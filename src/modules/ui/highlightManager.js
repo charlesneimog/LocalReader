@@ -1,22 +1,30 @@
-import { hexToRgb } from "../utils/helpers.js";
-
 export class HighlightManager {
     constructor(app) {
         this.app = app;
     }
 
     saveCurrentSentenceHighlight(color = null) {
-        const { state } = this.app;
+    const { state } = this.app;
+    if (!state) return;
         if (state.currentSentenceIndex < 0 || state.currentSentenceIndex >= state.sentences.length) return;
-        const picker = document.getElementById("highlight-color");
-        const highlightColor = color || picker?.value || "#ffeb3b";
+        const highlightColor = color || state.selectedHighlightColor || "#fff8b0";
         state.savedHighlights.set(state.currentSentenceIndex, {
             color: highlightColor,
             timestamp: Date.now(),
-            sentenceText: state.sentences[state.currentSentenceIndex].text
+            sentenceText: state.sentences[state.currentSentenceIndex].text,
         });
+        state.selectedHighlightColor = highlightColor;
         this.app.highlightsStorage.saveHighlightsForPdf();
         this.app.pdfRenderer.updateHighlightDisplay();
+        this.app.controlsManager.reflectSelectedHighlightColor();
+    }
+
+    setSelectedHighlightColor(color) {
+    const { state } = this.app;
+    if (!state || !color) return;
+    state.selectedHighlightColor = color;
+        this.app.pdfRenderer.updateHighlightDisplay();
+        this.app.controlsManager?.reflectSelectedHighlightColor?.();
     }
 
     clearHighlight(sentenceIndex) {
@@ -26,3 +34,4 @@ export class HighlightManager {
         this.app.pdfRenderer.updateHighlightDisplay();
     }
 }
+

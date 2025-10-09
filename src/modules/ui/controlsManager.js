@@ -20,7 +20,7 @@ export class ControlsManager {
 
         this.saveHighlightBtn = document.getElementById("save-highlight");
         this.exportHighlightsBtn = document.getElementById("export-highlights");
-        this.highlightColorPicker = document.getElementById("highlight-color");
+        this.highlightColorButtons = Array.from(document.querySelectorAll(".highlight-color-option"));
         this.infoBox = document.getElementById("info-box");
         this.ttsStatus = document.getElementById("tts-status");
         this.overlayHelp = document.getElementById("help-overlay");
@@ -59,6 +59,17 @@ export class ControlsManager {
         }
         if (this.exportHighlightsBtn) {
             this.exportHighlightsBtn.addEventListener("click", () => this.app.exportManager.exportPdfWithHighlights());
+        }
+        if (this.highlightColorButtons?.length) {
+            this.highlightColorButtons.forEach((btn) => {
+                btn.setAttribute("aria-pressed", "false");
+                btn.setAttribute("role", "button");
+                btn.addEventListener("click", () => {
+                    const color = btn.dataset.highlightColor;
+                    if (!color) return;
+                    this.app.highlightManager?.setSelectedHighlightColor(color);
+                });
+            });
         }
         if (this.voiceSelect) {
             this.voiceSelect.addEventListener("change", () => {
@@ -115,6 +126,8 @@ export class ControlsManager {
                 }
             }, 150);
         });
+
+        this.reflectSelectedHighlightColor();
     }
 
     collapseToolbar() {
@@ -185,5 +198,22 @@ export class ControlsManager {
             this.wakeLock.release();
             this.wakeLock = null;
         }
+    }
+
+    reflectSelectedHighlightColor() {
+        if (!this.highlightColorButtons?.length) return;
+        const selectedColor = this.app.state?.selectedHighlightColor;
+        let activeButton = null;
+        if (selectedColor) {
+            activeButton = this.highlightColorButtons.find(
+                (btn) => btn.dataset.highlightColor === selectedColor,
+            );
+        }
+        if (!activeButton) activeButton = this.highlightColorButtons[0];
+        this.highlightColorButtons.forEach((btn) => {
+            const isActive = btn === activeButton;
+            btn.classList.toggle("is-active", isActive);
+            btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
     }
 }

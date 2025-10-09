@@ -233,6 +233,19 @@ input[type="color"]:hover:not(:disabled) {
     z-index: 5;
 }
 
+.highlight-color-option {
+    border: 2px solid transparent;
+    outline: none;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.highlight-color-option.is-active {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 2px rgba(19, 127, 236, 0.35);
+    border-color: rgba(19, 127, 236, 0.7);
+}
+
 #drop-overlay {
     position: fixed;
     inset: 0;

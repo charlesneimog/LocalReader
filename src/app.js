@@ -99,7 +99,7 @@ export class PDFTTSApp {
         await this.ttsEngine.ensurePiper(this.config.DEFAULT_PIPER_VOICE);
 
         if (icon) {
-            icon.textContent = "play_arrow";
+            icon.textContent = this.state.isPlaying ? "pause" : "play_arrow";
             icon.classList.remove("animate-spin");
         }
     }
@@ -151,13 +151,8 @@ export class PDFTTSApp {
         const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
         if (!icon) return;
 
-        if (this.audioManager.isPlaying) {
-            this.audioManager.togglePlay();
-            icon.textContent = "play_arrow";
-        } else {
-            this.audioManager.togglePlay();
-            icon.textContent = "pause";
-        }
+        this.audioManager.togglePlay();
+        icon.textContent = this.state.isPlaying ? "pause" : "play_arrow";
     }
 
     toggleViewMode() {

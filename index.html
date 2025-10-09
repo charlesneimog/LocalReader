@@ -3,7 +3,12 @@
     <head>
         <meta charset="utf-8" />
         <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-        <title>PDF Reader</title>
+        <title>PDF Local IA Podcast</title>
+
+        <!-- Web Manifest -->
+        <link rel="manifest" href="manifest.webmanifest" />
+        <meta name="theme-color" content="#2b2b2b" />
+        <meta name="description" content="Listen to your podcasts with local IA" />
 
         <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
         <link href="https://fonts.googleapis.com" rel="preconnect" />
@@ -238,13 +243,12 @@
         </div>
 
         <!-- Status Message -->
-        <!-- Status Message -->
-        <!-- Status Message -->
         <div
             id="info-box"
             class="fixed z-30 rounded-lg bg-background-light/80 px-4 py-2 text-sm text-slate-600 shadow-lg backdrop-blur-md dark:bg-background-dark/80 dark:text-slate-300 bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm md:bottom-4 md:right-4 md:left-auto md:translate-x-0 md:w-auto"
         ></div>
 
+        <input type="file" style="display: none" id="file-input" />
         <script type="module">
             import { app } from "./src/app.js";
 
@@ -291,6 +295,11 @@
 
                 app.initialize();
             });
+        </script>
+        <script>
+            if (typeof navigator.serviceWorker !== "undefined") {
+                navigator.serviceWorker.register("sw.js");
+            }
         </script>
     </body>
 </html>

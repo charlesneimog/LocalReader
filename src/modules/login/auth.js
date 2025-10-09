@@ -49,8 +49,8 @@ export class Login {
         img.alt = user?.given_name || "User avatar";
         img.id = "login-user";
 
-        // Estilo redondo e tamanho igual aos botões
-        img.className = "w-10 rounded-full object-cover";
+        // Tamanho pequeno e estilo circular consistente com o menu
+        img.className = "w-7 h-7 rounded-full object-cover border border-slate-300 dark:border-slate-600";
 
         avatarSpan.appendChild(img);
     }

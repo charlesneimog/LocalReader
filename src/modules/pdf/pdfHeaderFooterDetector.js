@@ -38,7 +38,6 @@ export class PDFHeaderFooterDetector {
         this.processor = await this.app.transformers.AutoProcessor.from_pretrained(
             "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis",
         );
-        this.app.ui.showInfo("Layout models loaded.");
         this._modelReady = true;
         return true;
     }
@@ -217,15 +216,17 @@ export class PDFHeaderFooterDetector {
             timestamp: Date.now(),
             cacheVersion: state.layoutCacheVersion,
             modelVersion: "yolov10m-doclaynet-v1",
+            readabilityVersion: null,
+            readableWordCount: null,
         };
 
         state.layoutDetectionCache.set(pageNumber, cacheEntry);
         console.log(`[Layout] Cached ${detections.length} detections for page ${pageNumber}`);
 
         // Draw overlay if in debug mode
-        if (this.debug) {
-            this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
-        }
+        // if (this.debug) {
+        this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
+        // }
 
         return detections;
     }
@@ -234,28 +235,11 @@ export class PDFHeaderFooterDetector {
         return;
     }
 
-    /**
-     * NEW METHOD: Filter words based on layout detections
-     * Returns only words that fall inside readable regions
-     */
-    filterReadableWords(pageNumber, words) {
-        const cached = this.app.state.layoutDetectionCache.get(pageNumber);
-
-        // If no layout detection yet, return all words (will be filtered later)
-        if (!cached || !cached.detections) {
-            console.warn(`[Layout] No cached detections for page ${pageNumber}, returning all words`);
-            return words;
-        }
-
-        const detections = cached.detections;
-        const viewportDisplay = this.app.state.viewportDisplayByPage.get(pageNumber);
-        if (!viewportDisplay) return words;
-
-        // Build readable and ignore regions
+    _buildRegionsFromDetections(detections, viewportDisplay) {
         const readableBoxes = [];
         const ignoreBoxes = [];
 
-        for (const det of detections) {
+        for (const det of detections || []) {
             const box = {
                 x1: det.normalized.left * viewportDisplay.width,
                 y1: det.normalized.top * viewportDisplay.height,
@@ -263,30 +247,84 @@ export class PDFHeaderFooterDetector {
                 y2: det.normalized.bottom * viewportDisplay.height,
             };
 
+            const expanded = this._expandBox(box, viewportDisplay);
             if (this.ITEMS_TO_READ.includes(det.label)) {
-                readableBoxes.push(this._expandBox(box, viewportDisplay));
+                readableBoxes.push(expanded);
             } else {
-                ignoreBoxes.push(this._expandBox(box, viewportDisplay));
+                ignoreBoxes.push(expanded);
             }
         }
 
-        // Filter words
-        const filteredWords = words.filter((word) => {
-            const wordBox = {
-                x1: word.x,
-                y1: word.y - word.height,
-                x2: word.x + word.width,
-                y2: word.y,
-            };
+        return { readableBoxes, ignoreBoxes };
+    }
 
-            const insideReadable = readableBoxes.some((r) => this._overlaps(wordBox, r));
-            const overlapsIgnored = ignoreBoxes.some((r) => this._overlaps(wordBox, r));
+    async ensureReadabilityForPage(pageNumber, { force = false } = {}) {
+        const { state } = this.app;
 
-            return insideReadable && !overlapsIgnored;
-        });
+        const page = state.pagesCache.get(pageNumber);
+        if (!page?.pageWords) {
+            console.warn(`[Layout] No words cached for page ${pageNumber}; skipping readability.`);
+            return { readable: 0, total: 0 };
+        }
 
-        console.log(`[Layout] Page ${pageNumber}: Filtered ${words.length} → ${filteredWords.length} words`);
-        return filteredWords;
+        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+        if (!viewportDisplay) {
+            console.warn(`[Layout] No viewport info for page ${pageNumber}; skipping readability.`);
+            return { readable: 0, total: page.pageWords.length };
+        }
+
+        const detections = await this.detectHeadersAndFooters(pageNumber);
+        const cacheEntry = state.layoutDetectionCache.get(pageNumber);
+        if (!cacheEntry) {
+            console.warn(`[Layout] Missing cache entry for page ${pageNumber} after detection.`);
+            return { readable: 0, total: page.pageWords.length };
+        }
+
+        const alreadyProcessed =
+            !force &&
+            cacheEntry.readabilityVersion === state.layoutCacheVersion &&
+            cacheEntry.readableWordCount !== null;
+
+        if (alreadyProcessed) {
+            this.app.sentenceParser.applyLayoutFilteringToPage(pageNumber);
+            return { readable: cacheEntry.readableWordCount, total: page.pageWords.length };
+        }
+
+        const { readableBoxes, ignoreBoxes } = this._buildRegionsFromDetections(detections, viewportDisplay);
+
+        let readableCount = 0;
+        for (const word of page.pageWords) {
+            const box = word?.bbox
+                ? { x1: word.bbox.x1, y1: word.bbox.y1, x2: word.bbox.x2, y2: word.bbox.y2 }
+                : {
+                      x1: word.x,
+                      y1: word.y - word.height,
+                      x2: word.x + word.width,
+                      y2: word.y,
+                  };
+
+            const insideReadable =
+                readableBoxes.length === 0 ? true : readableBoxes.some((r) => this._overlaps(box, r));
+            const overlapsIgnored = ignoreBoxes.some((r) => this._overlaps(box, r));
+            const isReadable = insideReadable && !overlapsIgnored;
+            word.isReadable = isReadable;
+            if (isReadable) readableCount++;
+        }
+
+        cacheEntry.readabilityVersion = state.layoutCacheVersion;
+        cacheEntry.readableWordCount = readableCount;
+
+        this.app.sentenceParser.applyLayoutFilteringToPage(pageNumber);
+        return { readable: readableCount, total: page.pageWords.length };
+    }
+
+    /**
+     * NEW METHOD: Filter words based on layout detections
+     * Returns only words that fall inside readable regions
+     */
+    async filterReadableWords(pageNumber, words) {
+        await this.ensureReadabilityForPage(pageNumber);
+        return (words || []).filter((word) => word?.isReadable);
     }
 
     _expandBox(box, viewportDisplay) {

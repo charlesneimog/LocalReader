@@ -1,5 +1,5 @@
 import { EVENTS } from "../../constants/events.js";
-import { normalizeText } from "../utils/helpers.js";
+import { normalizeText, cooperativeYield } from "../utils/helpers.js";
 
 export class PDFLoader {
     constructor(app) {
@@ -48,32 +48,41 @@ export class PDFLoader {
             const tokens = item.str.split(/(\s+)/).filter((t) => t.trim().length > 0);
             const markLineBreak = !!item.hasEOL;
 
-            if (tokens.length <= 1) {
-                pageWords.push({
+            const createWord = ({ str, x: xPos, width: wordWidth, lineBreak }) => {
+                const bboxTop = y - height;
+                const word = {
                     pageNumber,
-                    str: item.str.trim(),
-                    x,
+                    str: str.trim(),
+                    x: xPos,
                     y,
-                    width,
+                    width: wordWidth,
                     height,
-                    lineBreak: markLineBreak,
+                    lineBreak: !!lineBreak,
                     font: item.fontName,
-                });
+                    bbox: {
+                        x: xPos,
+                        y: bboxTop,
+                        width: wordWidth,
+                        height,
+                        x1: xPos,
+                        y1: bboxTop,
+                        x2: xPos + wordWidth,
+                        y2: bboxTop + height,
+                    },
+                    isReadable: null,
+                };
+                pageWords.push(word);
+                return word;
+            };
+
+            if (tokens.length <= 1) {
+                createWord({ str: item.str, x, width, lineBreak: markLineBreak });
             } else {
                 const totalChars = tokens.reduce((acc, t) => acc + t.length, 0) || 1;
                 let cursorX = x;
                 for (const tk of tokens) {
                     const w = width * (tk.length / totalChars);
-                    pageWords.push({
-                        pageNumber,
-                        str: tk.trim(),
-                        x: cursorX,
-                        y,
-                        width: w,
-                        height,
-                        lineBreak: false,
-                        font: item.fontName,
-                    });
+                    createWord({ str: tk, x: cursorX, width: w, lineBreak: false });
                     cursorX += w;
                 }
                 if (markLineBreak && pageWords.length) {
@@ -120,10 +129,18 @@ export class PDFLoader {
 
             state.currentPdfKey = this.computePdfKeyFromSource(state.currentPdfDescriptor);
             app.cache.clearAll();
+            state.layoutDetectionCache.clear();
+            state.layoutDetectionInProgress.clear();
+            state.layoutCacheVersion += 1;
+            state.layoutFilteringReady = false;
+            state.layoutFilteringPromise = null;
+            state.generationEnabled = false;
             state.sentences = [];
             state.currentSentenceIndex = -1;
             state.hoveredSentenceIndex = -1;
             state.pageSentencesIndex.clear();
+            state.prefetchedPages.clear();
+            app.ttsQueue.reset();
 
             let arrayBuffer;
             if (file instanceof File) {
@@ -138,28 +155,6 @@ export class PDFLoader {
 
             for (let p = 1; p <= state.pdf.numPages; p++) {
                 await this.preprocessPage(p);
-            }
-
-            // NEW: Optionally pre-detect layouts for all pages before sentence parsing
-            // This ensures consistent behavior and better performance
-            if (state.generationEnabled) {
-                console.log("[PDFLoader] Pre-detecting layouts for all pages...");
-                app.ui.showInfo("Analyzing document layout...");
-                
-                // Render all pages first (needed for layout detection)
-                for (let p = 1; p <= state.pdf.numPages; p++) {
-                    await app.pdfRenderer.ensureFullPageRendered(p);
-                }
-                
-                // Then detect layouts in batch
-                const detectionPromises = [];
-                for (let p = 1; p <= state.pdf.numPages; p++) {
-                    detectionPromises.push(
-                        app.pdfHeaderFooterDetector.detectHeadersAndFooters(p)
-                    );
-                }
-                await Promise.all(detectionPromises);
-                console.log("[PDFLoader] Layout detection complete for all pages");
             }
 
             // Build sentences (now with layout filtering)
@@ -178,10 +173,15 @@ export class PDFLoader {
             }
 
             state.savedHighlights = app.highlightsStorage.loadSavedHighlights(state.currentPdfKey);
+            if (state.savedHighlights.size) {
+                const lastSaved = Array.from(state.savedHighlights.values()).pop();
+                if (lastSaved?.color) state.selectedHighlightColor = lastSaved.color;
+            }
             await app.pdfRenderer.renderSentence(startIndex);
             app.ui.showInfo(`Total sentences: ${state.sentences.length}`);
             app.audioManager.updatePlayButton();
             app.interactionHandler.setupInteractionListeners();
+            app.controlsManager.reflectSelectedHighlightColor();
 
             app.eventBus.emit(EVENTS.PDF_LOADED, { pages: state.pdf.numPages, sentences: state.sentences.length });
             app.eventBus.emit(EVENTS.SENTENCES_PARSED, state.sentences);
@@ -191,9 +191,192 @@ export class PDFLoader {
         } finally {
             document.body.style.cursor = "default";
             if (icon) {
-                icon.textContent = "play_arrow";
+                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
                 icon.classList.remove("animate-spin");
             }
         }
+    }
+
+    async ensureLayoutFilteringReady({ forceRebuild = false } = {}) {
+        const { app } = this;
+        const { state } = app;
+
+        if (!state.pdf) {
+            throw new Error("No PDF is loaded.");
+        }
+
+        if (state.layoutFilteringReady && !forceRebuild) {
+            return;
+        }
+
+        if (state.layoutFilteringPromise) {
+            app.ui.showInfo("Finishing layout analysis...");
+            return state.layoutFilteringPromise;
+        }
+
+        const promise = this._prepareLayoutFiltering({ forceRebuild });
+        state.layoutFilteringPromise = promise;
+        try {
+            await promise;
+        } finally {
+            state.layoutFilteringPromise = null;
+        }
+    }
+
+    async _prepareLayoutFiltering({ forceRebuild = false } = {}) {
+        const { app } = this;
+        const { state } = app;
+
+        app.audioManager.stopPlayback(true);
+        state.autoAdvanceActive = false;
+        state.layoutFilteringReady = false;
+        state.generationEnabled = true;
+        state.audioCache.clear();
+        app.ttsQueue.reset();
+        state.prefetchedPages.clear();
+
+        for (const sentence of state.sentences) {
+            if (!sentence) continue;
+            sentence.layoutProcessed = false;
+            sentence.isTextToRead = false;
+            sentence.readableWords = [];
+            sentence.readableText = "";
+            if (sentence.originalText) sentence.text = sentence.originalText;
+            sentence.layoutProcessingPromise = null;
+        }
+
+        if (forceRebuild) {
+            state.layoutDetectionCache.clear();
+            state.layoutDetectionInProgress.clear();
+            state.layoutCacheVersion += 1;
+            for (const page of state.pagesCache.values()) {
+                if (!page?.pageWords) continue;
+                for (const word of page.pageWords) {
+                    if (word) word.isReadable = null;
+                }
+            }
+        }
+
+        const prevSentence = state.currentSentence || null;
+        const prevIndex = state.currentSentenceIndex;
+
+        app.ui.showInfo("Preparing current page for playback...");
+
+        const targetPages = new Set();
+        if (prevSentence) {
+            targetPages.add(prevSentence.pageNumber);
+        } else if (state.sentences.length) {
+            targetPages.add(state.sentences[0].pageNumber);
+        }
+
+        for (const pageNumber of targetPages) {
+            await app.pdfRenderer.ensureFullPageRendered(pageNumber);
+            await app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber, { force: forceRebuild });
+            await cooperativeYield();
+        }
+
+        if (!state.sentences.length) {
+            app.ui.showInfo("No sentences available in document.");
+            state.currentSentenceIndex = -1;
+            state.hoveredSentenceIndex = -1;
+            state.layoutFilteringReady = true;
+            app.audioManager.updatePlayButton();
+            return;
+        }
+
+        const nextIndex = this._resolveResumeIndex(prevSentence, prevIndex);
+        const clampedIndex = Math.min(Math.max(nextIndex, 0), state.sentences.length - 1);
+        let resolvedIndex = this._findNextReadableSentence(clampedIndex);
+
+        if (resolvedIndex < 0) {
+            // Attempt to find the next readable sentence by processing pages on demand
+            for (let i = 0; i < state.sentences.length; i++) {
+                const sentence = state.sentences[i];
+                if (!sentence || sentence.layoutProcessed) continue;
+                await app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
+                await app.pdfHeaderFooterDetector.ensureReadabilityForPage(sentence.pageNumber, { force: forceRebuild });
+                if (sentence.layoutProcessed && sentence.isTextToRead) {
+                    resolvedIndex = sentence.index;
+                    break;
+                }
+                await cooperativeYield();
+            }
+        }
+
+        if (resolvedIndex >= 0) {
+            await app.pdfRenderer.renderSentence(resolvedIndex);
+            state.layoutFilteringReady = true;
+            app.ui.showInfo(
+                `Layout analysis ready. Starting from sentence ${state.currentSentenceIndex + 1}/${state.sentences.length}.`,
+            );
+        } else {
+            state.currentSentenceIndex = -1;
+            state.hoveredSentenceIndex = -1;
+            state.layoutFilteringReady = true;
+            app.ui.showInfo("No readable sentences found after layout filtering.");
+            app.audioManager.updatePlayButton();
+        }
+    }
+
+    _resolveResumeIndex(prevSentence, prevIndex) {
+        const { state } = this.app;
+
+        if (!prevSentence) {
+            return prevIndex >= 0 ? prevIndex : 0;
+        }
+
+        const targetText = normalizeText(prevSentence.text);
+        const directMatch = state.sentences.findIndex((s) => normalizeText(s.text) === targetText);
+        if (directMatch >= 0) {
+            return directMatch;
+        }
+
+        if (prevSentence.bbox) {
+            let bestIdx = -1;
+            let bestDelta = Number.POSITIVE_INFINITY;
+            for (let i = 0; i < state.sentences.length; i++) {
+                const s = state.sentences[i];
+                if (s.pageNumber !== prevSentence.pageNumber || !s.bbox) continue;
+                const dy = Math.abs(s.bbox.centerY - prevSentence.bbox.centerY);
+                const dx = Math.abs(s.bbox.centerX - prevSentence.bbox.centerX);
+                const delta = dx + dy;
+                if (delta < bestDelta) {
+                    bestDelta = delta;
+                    bestIdx = i;
+                }
+            }
+            if (bestIdx >= 0) {
+                return bestIdx;
+            }
+        }
+
+        const forwardIdx = state.sentences.findIndex((s) => s.pageNumber >= prevSentence.pageNumber);
+        if (forwardIdx >= 0) {
+            return forwardIdx;
+        }
+
+        return state.sentences.length - 1;
+    }
+
+    _findNextReadableSentence(startIndex = 0) {
+        const { state } = this.app;
+        if (!state.sentences.length) return -1;
+        const clampStart = Math.min(Math.max(startIndex, 0), state.sentences.length - 1);
+
+        for (let i = clampStart; i < state.sentences.length; i++) {
+            const sentence = state.sentences[i];
+            if (sentence?.layoutProcessed && sentence.isTextToRead) {
+                return i;
+            }
+        }
+
+        for (let i = clampStart - 1; i >= 0; i--) {
+            const sentence = state.sentences[i];
+            if (sentence?.layoutProcessed && sentence.isTextToRead) {
+                return i;
+            }
+        }
+
+        return -1;
     }
 }

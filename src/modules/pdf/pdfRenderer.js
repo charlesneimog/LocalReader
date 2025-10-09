@@ -7,6 +7,47 @@ export class PDFRenderer {
         this.app = app;
     }
 
+    getReadableWords(sentence) {
+        if (!sentence) return [];
+        if (Array.isArray(sentence.readableWords) && sentence.readableWords.length) {
+            return sentence.readableWords;
+        }
+        if (sentence?.layoutProcessed) {
+            return [];
+        }
+        return Array.isArray(sentence.words) ? sentence.words : [];
+    }
+
+    getSentenceBoundingBox(sentence) {
+        if (!sentence) return null;
+        if (sentence.bboxReadable && sentence.bboxReadable.width && sentence.bboxReadable.height) {
+            return sentence.bboxReadable;
+        }
+        return sentence.bbox || null;
+    }
+
+    async findNextReadableSentenceForward(startIdx, visited) {
+        const { state } = this.app;
+        const seen = visited ?? new Set();
+        for (let i = startIdx + 1; i < state.sentences.length; i++) {
+            if (seen.has(i)) continue;
+            let candidate = state.sentences[i];
+            if (!candidate) continue;
+
+            if (state.generationEnabled && !candidate.layoutProcessed) {
+                await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(candidate.pageNumber);
+                candidate = state.sentences[i];
+            }
+
+            if (!state.generationEnabled || candidate.isTextToRead) {
+                return i;
+            }
+
+            seen.add(i);
+        }
+        return -1;
+    }
+
     async ensureFullPageRendered(pageNumber) {
         const { state } = this.app;
         if (state.fullPageRenderCache.has(pageNumber)) return state.fullPageRenderCache.get(pageNumber);
@@ -22,10 +63,10 @@ export class PDFRenderer {
         const offCtx = off.getContext("2d");
         await page.render({ canvasContext: offCtx, viewport: viewportRender }).promise;
         state.fullPageRenderCache.set(pageNumber, off);
-        
+
         // Layout detection is now handled separately in PDFLoader
         // No need to run it here on every render
-        
+
         return off;
     }
 
@@ -58,9 +99,7 @@ export class PDFRenderer {
                             c.width = Math.round(fullPageCanvas.width);
                             c.height = Math.round(fullPageCanvas.height);
 
-                            // Desenha canvas offscreen escalado para a resolução correta
                             const ctx = c.getContext("2d");
-                            ctx.clearRect(0, 0, c.width, c.height);
                             ctx.drawImage(
                                 fullPageCanvas,
                                 0,
@@ -158,7 +197,7 @@ export class PDFRenderer {
         if (!container) return;
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
         if (!wrapper) return;
-        const bbox = sentence.bbox;
+        const bbox = this.getSentenceBoundingBox(sentence);
         if (!bbox) {
             wrapper.scrollIntoView({ behavior: "smooth", block: "center" });
             return;
@@ -200,14 +239,24 @@ export class PDFRenderer {
             const offsetTop = canvasRect.top - wrapperRect.top;
             const offsetLeft = canvasRect.left - wrapperRect.left;
 
-            for (const word of sentence.words) {
+            const wordsToRender = (() => {
+                const readableWords = this.getReadableWords(sentence);
+                return readableWords.length ? readableWords : sentence.words;
+            })();
+
+            if (!Array.isArray(wordsToRender) || !wordsToRender.length) continue;
+
+            for (const word of wordsToRender) {
                 const div = document.createElement("div");
                 div.className = "persistent-highlight";
                 if (sentenceIndex === state.currentSentenceIndex) div.classList.add("current-playing");
                 div.style.left = offsetLeft + word.x * scale + "px";
+                div.style.top = offsetTop + (word.y - word.height) * scale + "px";
                 div.style.width = word.width * scale + "px";
                 div.style.height = word.height * scale + "px";
-                div.style.backgroundColor = highlightData.color;
+                const rgb = hexToRgb(highlightData.color);
+                if (rgb) div.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)`;
+                else div.style.backgroundColor = "rgba(255, 235, 59, 0.3)";
                 div.style.borderRadius = "2px";
                 div.title = `Highlighted: ${sentence.text.substring(0, 50)}...`;
                 wrapper.appendChild(div);
@@ -237,7 +286,8 @@ export class PDFRenderer {
         const offsetTop = canvasRect.top - wrapperRect.top;
         const offsetLeft = canvasRect.left - wrapperRect.left;
 
-        for (const w of s.words) {
+        const highlightWords = this.getReadableWords(s);
+        for (const w of highlightWords) {
             const div = document.createElement("div");
             div.className = "hover-highlight";
             div.style.left = offsetLeft + w.x * scale + "px";
@@ -277,20 +327,23 @@ export class PDFRenderer {
         const offsetTop = canvasRect.top - wrapperRect.top;
         const offsetLeft = canvasRect.left - wrapperRect.left;
 
-        for (const w of sentence.words) {
-            const div = document.createElement("div");
-            div.className = "pdf-word-highlight";
-            div.style.position = "absolute";
-            div.style.left = offsetLeft + w.x * scale + "px";
-            if (isMobile()) {
-                div.style.top = offsetTop + w.y * scale + "px";
-            } else {
-                div.style.top = offsetTop + (w.y - w.height) * scale + "px";
+        const highlightWords = this.getReadableWords(sentence);
+        if (highlightWords.length) {
+            for (const w of highlightWords) {
+                const div = document.createElement("div");
+                div.className = "pdf-word-highlight";
+                div.style.position = "absolute";
+                div.style.left = offsetLeft + w.x * scale + "px";
+                if (isMobile()) {
+                    div.style.top = offsetTop + w.y * scale + "px";
+                } else {
+                    div.style.top = offsetTop + (w.y - w.height) * scale + "px";
+                }
+                div.style.width = Math.max(1, w.width * scale) + "px";
+                div.style.height = Math.max(1, w.height * scale) + "px";
+                div.style.pointerEvents = "none";
+                wrapper.appendChild(div);
             }
-            div.style.width = Math.max(1, w.width * scale) + "px";
-            div.style.height = Math.max(1, w.height * scale) + "px";
-            div.style.pointerEvents = "none";
-            wrapper.appendChild(div);
         }
 
         // Maintain original functions
@@ -303,7 +356,8 @@ export class PDFRenderer {
         if (!ctx || !sentence) return;
         ctx.save();
         ctx.fillStyle = "rgba(255,255,0,0.28)";
-        for (const w of sentence.words) {
+        const highlightWords = this.getReadableWords(sentence);
+        for (const w of highlightWords) {
             const xR = w.x * state.deviceScale;
             const yTopDisplay = w.y - w.height - offsetYDisplay;
             const yR = yTopDisplay * state.deviceScale;
@@ -326,7 +380,12 @@ export class PDFRenderer {
             if (rgb) ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b},0.3)`;
             else ctx.fillStyle = "rgba(255,235,59,0.3)";
 
-            for (const word of sentence.words) {
+            const highlightWords = (() => {
+                const readableWords = this.getReadableWords(sentence);
+                return readableWords.length ? readableWords : sentence.words;
+            })();
+
+            for (const word of highlightWords) {
                 const xR = word.x * state.deviceScale;
                 const yTopDisplay = word.y - word.height - offsetYDisplay;
                 const yR = yTopDisplay * state.deviceScale;
@@ -337,7 +396,7 @@ export class PDFRenderer {
             }
 
             if (sentenceIndex === state.currentSentenceIndex) {
-                for (const word of sentence.words) {
+                for (const word of highlightWords) {
                     const xR = word.x * state.deviceScale;
                     const yTopDisplay = word.y - word.height - offsetYDisplay;
                     const yR = yTopDisplay * state.deviceScale;
@@ -369,7 +428,8 @@ export class PDFRenderer {
             getComputedStyle(document.documentElement).getPropertyValue("--hover-highlight-stroke") ||
             "rgba(0,150,255,0.9)";
         ctx.lineWidth = 1.2;
-        for (const w of sentence.words) {
+        const highlightWords = this.getReadableWords(sentence);
+        for (const w of highlightWords) {
             const xR = w.x * state.deviceScale;
             const yTopDisplay = w.y - w.height - offsetYDisplay;
             const yR = yTopDisplay * state.deviceScale;
@@ -383,36 +443,93 @@ export class PDFRenderer {
     }
 
     updateHighlightDisplay() {
-        const { state } = this.app;
-        if (state.viewMode === "full") {
-            this.renderSavedHighlightsFullDoc();
-            this.renderHoverHighlightFullDoc();
-        } else {
-            this.renderSentence(state.currentSentenceIndex);
-        }
+        this.renderSavedHighlightsFullDoc();
+        this.renderHoverHighlightFullDoc();
     }
 
-    async renderSentence(idx) {
-        const { state, config } = this.app;
-        if (idx < 0 || idx >= state.sentences.length) return;
-        state.currentSentenceIndex = idx;
-        const sentence = state.sentences[idx];
+    async renderSentence(idx, options = {}) {
+        const { state } = this.app;
+        const { autoAdvance = false } = options;
+        const visited = options.visited ?? new Set();
 
-        // Layout is already processed during sentence creation
-        // No need to check or re-run detection here
+        if (idx < 0 || idx >= state.sentences.length) return;
+        if (visited.has(idx)) return;
+        visited.add(idx);
+
+        let sentence = state.sentences[idx];
+        if (!sentence) return;
 
         const pageNumber = sentence.pageNumber;
         const pdfCanvas = document.getElementById("pdf-canvas");
         const pdfDocContainer = document.getElementById("pdf-doc-container");
+
+        if (state.generationEnabled && !sentence.layoutProcessed) {
+            await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber);
+            sentence = state.sentences[idx];
+        }
+
+        if (state.generationEnabled && !sentence.isTextToRead && autoAdvance) {
+            const nextIdx = await this.findNextReadableSentenceForward(idx, visited);
+            if (nextIdx >= 0 && nextIdx !== idx) {
+                return this.renderSentence(nextIdx, { autoAdvance: true, visited });
+            }
+        }
+
+        state.currentSentenceIndex = idx;
+        sentence = state.sentences[idx];
 
         if (pdfCanvas) pdfCanvas.style.display = "none";
         if (pdfDocContainer) pdfDocContainer.style.display = "block";
         this.updateHighlightFullDoc(sentence);
         this.scrollSentenceIntoView(sentence);
 
-        this.app.ui.showInfo(`Sentence ${sentence.index + 1}/${state.sentences.length} (Page ${pageNumber})`);
-        this.app.ttsQueue.add(state.currentSentenceIndex, true);
-        this.app.ttsQueue.run();
+        if (state.generationEnabled) {
+            let nextReadableIdx = -1;
+            try {
+                nextReadableIdx = await this.findNextReadableSentenceForward(idx, new Set([idx]));
+            } catch (err) {
+                console.warn("[renderSentence] Failed to resolve next readable sentence", err);
+            }
+
+            if (nextReadableIdx >= 0) {
+                const readableSentence = state.sentences[nextReadableIdx];
+                if (readableSentence && readableSentence.pageNumber !== pageNumber) {
+                    const targetPage = readableSentence.pageNumber;
+                    if (!state.prefetchedPages.has(targetPage)) {
+                        state.prefetchedPages.add(targetPage);
+
+                        const queueSentence = () => {
+                            const candidate = state.sentences[nextReadableIdx];
+                            if (!candidate) return;
+                            if (!candidate.layoutProcessed || !candidate.isTextToRead) return;
+                            if (!candidate.audioReady && !candidate.audioInProgress) {
+                                this.app.ttsQueue.add(nextReadableIdx, true);
+                                this.app.ttsQueue.run();
+                            }
+                        };
+
+                        try {
+                            await this.ensureFullPageRendered(targetPage);
+                            await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(targetPage);
+                            queueSentence();
+                        } catch (err) {
+                            console.warn("[renderSentence] Prefetch workflow failed for page", targetPage, err);
+                            state.prefetchedPages.delete(targetPage);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (state.generationEnabled && !sentence.isTextToRead) {
+            this.app.ui.showInfo(
+                `Sentence ${sentence.index + 1} is outside readable layout regions. Select another sentence to play.`,
+            );
+        } else {
+            this.app.ui.showInfo(`Sentence ${sentence.index + 1}/${state.sentences.length} (Page ${pageNumber})`);
+            this.app.ttsQueue.add(state.currentSentenceIndex, true);
+            this.app.ttsQueue.run();
+        }
 
         this.app.audioManager.updatePlayButton();
         this.app.ttsEngine.schedulePrefetch();

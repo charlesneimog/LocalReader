@@ -11,24 +11,40 @@ export class TTSQueueManager {
     add(idx, priority = false) {
         const { state } = this.app;
         if (!state.generationEnabled) return;
-        const s = state.sentences[idx];
-        if (!s || s.audioReady || s.audioInProgress) return;
+        const sentence = state.sentences[idx];
+        if (!sentence || sentence.audioReady || sentence.audioInProgress) return;
 
-        if (!s.layoutProcessed) {
-            const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-            if (!icon) return;
-            icon.textContent = "autorenew";
-            this.app.pdfHeaderFooterDetector.detectHeadersAndFooters(s.pageNumber).then(() => {
-                icon.textContent = state.isPlaying ? "pause" : "play_arrow";
-            });
+        if (!sentence.layoutProcessed) {
+            if (!sentence.layoutProcessingPromise) {
+                const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+                if (icon) {
+                    icon.textContent = "autorenew";
+                    icon.classList.add("animate-spin");
+                }
+                sentence.layoutProcessingPromise = this.app.pdfHeaderFooterDetector
+                    .ensureReadabilityForPage(sentence.pageNumber)
+                    .catch((err) => {
+                        console.warn("Layout filtering failed for sentence", sentence.index, err);
+                    })
+                    .finally(() => {
+                        sentence.layoutProcessingPromise = null;
+                        const iconFinal = document.querySelector("#play-toggle span.material-symbols-outlined");
+                        if (iconFinal) {
+                            iconFinal.textContent = state.isPlaying ? "pause" : "play_arrow";
+                            iconFinal.classList.remove("animate-spin");
+                        }
+                        this.add(idx, priority);
+                    });
+            }
+            return;
         }
 
-        if (!s.isTextToRead) {
+        if (!sentence.isTextToRead) {
             return;
         }
 
         if (this.queue.includes(idx) || this.inFlight.has(idx)) return;
-        s.prefetchQueued = true;
+        sentence.prefetchQueued = true;
         priority ? this.queue.unshift(idx) : this.queue.push(idx);
         this.run();
     }
@@ -43,12 +59,20 @@ export class TTSQueueManager {
 
     async startTask(idx) {
         const { state } = this.app;
-        const s = state.sentences[idx];
-        if (!s) return;
-        if (s.audioReady || s.audioInProgress) {
+        const sentence = state.sentences[idx];
+        if (!sentence) return;
+
+        if (!sentence.layoutProcessed) {
+            this.add(idx, true);
             this.run();
             return;
         }
+
+        if (sentence.audioReady || sentence.audioInProgress || !sentence.isTextToRead) {
+            this.run();
+            return;
+        }
+
         this.active++;
         this.inFlight.add(idx);
         try {
@@ -65,5 +89,7 @@ export class TTSQueueManager {
 
     reset() {
         this.queue = [];
+        this.active = 0;
+        this.inFlight.clear();
     }
 }

@@ -3,6 +3,16 @@ export class SentenceParser {
         this.app = app;
     }
 
+    joinWords(words) {
+        if (!Array.isArray(words) || !words.length) return "";
+        return words
+            .map((w) => (w?.str ? String(w.str).trim() : ""))
+            .filter(Boolean)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
     async buildSentences(startPageNumber = 1) {
         const { app } = this;
         const { config, state } = app;
@@ -12,7 +22,13 @@ export class SentenceParser {
 
         console.log(`[SentenceParser] Building sentences starting from page ${startPageNumber}...`);
 
-        // Process all pages, but start from the specified page
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        if (icon) {
+            icon.textContent = "hourglass_empty";
+            icon.classList.add("animate-spin");
+            await new Promise(requestAnimationFrame);
+        }
+
         for (let pageNum = 1; pageNum <= state.pdf.numPages; pageNum++) {
             const page = state.pagesCache.get(pageNum);
             if (!page?.pageWords) {
@@ -20,12 +36,16 @@ export class SentenceParser {
                 continue;
             }
 
-            // Ensure layout detection is done for this page BEFORE parsing
             if (state.generationEnabled) {
                 await app.pdfHeaderFooterDetector.detectHeadersAndFooters(pageNum);
             }
 
             await this.parsePageWords(pageNum, page);
+        }
+
+        if (icon) {
+            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
+            icon.classList.remove("animate-spin");
         }
 
         console.log(`[SentenceParser] Created ${state.sentences.length} sentences from ${state.pdf.numPages} pages`);
@@ -34,7 +54,7 @@ export class SentenceParser {
     async parsePageWords(pageNumber, page) {
         const { app } = this;
         const { config, state } = app;
-        const abbreviations = ["Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "e.g", "i.e.", "etc", "Fig", "p", "al"];
+    const abbreviations = ["Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "e.g", "i.e.", "etc", "Fig", "p", "al"];
         let sentenceIndex = state.sentences.length; // Continue from existing sentences
 
         function isSentenceEnd(wordStr, nextWordStr) {
@@ -47,14 +67,10 @@ export class SentenceParser {
         }
 
         // CRITICAL: Filter words by layout BEFORE creating sentences
-        let wordsToProcess = page.pageWords;
-        if (state.generationEnabled) {
-            wordsToProcess = app.pdfHeaderFooterDetector.filterReadableWords(pageNumber, page.pageWords);
-
-            if (wordsToProcess.length === 0) {
-                console.warn(`[SentenceParser] Page ${pageNumber} has no readable words after layout filtering`);
-                return;
-            }
+        const wordsToProcess = page.pageWords;
+        if (!wordsToProcess || wordsToProcess.length === 0) {
+            console.warn(`[SentenceParser] Page ${pageNumber} has no words to process`);
+            return;
         }
 
         let buffer = [];
@@ -64,12 +80,19 @@ export class SentenceParser {
         const flush = () => {
             if (!buffer.length) return;
             const bbox = this.combinedBBox(buffer);
-            const text = buffer.map((w) => w.str).join(" ");
+            const allWords = [...buffer];
+            const layoutActive = state.generationEnabled;
+            const initialReadableWords = layoutActive ? [] : allWords;
+            const fallbackWords = initialReadableWords.length ? initialReadableWords : allWords;
             const sentence = {
                 index: sentenceIndex++,
                 pageNumber: pageNumber,
-                words: [...buffer],
-                text,
+                words: allWords,
+                originalWords: allWords,
+                originalText: this.joinWords(allWords),
+                readableWords: [...initialReadableWords],
+                readableText: this.joinWords(initialReadableWords),
+                text: this.joinWords(fallbackWords),
                 bbox,
                 audioBlob: null,
                 wavBlob: null,
@@ -83,8 +106,9 @@ export class SentenceParser {
                 normalizedText: null,
                 wordBoundaries: [],
                 playbackWordTimers: [],
-                layoutProcessed: true, // Already filtered by layout
-                isTextToRead: true, // All words in this sentence are readable
+                layoutProcessed: !layoutActive,
+                isTextToRead: !layoutActive,
+                layoutProcessingPromise: null,
             };
             state.sentences.push(sentence);
             if (!state.pageSentencesIndex.has(pageNumber)) {
@@ -129,6 +153,26 @@ export class SentenceParser {
         }
 
         flush(); // Flush any remaining words
+    }
+
+    applyLayoutFilteringToPage(pageNumber) {
+        const { state } = this.app;
+        const indices = state.pageSentencesIndex.get(pageNumber);
+        if (!indices || !indices.length) return;
+
+        for (const idx of indices) {
+            const sentence = state.sentences[idx];
+            if (!sentence) continue;
+
+            const words = Array.isArray(sentence.words) ? sentence.words : [];
+            const readableWords = words.filter((w) => w?.isReadable);
+            sentence.readableWords = readableWords;
+            sentence.readableText = this.joinWords(readableWords);
+            sentence.text = readableWords.length ? sentence.readableText : this.joinWords(words);
+            sentence.layoutProcessed = true;
+            sentence.isTextToRead = readableWords.length > 0;
+            sentence.bboxReadable = readableWords.length ? this.combinedBBox(readableWords) : null;
+        }
     }
 
     combinedBBox(words) {

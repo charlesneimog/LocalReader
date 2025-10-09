@@ -22,27 +22,66 @@ export class AudioManager {
 
     async playCurrentSentence() {
         const { state, config } = this.app;
+        if (state.isPlaying) return;
+
+        if (!state.pdf) {
+            this.app.ui.showInfo("Load a document before playing.");
+            return;
+        }
+
+        try {
+            await this.app.pdfLoader.ensureLayoutFilteringReady();
+        } catch (err) {
+            console.error("Layout preparation failed:", err);
+            this.app.ui.showInfo("❌ Layout analysis failed. Cannot start playback.");
+            return;
+        }
+
         const s = state.currentSentence;
-        if (!s || state.isPlaying) return;
+        if (!s) {
+            this.app.ui.showInfo("No readable sentences available.");
+            return;
+        }
+
+        if (!s.isTextToRead) {
+            this.app.ui.showInfo("Selected sentence is outside readable layout regions.");
+            return;
+        }
+
         await this.app.ttsEngine.ensureAudioContext();
 
         if (!state.generationEnabled) {
             state.generationEnabled = true;
-            this.app.ttsQueue.add(state.currentSentenceIndex, true);
-            this.app.ttsQueue.run();
-            this.app.ttsEngine.schedulePrefetch();
         }
+
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
         if (!s.audioReady) {
+            if (icon) {
+                icon.textContent = "hourglass_empty";
+                icon.classList.add("animate-spin");
+            }
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             this.app.ttsQueue.run();
             try {
                 await waitFor(() => s.audioReady || s.audioError, 5000);
             } catch {}
         }
+
         if (!s.audioReady || s.audioError || !s.audioBuffer) {
+            if (icon) {
+                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
+                icon.classList.remove("animate-spin");
+            }
             this.app.ui.showInfo("❌ Audio not ready.");
             return;
         }
+
+        if (icon) {
+            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
+            icon.classList.remove("animate-spin");
+        }
+
+        this.app.ttsEngine.schedulePrefetch();
 
         this.stopPlayback(false);
         state.stopRequested = false;
@@ -78,8 +117,11 @@ export class AudioManager {
                 if (state.currentSentenceIndex < state.sentences.length - 1) {
                     await delay(120);
                     if (state.stopRequested) return;
-                    this.app.pdfRenderer.renderSentence(state.currentSentenceIndex + 1);
-                    this.playCurrentSentence();
+                    await this.app.pdfRenderer.renderSentence(state.currentSentenceIndex + 1, { autoAdvance: true });
+                    const nextSentence = state.sentences[state.currentSentenceIndex];
+                    if (!state.generationEnabled || nextSentence?.isTextToRead) {
+                        this.playCurrentSentence();
+                    }
                 }
                 this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
             };

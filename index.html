@@ -79,73 +79,7 @@
         <!-- Overlay centralizado -->
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" id="no-pdf-overlay">
             <span class="material-symbols-outlined text-6xl text-slate-400 dark:text-slate-500"> picture_as_pdf </span>
-            <p class="mt-4 text-slate-500 dark:text-slate-400 text-center">No PDF opened. Please open a PDF file.</p>
-        </div>
-
-        <!-- Config Menu -->
-        <div
-            style="display: none"
-            class="relative w-full max-w-sm rounded-xl bg-background-light dark:bg-background-dark shadow-2xl m-4"
-        >
-            <div class="p-6">
-                <div class="flex items-center justify-between mb-6">
-                    <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
-                    <button
-                        class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:bg-primary/10 dark:hover:bg-primary/20 hover:text-primary dark:hover:text-primary"
-                    >
-                        <span class="material-symbols-outlined"> close </span>
-                    </button>
-                </div>
-                <div class="space-y-6">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2" for="language"
-                            >Change voice language</label
-                        >
-                        <select
-                            class="form-select w-full rounded-lg bg-background-light dark:bg-background-dark border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-primary focus:border-primary"
-                            id="language"
-                            name="language"
-                        >
-                            <option>English (United States)</option>
-                            <option>Español (España)</option>
-                            <option>Français (France)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2" for="voice"
-                            >Select speaker/voice</label
-                        >
-                        <select
-                            class="form-select w-full rounded-lg bg-background-light dark:bg-background-dark border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-primary focus:border-primary"
-                            id="voice"
-                            name="voice"
-                        >
-                            <option>David (Male)</option>
-                            <option>Zira (Female)</option>
-                            <option>Mark (Male)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2" for="speed"
-                            >Adjust reading speed</label
-                        >
-                        <div class="flex items-center gap-4">
-                            <span class="material-symbols-outlined text-slate-500 dark:text-slate-400">tornado</span>
-                            <input
-                                class="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-primary"
-                                id="speed"
-                                max="2"
-                                min="0.5"
-                                step="0.1"
-                                type="range"
-                                value="1"
-                            />
-                            <span class="material-symbols-outlined text-slate-500 dark:text-slate-400">pets</span>
-                        </div>
-                        <div class="text-center text-sm text-slate-500 dark:text-slate-400 mt-2">1.0x</div>
-                    </div>
-                </div>
-            </div>
+            <p class="mt-4 text-slate-500 dark:text-slate-400 text-center">Please open a PDF file.</p>
         </div>
 
         <!-- Barra de controle flutuante -->
@@ -167,6 +101,7 @@
 
                 <button
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                    id="export-highlights"
                 >
                     <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">save</span>
                 </button>
@@ -190,6 +125,7 @@
                 <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
                 <button
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                    id="save-highlight"
                 >
                     <span class="material-symbols-outlined text-slate-600 dark:text-slate-300"
                         >format_ink_highlighter</span
@@ -210,29 +146,124 @@
                         <p class="px-2 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
                             Highlight Color
                         </p>
-                        <div class="mt-1 grid grid-cols-4 gap-2">
-                            <button class="h-8 w-8 rounded-full border-2 border-primary bg-[#fff8b0]"></button>
+                        <div class="mt-1 grid grid-cols-4 gap-2" id="highlight-color-options">
                             <button
-                                class="h-8 w-8 rounded-full bg-[#bde6f4] hover:border-2 hover:border-primary/50"
+                                type="button"
+                                class="h-8 w-8 rounded-full highlight-color-option"
+                                data-highlight-color="#fff8b0"
+                                aria-label="Yellow highlight"
                             ></button>
                             <button
-                                class="h-8 w-8 rounded-full bg-[#c9f9c9] hover:border-2 hover:border-primary/50"
+                                type="button"
+                                class="h-8 w-8 rounded-full highlight-color-option"
+                                data-highlight-color="#bde6f4"
+                                aria-label="Blue highlight"
                             ></button>
                             <button
-                                class="h-8 w-8 rounded-full bg-[#fdd9e1] hover:border-2 hover:border-primary/50"
+                                type="button"
+                                class="h-8 w-8 rounded-full highlight-color-option"
+                                data-highlight-color="#c9f9c9"
+                                aria-label="Green highlight"
+                            ></button>
+                            <button
+                                type="button"
+                                class="h-8 w-8 rounded-full highlight-color-option"
+                                data-highlight-color="#fdd9e1"
+                                aria-label="Pink highlight"
                             ></button>
                         </div>
                     </div>
                 </div>
 
-                <div class="flex items-center gap-2">
+                <div class="flex gap-2">
                     <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
+                </div>
+
+                <div class="relative">
                     <button
                         id="settings-button"
                         class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                     >
                         <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">settings</span>
                     </button>
+
+                    <!-- Config Menu -->
+                    <div
+                        id="config-menu"
+                        class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 hidden flex-col gap-2 rounded-lg bg-background-light/90 p-6 shadow-lg backdrop-blur-md dark:bg-background-dark/100 z-30 w-96"
+                    >
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
+                            <button
+                                id="config-menu-close"
+                                class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:bg-primary/10 dark:hover:bg-primary/20 hover:text-primary dark:hover:text-primary"
+                            >
+                                <span class="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+
+                        <div class="space-y-6">
+                            <div>
+                                <label
+                                    class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
+                                    for="language"
+                                    >Change voice language</label
+                                >
+                                <select
+                                    class="form-select w-full rounded-lg bg-background-light dark:bg-background-dark border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-primary focus:border-primary"
+                                    id="language"
+                                    name="language"
+                                >
+                                    <option>English (United States)</option>
+                                    <option>Español (España)</option>
+                                    <option>Français (France)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label
+                                    class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
+                                    for="voice"
+                                    >Select speaker/voice</label
+                                >
+                                <select
+                                    class="form-select w-full rounded-lg bg-background-light dark:bg-background-dark border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-primary focus:border-primary"
+                                    id="voice"
+                                    name="voice"
+                                >
+                                    <option>David (Male)</option>
+                                    <option>Zira (Female)</option>
+                                    <option>Mark (Male)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label
+                                    class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
+                                    for="speed"
+                                    >Adjust reading speed</label
+                                >
+                                <div class="flex items-center gap-4">
+                                    <span class="material-symbols-outlined text-slate-500 dark:text-slate-400"
+                                        >tornado</span
+                                    >
+                                    <input
+                                        class="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-primary"
+                                        id="speed"
+                                        max="2"
+                                        min="0.5"
+                                        step="0.1"
+                                        type="range"
+                                        value="1"
+                                    />
+                                    <span class="material-symbols-outlined text-slate-500 dark:text-slate-400"
+                                        >pets</span
+                                    >
+                                </div>
+                                <div class="text-center text-sm text-slate-500 dark:text-slate-400 mt-2">1.0x</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -264,7 +295,17 @@
                 setTimeout(() => {
                     app.initialize();
                     const fileInput = document.getElementById("file-input");
-                }, 500);
+                }, 2000);
+            });
+            const settingsBtn = document.getElementById("settings-button");
+            const settingsMenu = document.getElementById("config-menu");
+            const configMenuClose = document.getElementById("config-menu-close");
+
+            settingsBtn.addEventListener("click", () => {
+                settingsMenu.classList.toggle("hidden");
+            });
+            configMenuClose.addEventListener("click", () => {
+                settingsMenu.classList.toggle("hidden");
             });
         </script>
     </body>

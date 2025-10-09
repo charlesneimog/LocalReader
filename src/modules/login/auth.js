@@ -5,7 +5,7 @@ export class Login {
     }
 
     async checkProUser(client) {
-        const permissions = client.getPermissions()?.permissions ?? [];
+        // const permissions = client.getPermissions()?.permissions ?? [];
         const orgId = client.getUserOrganizations().orgCodes[0];
         if (orgId != "org_65ebf424294") {
             const warningDiv = document.getElementById("access-warning");

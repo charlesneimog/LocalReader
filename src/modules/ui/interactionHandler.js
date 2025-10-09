@@ -31,6 +31,7 @@ export class InteractionHandler {
             }
             const idx = hitTestSentence(state, mapped.pageNumber, mapped.xDisplay, mapped.yDisplay);
             this.setHoveredSentence(idx);
+            this.app.audioManager.playCurrentSentence();
         });
     }
 

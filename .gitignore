@@ -2,3 +2,10 @@ src/modules/tts/.cache/clangd/index
 src/modules/tts/build
 src/modules/tts/en_US-hfc_female-medium.onnx
 src/modules/tts/en_US-hfc_female-medium.onnx.json
+src/modules/tts/compile_commands.json
+src/modules/tts/pt_BR-faber-medium.onnx
+src/modules/tts/pt_BR-faber-medium.onnx.json
+src/modules/tts/pipertts.data
+src/modules/tts/pipertts.js
+src/modules/tts/pipertts.wasm
+src/modules/tts/index.html

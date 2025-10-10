@@ -257,7 +257,7 @@
                 const settingsBtn = document.getElementById("settings-button");
                 const settingsMenu = document.getElementById("config-menu");
                 const configMenuClose = document.getElementById("config-menu-close");
-                const overlay = document.getElementById("mobile-overlay");
+                // const overlay = document.getElementById("mobile-overlay");
 
                 document.getElementById("open-file").addEventListener("click", () => fileInput.click());
                 fileInput.addEventListener("change", async (e) => {
@@ -270,12 +270,12 @@
                 // Toggle settings modal
                 settingsBtn.addEventListener("click", () => {
                     settingsMenu.classList.toggle("hidden");
-                    overlay.classList.toggle("active");
+                    // overlay.classList.toggle("active");
                 });
 
                 configMenuClose.addEventListener("click", () => {
                     settingsMenu.classList.add("hidden");
-                    overlay.classList.remove("active");
+                    // overlay.classList.remove("active");
                 });
 
                 // Close menus when clicking outside
@@ -285,7 +285,7 @@
 
                     if (!settingsMenu.contains(e.target) && !settingsBtn.contains(e.target)) {
                         settingsMenu.classList.add("hidden");
-                        overlay.classList.remove("active");
+                        // overlay.classList.remove("active");
                     }
 
                     if (!colorMenu.contains(e.target) && !colorCheckbox.contains(e.target)) {

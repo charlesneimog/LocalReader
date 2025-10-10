@@ -7,22 +7,21 @@ export class AudioManager {
     }
 
     updatePlayButton() {
-        const { state } = this.app;
-        const s = state.currentSentence;
-        const btn = document.getElementById("play-toggle");
-        if (!btn) return;
-        btn.disabled = !s;
-        const icon = btn.querySelector("i");
-        if (!s) {
-            if (icon) icon.className = "fa-solid fa-play";
-            return;
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        if (!icon) return;
+
+        if (this.app.state.autoAdvanceActive) {
+            icon.textContent = "pause";
+        } else {
+            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
         }
-        if (icon) icon.className = state.isPlaying ? "fa-solid fa-pause" : "fa-solid fa-play";
     }
 
     async playCurrentSentence() {
         const { state, config } = this.app;
-        if (state.isPlaying) return;
+        if (state.isPlaying) {
+            return;
+        }
 
         if (!state.pdf) {
             this.app.ui.showInfo("Load a document before playing.");
@@ -73,6 +72,9 @@ export class AudioManager {
                 icon.classList.remove("animate-spin");
             }
             this.app.ui.showInfo("❌ Audio not ready.");
+            if (!state.stopRequested) {
+                this.playCurrentSentence();
+            }
             return;
         }
 
@@ -139,6 +141,7 @@ export class AudioManager {
                 if (state.audioCtx) await state.audioCtx.close();
             } catch {}
             state.audioCtx = null;
+            this.playCurrentSentence();
         }
     }
 

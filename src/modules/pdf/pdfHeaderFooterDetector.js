@@ -4,8 +4,51 @@ export class PDFHeaderFooterDetector {
         this._overlayStylesInjected = false;
         this._pageContainers = new Map();
         this._pendingOverlayData = new Map();
-
         this.debug = false;
+
+        this.worker = new Worker("./src/modules/pdf/ts.js", { type: "module" });
+        this._pendingWorkerRequests = new Map(); // requestId -> { resolve, reject, pageNumber }
+        this._pendingDetectionsByPage = new Map(); // pageNumber -> Promise
+        this._requestIdCounter = 0;
+
+        const threads = navigator.hardwareConcurrency;
+        const webgpu = "gpu" in navigator;
+
+        this.workerReadyPromise = new Promise((resolve) => {
+            this._resolveWorkerReady = resolve;
+        });
+
+        this.worker.onmessage = (event) => {
+            const { status, requestId } = event.data || {};
+            if (status === "ready") {
+                if (typeof this._resolveWorkerReady === "function") this._resolveWorkerReady();
+                return;
+            }
+            if (status === "detections") {
+                const pending = this._pendingWorkerRequests.get(requestId);
+                if (!pending) return;
+                this._pendingWorkerRequests.delete(requestId);
+                pending.resolve(event.data);
+                return;
+            }
+            if (status === "error") {
+                const pending = this._pendingWorkerRequests.get(requestId);
+                if (pending) {
+                    this._pendingWorkerRequests.delete(requestId);
+                    pending.reject(event.data.error || new Error("Worker detection error"));
+                } else {
+                    console.error("Layout worker error", event.data.error);
+                }
+            }
+        };
+
+        this.worker.onerror = (e) => {
+            console.error("Layout worker crashed", e);
+            this._pendingWorkerRequests.forEach((pending) => pending.reject(e));
+            this._pendingWorkerRequests.clear();
+        };
+
+        this.worker.postMessage({ action: "init", threads, webgpu });
 
         // Detection configuration
         this.DETECTION_THRESHOLD = 0.35;
@@ -24,34 +67,21 @@ export class PDFHeaderFooterDetector {
 
         // Only these regions contain text that should be read
         this.ITEMS_TO_READ = ["list-item", "section-header", "text"];
-        this._modelReady = this._initModels();
+        this._modelReady = this.workerReadyPromise;
     }
 
-    async _initModels() {
-        this.app.ui.showInfo("Loading models layout models...");
-        this.model = await this.app.transformers.AutoModel.from_pretrained(
-            "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis",
-            {
-                dtype: "fp32",
-            },
-        );
-        this.processor = await this.app.transformers.AutoProcessor.from_pretrained(
-            "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis",
-        );
-        this._modelReady = true;
-        return true;
+    _initModels() {
+        return this.workerReadyPromise;
     }
 
-    async _ensureModelReady() {
+    _ensureModelReady() {
         if (!this._modelReady) {
-            await this._initModels();
+            this._modelReady = this._initModels();
         }
         return this._modelReady;
     }
 
     _drawIgnoredDetectionsOverlay(pageNumber, detections, baseCanvas) {
-        if (!this.debug) return; // Only draw in debug mode
-
         const { state } = this.app;
         const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
         let container = document.querySelector(`[data-page-number="${pageNumber}"]`);
@@ -111,124 +141,94 @@ export class PDFHeaderFooterDetector {
     }
 
     // ---------- Main Detection ----------
-    async detectHeadersAndFooters(pageNumber, scaleFactor = 0.3) {
-        await this._ensureModelReady();
-
-        // Check cache first
-        const cached = this.app.state.layoutDetectionCache.get(pageNumber);
-        if (cached && cached.cacheVersion === this.app.state.layoutCacheVersion) {
-            console.log(`[Layout] Using cached detection for page ${pageNumber}`);
-            return cached.detections;
+    detectHeadersAndFooters(pageNumber, scaleFactor = 1) {
+        const { state } = this.app;
+        const cached = state.layoutDetectionCache.get(pageNumber);
+        if (cached && cached.cacheVersion === state.layoutCacheVersion && Array.isArray(cached.detections)) {
+            return Promise.resolve(cached.detections);
         }
 
-        // Check if detection is already in progress for this page
-        if (this.app.state.layoutDetectionInProgress.has(pageNumber)) {
-            console.log(`[Layout] Detection already in progress for page ${pageNumber}, waiting...`);
-            return await this.app.state.layoutDetectionInProgress.get(pageNumber);
+        if (this._pendingDetectionsByPage.has(pageNumber)) {
+            return this._pendingDetectionsByPage.get(pageNumber);
         }
 
-        // Start new detection
-        const detectionPromise = this._performDetection(pageNumber, scaleFactor);
-        this.app.state.layoutDetectionInProgress.set(pageNumber, detectionPromise);
+        const detectionPromise = this._ensureModelReady()
+            .then(() => this._performDetection(pageNumber, scaleFactor))
+            .then((detections) => {
+                this._pendingDetectionsByPage.delete(pageNumber);
+                return detections;
+            })
+            .catch((error) => {
+                this._pendingDetectionsByPage.delete(pageNumber);
+                console.error(`[Layout] Detection failed for page ${pageNumber}`, error);
+                return [];
+            });
 
-        try {
-            const result = await detectionPromise;
-            return result;
-        } finally {
-            this.app.state.layoutDetectionInProgress.delete(pageNumber);
-        }
+        this._pendingDetectionsByPage.set(pageNumber, detectionPromise);
+        return detectionPromise;
     }
 
-    async _performDetection(pageNumber, scaleFactor) {
+    _performDetection(pageNumber, scaleFactor) {
         const { state } = this.app;
-        const canvas = state.fullPageRenderCache.get(pageNumber);
+        const ensureCanvas = state.fullPageRenderCache.has(pageNumber)
+            ? Promise.resolve(state.fullPageRenderCache.get(pageNumber))
+            : this.app.pdfRenderer
+                  .ensureFullPageRendered(pageNumber)
+                  .then(() => state.fullPageRenderCache.get(pageNumber));
 
-        if (!canvas) {
-            console.warn(`[Layout] No canvas found for page ${pageNumber}, rendering first...`);
-            await this.app.pdfRenderer.ensureFullPageRendered(pageNumber);
-            return this.detectHeadersAndFooters(pageNumber, scaleFactor); // retry
-        }
+        return ensureCanvas.then((canvas) => {
+            if (!canvas) {
+                console.warn(`[Layout] No canvas available for page ${pageNumber} after render attempt.`);
+                return [];
+            }
 
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-            console.error(`[Layout] Failed to get canvas context for page ${pageNumber}`);
-            return null;
-        }
+            const tmpCanvas = document.createElement("canvas");
+            tmpCanvas.width = Math.max(1, Math.floor(canvas.width * scaleFactor));
+            tmpCanvas.height = Math.max(1, Math.floor(canvas.height * scaleFactor));
+            const tmpCtx = tmpCanvas.getContext("2d");
+            if (!tmpCtx) {
+                console.error(`[Layout] Failed to acquire temp canvas context for page ${pageNumber}`);
+                return [];
+            }
+            tmpCtx.drawImage(canvas, 0, 0, tmpCanvas.width, tmpCanvas.height);
 
-        console.log(`[Layout] Running detection for page ${pageNumber}...`);
+            let imageData;
+            try {
+                imageData = tmpCtx.getImageData(0, 0, tmpCanvas.width, tmpCanvas.height);
+            } catch (error) {
+                console.error(`[Layout] Could not extract image data for page ${pageNumber}`, error);
+                return [];
+            }
 
-        // temp canvas
-        const tmpCanvas = document.createElement("canvas");
-        tmpCanvas.width = Math.floor(canvas.width * scaleFactor);
-        tmpCanvas.height = Math.floor(canvas.height * scaleFactor);
-        const tmpCtx = tmpCanvas.getContext("2d");
-        tmpCtx.drawImage(canvas, 0, 0, tmpCanvas.width, tmpCanvas.height);
-
-        // get raw image
-        const rawImage = this.app.transformers.RawImage.fromCanvas(tmpCanvas);
-        const { pixel_values, reshaped_input_sizes } = await this.processor(rawImage);
-        const modelOutput = await this.model({ images: pixel_values });
-        const predictions = modelOutput.output0.tolist()[0];
-
-        // downscale
-        const [newHeight, newWidth] = reshaped_input_sizes?.[0] || [tmpCanvas.height, tmpCanvas.width];
-        const scaleX = canvas.width / newWidth;
-        const scaleY = canvas.height / newHeight;
-
-        const detections = [];
-        for (const prediction of predictions) {
-            const [xmin, ymin, xmax, ymax, score, id] = prediction;
-            if (score < this.DETECTION_THRESHOLD) continue;
-
-            const x1 = Math.max(0, xmin * scaleX);
-            const y1 = Math.max(0, ymin * scaleY);
-            const x2 = Math.min(canvas.width, xmax * scaleX);
-            const y2 = Math.min(canvas.height, ymax * scaleY);
-            const w = Math.max(0, x2 - x1);
-            const h = Math.max(0, y2 - y1);
-
-            const label = this.DETECTION_CLASSES[id] || `class-${id}`;
-
-            detections.push({
+            return this._sendWorkerDetection({
                 pageNumber,
-                classId: id,
-                label,
-                score,
-                x1,
-                y1,
-                x2,
-                y2,
-                width: w,
-                height: h,
-                normalized: {
-                    left: x1 / canvas.width,
-                    top: y1 / canvas.height,
-                    right: x2 / canvas.width,
-                    bottom: y2 / canvas.height,
-                },
+                imageData,
+                originalWidth: canvas.width,
+                originalHeight: canvas.height,
+                scaledWidth: tmpCanvas.width,
+                scaledHeight: tmpCanvas.height,
+                detectionThreshold: this.DETECTION_THRESHOLD,
+                detectionClasses: this.DETECTION_CLASSES,
+            }).then((payload) => {
+                const detections = Array.isArray(payload?.detections)
+                    ? payload.detections.map((det) => ({ ...det, pageNumber }))
+                    : [];
+
+                const cacheEntry = {
+                    pageNumber,
+                    detections,
+                    timestamp: Date.now(),
+                    cacheVersion: state.layoutCacheVersion,
+                    modelVersion: payload?.modelVersion || "yolov10m-doclaynet-v1",
+                    readabilityVersion: null,
+                    readableWordCount: null,
+                };
+
+                state.layoutDetectionCache.set(pageNumber, cacheEntry);
+                this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
+                return detections;
             });
-        }
-
-        // Cache the results with word filtering information
-        const cacheEntry = {
-            pageNumber,
-            detections,
-            timestamp: Date.now(),
-            cacheVersion: state.layoutCacheVersion,
-            modelVersion: "yolov10m-doclaynet-v1",
-            readabilityVersion: null,
-            readableWordCount: null,
-        };
-
-        state.layoutDetectionCache.set(pageNumber, cacheEntry);
-        console.log(`[Layout] Cached ${detections.length} detections for page ${pageNumber}`);
-
-        // Draw overlay if in debug mode
-        // if (this.debug) {
-        this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
-        // }
-
-        return detections;
+        });
     }
 
     registerPageDomElement(pageObj, pageContainer) {
@@ -258,73 +258,81 @@ export class PDFHeaderFooterDetector {
         return { readableBoxes, ignoreBoxes };
     }
 
-    async ensureReadabilityForPage(pageNumber, { force = false } = {}) {
+    ensureReadabilityForPage(pageNumber, { force = false } = {}) {
         const { state } = this.app;
 
         const page = state.pagesCache.get(pageNumber);
         if (!page?.pageWords) {
             console.warn(`[Layout] No words cached for page ${pageNumber}; skipping readability.`);
-            return { readable: 0, total: 0 };
+            return Promise.resolve({ readable: 0, total: 0 });
         }
 
         const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
         if (!viewportDisplay) {
             console.warn(`[Layout] No viewport info for page ${pageNumber}; skipping readability.`);
-            return { readable: 0, total: page.pageWords.length };
+            return Promise.resolve({ readable: 0, total: page.pageWords.length });
         }
 
-        const detections = await this.detectHeadersAndFooters(pageNumber);
-        const cacheEntry = state.layoutDetectionCache.get(pageNumber);
-        if (!cacheEntry) {
-            console.warn(`[Layout] Missing cache entry for page ${pageNumber} after detection.`);
-            return { readable: 0, total: page.pageWords.length };
-        }
+        return this.detectHeadersAndFooters(pageNumber).then((detections) => {
+            let cacheEntry = state.layoutDetectionCache.get(pageNumber);
+            if (!cacheEntry) {
+                cacheEntry = {
+                    pageNumber,
+                    detections,
+                    timestamp: Date.now(),
+                    cacheVersion: state.layoutCacheVersion,
+                    modelVersion: "yolov10m-doclaynet-v1",
+                    readabilityVersion: null,
+                    readableWordCount: null,
+                };
+                state.layoutDetectionCache.set(pageNumber, cacheEntry);
+            }
 
-        const alreadyProcessed =
-            !force &&
-            cacheEntry.readabilityVersion === state.layoutCacheVersion &&
-            cacheEntry.readableWordCount !== null;
+            const alreadyProcessed =
+                !force &&
+                cacheEntry.readabilityVersion === state.layoutCacheVersion &&
+                cacheEntry.readableWordCount !== null;
 
-        if (alreadyProcessed) {
+            if (alreadyProcessed) {
+                this.app.sentenceParser.applyLayoutFilteringToPage(pageNumber);
+                return { readable: cacheEntry.readableWordCount, total: page.pageWords.length };
+            }
+
+            const { readableBoxes, ignoreBoxes } = this._buildRegionsFromDetections(detections, viewportDisplay);
+
+            let readableCount = 0;
+            for (const word of page.pageWords) {
+                const box = word?.bbox
+                    ? { x1: word.bbox.x1, y1: word.bbox.y1, x2: word.bbox.x2, y2: word.bbox.y2 }
+                    : {
+                          x1: word.x,
+                          y1: word.y - word.height,
+                          x2: word.x + word.width,
+                          y2: word.y,
+                      };
+
+                const insideReadable =
+                    readableBoxes.length === 0 ? true : readableBoxes.some((r) => this._overlaps(box, r));
+                const overlapsIgnored = ignoreBoxes.some((r) => this._overlaps(box, r));
+                const isReadable = insideReadable && !overlapsIgnored;
+                word.isReadable = isReadable;
+                if (isReadable) readableCount++;
+            }
+
+            cacheEntry.readabilityVersion = state.layoutCacheVersion;
+            cacheEntry.readableWordCount = readableCount;
+
             this.app.sentenceParser.applyLayoutFilteringToPage(pageNumber);
-            return { readable: cacheEntry.readableWordCount, total: page.pageWords.length };
-        }
-
-        const { readableBoxes, ignoreBoxes } = this._buildRegionsFromDetections(detections, viewportDisplay);
-
-        let readableCount = 0;
-        for (const word of page.pageWords) {
-            const box = word?.bbox
-                ? { x1: word.bbox.x1, y1: word.bbox.y1, x2: word.bbox.x2, y2: word.bbox.y2 }
-                : {
-                      x1: word.x,
-                      y1: word.y - word.height,
-                      x2: word.x + word.width,
-                      y2: word.y,
-                  };
-
-            const insideReadable =
-                readableBoxes.length === 0 ? true : readableBoxes.some((r) => this._overlaps(box, r));
-            const overlapsIgnored = ignoreBoxes.some((r) => this._overlaps(box, r));
-            const isReadable = insideReadable && !overlapsIgnored;
-            word.isReadable = isReadable;
-            if (isReadable) readableCount++;
-        }
-
-        cacheEntry.readabilityVersion = state.layoutCacheVersion;
-        cacheEntry.readableWordCount = readableCount;
-
-        this.app.sentenceParser.applyLayoutFilteringToPage(pageNumber);
-        return { readable: readableCount, total: page.pageWords.length };
+            return { readable: readableCount, total: page.pageWords.length };
+        });
     }
 
     /**
      * NEW METHOD: Filter words based on layout detections
      * Returns only words that fall inside readable regions
      */
-    async filterReadableWords(pageNumber, words) {
-        await this.ensureReadabilityForPage(pageNumber);
-        return (words || []).filter((word) => word?.isReadable);
+    filterReadableWords(pageNumber, words) {
+        return this.ensureReadabilityForPage(pageNumber).then(() => (words || []).filter((word) => word?.isReadable));
     }
 
     _expandBox(box, viewportDisplay) {
@@ -341,5 +349,43 @@ export class PDFHeaderFooterDetector {
         const overlapX = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
         const overlapY = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
         return overlapX > 0 && overlapY > 0;
+    }
+
+    _nextRequestId() {
+        this._requestIdCounter = (this._requestIdCounter + 1) % Number.MAX_SAFE_INTEGER;
+        if (this._requestIdCounter === 0) this._requestIdCounter = 1;
+        return this._requestIdCounter;
+    }
+
+    _sendWorkerDetection(payload) {
+        const requestId = this._nextRequestId();
+        const message = {
+            action: "detect",
+            requestId,
+            pageNumber: payload.pageNumber,
+            detectionThreshold: payload.detectionThreshold,
+            detectionClasses: payload.detectionClasses,
+            originalWidth: payload.originalWidth,
+            originalHeight: payload.originalHeight,
+            scaledWidth: payload.scaledWidth,
+            scaledHeight: payload.scaledHeight,
+            imageData: payload.imageData,
+        };
+
+        const transferables = [];
+        if (payload.imageData?.data?.buffer) transferables.push(payload.imageData.data.buffer);
+
+        return this.workerReadyPromise.then(
+            () =>
+                new Promise((resolve, reject) => {
+                    this._pendingWorkerRequests.set(requestId, { resolve, reject, pageNumber: payload.pageNumber });
+                    try {
+                        this.worker.postMessage(message, transferables);
+                    } catch (error) {
+                        this._pendingWorkerRequests.delete(requestId);
+                        reject(error);
+                    }
+                }),
+        );
     }
 }

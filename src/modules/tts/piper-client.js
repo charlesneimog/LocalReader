@@ -78,9 +78,9 @@ export class PiperWorkerClient {
         espeakVoice, // optional override per-session; usually set in voiceConfig.espeak.voice
         ortJsUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm.min.js",
         ortWasmRoot = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/",
-        phonemizerJsUrl = "./thirdparty/piper/piper-o91UDS6e.js",
-        phonemizerWasmUrl = "./thirdparty/piper/piper_phonemize.wasm",
-        phonemizerDataUrl = "./thirdparty/piper/piper_phonemize.data",
+        phonemizerJsUrl = "./piper/piper-o91UDS6e.js",
+        phonemizerWasmUrl = "./piper/piper_phonemize.wasm",
+        phonemizerDataUrl = "./piper/piper_phonemize.data",
         logLevel = "error",
         transferModel = true, // set to false if you want to keep modelBuffer; otherwise it will be transferred (zero-copy)
     }) {

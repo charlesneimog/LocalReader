@@ -546,7 +546,6 @@ export class PDFRenderer {
                 `Sentence ${sentence.index + 1} is outside readable layout regions. Select another sentence to play.`,
             );
         } else {
-            this.app.ui.showInfo(`Sentence ${sentence.index + 1}/${state.sentences.length} (Page ${pageNumber})`);
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             this.app.ttsQueue.run();
         }

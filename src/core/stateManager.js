@@ -8,6 +8,7 @@ export class StateManager {
         this.fullPageRenderCache = new Map();
         this.sentences = [];
         this.currentSentenceIndex = -1;
+        this.playingSentenceIndex = -1;
         this.deviceScale = window.devicePixelRatio || 1;
 
         this.currentSource = null;

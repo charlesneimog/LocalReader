@@ -17,7 +17,7 @@ export class InteractionHandler {
     }
 
     handlePointerMove(e) {
-        const { state, config } = this.app;
+        const { state } = this.app;
         state.lastPointerEvent = e;
         if (state.hoverRafScheduled) return;
         state.hoverRafScheduled = true;
@@ -31,11 +31,10 @@ export class InteractionHandler {
             }
             const idx = hitTestSentence(state, mapped.pageNumber, mapped.xDisplay, mapped.yDisplay);
             this.setHoveredSentence(idx);
-            this.app.audioManager.playCurrentSentence();
         });
     }
 
-    handlePointerClick(e) {
+    async handlePointerClick(e) {
         const { state } = this.app;
 
         const mapped = mapClientPointToPdf(e, state, this.app.config);
@@ -44,8 +43,14 @@ export class InteractionHandler {
         if (idx >= 0) {
             const wasPlaying = state.isPlaying;
             this.app.audioManager.stopPlayback(true);
-            this.app.pdfRenderer.renderSentence(idx);
-            if (wasPlaying) this.app.audioManager.playCurrentSentence();
+            state.autoAdvanceActive = false;
+            if (idx !== state.hoveredSentenceIndex) {
+                this.setHoveredSentence(idx);
+            }
+            await this.app.pdfRenderer.renderSentence(idx);
+            if (wasPlaying) {
+                await this.app.audioManager.playCurrentSentence();
+            }
         }
     }
 

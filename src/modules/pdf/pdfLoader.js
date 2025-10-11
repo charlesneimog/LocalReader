@@ -117,9 +117,20 @@ export class PDFLoader {
                 document.getElementById("pdf-open")?.classList.remove("fa-beat");
             } else {
                 if (!state.piperInstance) {
-                    console.log("Error: Piper instance not found");
+                    try {
+                        await app.ttsEngine.ensurePiper(config.DEFAULT_PIPER_VOICE);
+                    } catch (err) {
+                        console.error("Error ensuring Piper instance:", err);
+                        app.ui.showInfo("Error: " + err.message);
+                        document.body.style.cursor = "default";
+                        if (icon) {
+                            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
+                            icon.classList.remove("animate-spin");
+                        }
+                        return;
+                    }
                 }
-                app.ttsEngine.initVoices();
+                await app.ttsEngine.initVoices();
                 document.getElementById("pdf-open")?.classList.add("fa-beat");
                 document.getElementById("play-toggle-icon")?.classList.toggle("disabled");
                 return;
@@ -258,6 +269,11 @@ export class PDFLoader {
         const prevSentence = state.currentSentence || null;
         const prevIndex = state.currentSentenceIndex;
 
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        if (icon) {
+            icon.textContent = "hourglass_empty";
+            icon.classList.add("animate-spin");
+        }
         app.ui.showInfo("Preparing current page for playback...");
 
         const targetPages = new Set();
@@ -315,6 +331,10 @@ export class PDFLoader {
             state.layoutFilteringReady = true;
             app.ui.showInfo("No readable sentences found after layout filtering.");
             app.audioManager.updatePlayButton();
+        }
+        if (icon) {
+            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
+            icon.classList.remove("animate-spin");
         }
     }
 

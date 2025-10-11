@@ -8,6 +8,9 @@ export class TTSEngine {
         this.client = null;
         this.voice = app.config.DEFAULT_PIPER_VOICE;
         this.piperInstance = null;
+        this.voices = null;
+        this.pendingVoiceId = null;
+        this.initializingPromise = null;
 
         const scriptSrc = (document.currentScript && document.currentScript.src) || window.location.href;
         const scriptDir = scriptSrc.substring(0, scriptSrc.lastIndexOf("/"));
@@ -46,27 +49,78 @@ export class TTSEngine {
     }
 
     async ensurePiper(voiceId) {
-        document.body.style.cursor = "wait";
+        const { state, config } = this.app;
+        const targetVoiceId = voiceId || config.DEFAULT_PIPER_VOICE;
+
+        if (this.initialized && this.voiceId === targetVoiceId && state.piperInstance) {
+            return state.piperInstance;
+        }
+
+        if (this.initializingPromise) {
+            if (this.pendingVoiceId && this.pendingVoiceId !== targetVoiceId) {
+                await this.initializingPromise.catch(() => {});
+            } else {
+                await this.initializingPromise;
+                return state.piperInstance;
+            }
+        }
+
+        this.pendingVoiceId = targetVoiceId;
+        this.initializingPromise = this._initializeVoice(targetVoiceId)
+            .then(async () => {
+                await this.initVoices();
+                return state.piperInstance;
+            })
+            .finally(() => {
+                this.pendingVoiceId = null;
+            });
+
         try {
-            this.client = new PiperWorkerClient({ workerUrl: "./src/modules/tts/piper.worker.js" });
-            this.voices = await this.getVoicesLists();
-            if (!this.voices[voiceId]) {
+            return await this.initializingPromise;
+        } finally {
+            this.initializingPromise = null;
+        }
+    }
+
+    async _initializeVoice(voiceId) {
+        const { state } = this.app;
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+
+        if (icon) {
+            icon.textContent = "hourglass_empty";
+            icon.classList.add("animate-spin");
+        }
+
+        document.body.style.cursor = "wait";
+
+        try {
+            if (!this.client) {
+                this.client = new PiperWorkerClient({ workerUrl: "./src/modules/tts/piper.worker.js" });
+            }
+
+            if (!this.voices) {
+                this.voices = await this.getVoicesLists();
+                this.client.availableVoices = this.voices;
+            }
+
+            const voice = this.voices[voiceId];
+            if (!voice) {
                 throw new Error(`Unknown voice: ${voiceId}. Available voices: ${Object.keys(this.voices).join(", ")}`);
             }
-            if (this.voiceId === voiceId && this.initialized) {
-                console.log(`Voice already set to ${voiceId}`);
-                document.body.style.cursor = "default";
-                return;
+
+            const filePaths = Object.keys(voice.files || {});
+            const modelFile = filePaths.find((f) => f.endsWith(".onnx"));
+            const configFile = filePaths.find((f) => f.endsWith(".onnx.json"));
+
+            if (!modelFile || !configFile) {
+                throw new Error(`Voice ${voiceId} is missing required model or config files.`);
             }
 
-            // Voice paths
-            const voice = this.voices[voiceId];
-            const filePaths = Object.keys(voice.files);
-            const MODEL_URL = this.huggingFaceRoot + filePaths.find((f) => f.endsWith(".onnx"));
-            const CONFIG_URL = this.huggingFaceRoot + filePaths.find((f) => f.endsWith(".onnx.json"));
+            const MODEL_URL = this.huggingFaceRoot + modelFile;
+            const CONFIG_URL = this.huggingFaceRoot + configFile;
 
-            const modelBuffer = await getCachedModel("en_US-hfc_male-medium.onnx", MODEL_URL);
-            const voiceConfig = await getCachedJSON("en_US-hfc_male-medium.onnx.json", CONFIG_URL);
+            const modelBuffer = await getCachedModel(modelFile, MODEL_URL);
+            const voiceConfig = await getCachedJSON(configFile, CONFIG_URL);
 
             const ortJsUrl = "https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/ort.min.js";
             const ortWasmRoot = "https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/";
@@ -74,9 +128,8 @@ export class TTSEngine {
             const phonemizerWasmUrl = "./piper/piper_phonemize.wasm";
             const phonemizerDataUrl = "./piper/piper_phonemize.data";
 
-            // Initialize Piper in the worker
-            this.client
-                .init({
+            if (!this.initialized) {
+                await this.client.init({
                     modelBuffer,
                     voiceConfig,
                     ortJsUrl,
@@ -86,18 +139,42 @@ export class TTSEngine {
                     phonemizerDataUrl,
                     logLevel: "error",
                     transferModel: true,
-                })
-                .then((instance) => {
-                    this.piperInstance = instance;
-                    document.body.style.cursor = "default";
-                    this.initialized = true;
-                    console.log("ONNX model loaded!");
                 });
+            } else if (this.voiceId !== voiceId) {
+                await this.client.changeVoice({
+                    modelBuffer,
+                    voiceConfig,
+                    transferModel: true,
+                });
+            }
 
             this.voiceId = voiceId;
+            this.initialized = true;
+            state.piperInstance = this.client;
+            state.currentPiperVoice = voiceId;
+            state.piperInstance.availableVoices = this.voices;
+
+            return state.piperInstance;
         } catch (err) {
             console.error("Failed to initialize Piper:", err);
             alert("Piper init error: " + err.message);
+            this.initialized = false;
+            this.voiceId = null;
+            state.piperInstance = null;
+            state.currentPiperVoice = null;
+            if (this.client) {
+                try {
+                    this.client.terminate();
+                } catch (_) {}
+            }
+            this.client = null;
+            throw err;
+        } finally {
+            document.body.style.cursor = "default";
+            if (icon) {
+                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
+                icon.classList.remove("animate-spin");
+            }
         }
     }
 
@@ -134,25 +211,43 @@ export class TTSEngine {
         }
 
         await this.ensureAudioContext();
-        await this.ensurePiper(voice);
+        const client = await this.ensurePiper(voice);
+        if (!client) {
+            sentence.audioError = new Error("Piper voice unavailable");
+            return;
+        }
         await cooperativeYield();
 
-        const wavBlob = await retryAsync(async () => {
+        const { blob: wavBlob, wavBuffer } = await retryAsync(async () => {
             try {
                 console.log("Synthesizing:", text);
                 const cleaned = formatTextToSpeech(text);
                 document.body.style.cursor = "wait";
-                let result = await state.piperInstance.synthesize(cleaned, state.CURRENT_SPEED);
-                document.body.style.cursor = "default";
+                const activeClient = this.app.state.piperInstance || client;
+                if (!activeClient) throw new Error("Piper worker unavailable");
+                const result = await activeClient.synthesize(cleaned, state.CURRENT_SPEED);
                 return result;
             } catch (e) {
                 await this.ensurePiper(voice);
                 throw e;
+            } finally {
+                document.body.style.cursor = "default";
             }
         });
 
-        const arrBuf = await wavBlob.arrayBuffer();
-        const decoded = await this.safeDecodeAudioData(arrBuf.slice(0));
+        let bufferForDecode = null;
+        if (wavBuffer instanceof ArrayBuffer) {
+            bufferForDecode = wavBuffer;
+        } else if (wavBuffer?.buffer instanceof ArrayBuffer) {
+            bufferForDecode = wavBuffer.buffer.slice(0);
+        } else if (wavBlob?.arrayBuffer) {
+            bufferForDecode = await wavBlob.arrayBuffer();
+        } else {
+            throw new Error("Invalid audio buffer returned from Piper worker");
+        }
+
+        const decoded = await this.safeDecodeAudioData(bufferForDecode.slice(0));
+        const effectiveBlob = wavBlob || new Blob([bufferForDecode], { type: "audio/wav" });
         let wordBoundaries = [];
         if (config.ENABLE_WORD_HIGHLIGHT) {
             const words = text.split(/\s+/).filter(Boolean);
@@ -170,15 +265,15 @@ export class TTSEngine {
 
         const cacheKey = `${voice}|${state.CURRENT_SPEED}|${sentence.normalizedText}`;
         state.audioCache.set(cacheKey, {
-            audioBlob: config.STORE_DECODED_ONLY ? null : wavBlob,
-            wavBlob: config.MAKE_WAV_COPY ? wavBlob : null,
+            audioBlob: config.STORE_DECODED_ONLY ? null : effectiveBlob,
+            wavBlob: config.MAKE_WAV_COPY ? effectiveBlob : null,
             audioBuffer: decoded,
             wordBoundaries,
         });
 
         Object.assign(sentence, {
-            audioBlob: config.STORE_DECODED_ONLY ? null : wavBlob,
-            wavBlob: config.MAKE_WAV_COPY ? wavBlob : null,
+            audioBlob: config.STORE_DECODED_ONLY ? null : effectiveBlob,
+            wavBlob: config.MAKE_WAV_COPY ? effectiveBlob : null,
             audioBuffer: decoded,
             audioReady: true,
             lastVoice: voice,
@@ -237,7 +332,6 @@ export class TTSEngine {
             icon.classList.add("animate-spin");
         }
 
-        this.app.ui.showInfo(`Generating audio (sentence ${s.index + 1})...`);
         this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_START, { index: idx });
 
         try {
@@ -269,24 +363,35 @@ export class TTSEngine {
     async initVoices() {
         const { state, config } = this.app;
         const voiceSelect = document.getElementById("voice-select");
-        if (!voiceSelect || !state.piperInstance) return;
+        const voicesSource = this.voices || state.piperInstance?.availableVoices;
+        if (!voiceSelect || !voicesSource) return;
         voiceSelect.innerHTML = "";
-        const allVoices = state.piperInstance.availableVoices;
+        const allVoices = voicesSource;
+        let firstAvailableVoice = null;
         config.PIPER_VOICES.forEach((v) => {
+            const voiceDef = allVoices[v];
+            if (!voiceDef) return;
             const opt = document.createElement("option");
             opt.value = v;
-            const lang = allVoices[v]["language"];
-            const flag = this.app.helpers.regionToFlag(lang["region"]);
-            const qual = this.app.helpers.capitalizeFirst(allVoices[v]["quality"]);
-            const voiceName = this.app.helpers.capitalizeFirst(allVoices[v]["name"]);
+            const lang = voiceDef["language"] || {};
+            const flag = this.app.helpers.regionToFlag(lang["region"] || "");
+            const qual = this.app.helpers.capitalizeFirst(voiceDef["quality"] || "");
+            const voiceName = this.app.helpers.capitalizeFirst(voiceDef["name"] || v);
             if (qual === "High") {
                 opt.textContent = `${flag} ${voiceName} ${qual} - Need Fast CPU`;
             } else {
                 opt.textContent = `${flag} ${voiceName} ${qual}`;
             }
             voiceSelect.appendChild(opt);
+            if (!firstAvailableVoice) firstAvailableVoice = v;
         });
-        voiceSelect.value = config.DEFAULT_PIPER_VOICE;
+
+        const requestedVoiceId = this.voiceId || config.DEFAULT_PIPER_VOICE;
+        const hasRequestedOption = Array.from(voiceSelect.options).some((opt) => opt.value === requestedVoiceId);
+        const selectedVoiceId = hasRequestedOption
+            ? requestedVoiceId
+            : firstAvailableVoice || voiceSelect.options[0]?.value || config.DEFAULT_PIPER_VOICE;
+        voiceSelect.value = selectedVoiceId;
         const micIcon = document.getElementById("mic-icon");
         if (micIcon) {
             micIcon.classList.remove("fa-spinner", "fa-spin");

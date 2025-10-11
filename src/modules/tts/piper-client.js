@@ -55,7 +55,6 @@ export class PiperWorkerClient {
         };
 
         this.worker.onerror = (e) => {
-            // reject all pending
             const err = new Error(e.message || "Worker error");
             for (const [, pending] of this._pending.entries()) {
                 pending.reject(err);
@@ -75,14 +74,14 @@ export class PiperWorkerClient {
     async init({
         modelBuffer,
         voiceConfig,
-        espeakVoice, // optional override per-session; usually set in voiceConfig.espeak.voice
+        espeakVoice,
         ortJsUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm.min.js",
         ortWasmRoot = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/",
         phonemizerJsUrl = "./piper/piper-o91UDS6e.js",
         phonemizerWasmUrl = "./piper/piper_phonemize.wasm",
         phonemizerDataUrl = "./piper/piper_phonemize.data",
         logLevel = "error",
-        transferModel = true, // set to false if you want to keep modelBuffer; otherwise it will be transferred (zero-copy)
+        transferModel = true,
     }) {
         if (!(modelBuffer instanceof ArrayBuffer)) {
             throw new Error("modelBuffer must be an ArrayBuffer");
@@ -223,4 +222,3 @@ async function getCachedJSON(key, url) {
 window.PiperWorkerClient = PiperWorkerClient;
 window.getCachedModel = getCachedModel;
 window.getCachedJSON = getCachedJSON;
-

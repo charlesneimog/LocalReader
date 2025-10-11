@@ -100,6 +100,8 @@ export class ControlsManager {
                 this.app.prevSentence(true);
             } else if (e.code === "KeyH") {
                 this.app.saveCurrentSentenceHighlight();
+            } else if (e.code === "KeyF") {
+                this.toggleFullscreen();
             }
         });
 
@@ -205,9 +207,7 @@ export class ControlsManager {
         const selectedColor = this.app.state?.selectedHighlightColor;
         let activeButton = null;
         if (selectedColor) {
-            activeButton = this.highlightColorButtons.find(
-                (btn) => btn.dataset.highlightColor === selectedColor,
-            );
+            activeButton = this.highlightColorButtons.find((btn) => btn.dataset.highlightColor === selectedColor);
         }
         if (!activeButton) activeButton = this.highlightColorButtons[0];
         this.highlightColorButtons.forEach((btn) => {

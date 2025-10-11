@@ -41,7 +41,7 @@
                 theme: {
                     extend: {
                         colors: {
-                            primary: "#137fec",
+                            primary: "#654EF0",
                             "background-light": "#f6f7f8",
                             "background-dark": "#101922",
                             "highlight-yellow": "#fff8b0",
@@ -62,9 +62,45 @@
         <div id="pdf-doc-container"></div>
 
         <!-- No PDF Overlay -->
-        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" id="no-pdf-overlay">
-            <span class="material-symbols-outlined text-6xl text-slate-400 dark:text-slate-500"> picture_as_pdf </span>
-            <p class="mt-4 text-slate-500 dark:text-slate-400 text-center">Please open a PDF file.</p>
+        <div
+            class="fixed inset-0 z-10 flex items-center justify-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-sm"
+            id="no-pdf-overlay"
+        >
+            <div
+                class="w-full max-w-lg p-8 text-center bg-white/50 dark:bg-background-dark/50 rounded-xl shadow-2xl backdrop-blur-lg border border-white/20 dark:border-background-dark/20"
+            >
+                <div class="flex justify-center mb-6">
+                    <span class="material-symbols-outlined text-7xl text-primary"> picture_as_pdf </span>
+                </div>
+                <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">Please open a PDF file.</h1>
+                <p class="text-gray-600 dark:text-gray-400 mb-8">Select a file to start reading and listening.</p>
+                <div class="space-y-4 text-left">
+                    <div class="flex items-center p-3 bg-background-light dark:bg-background-dark rounded-lg">
+                        <kbd class="font-mono text-sm font-semibold bg-primary/10 text-primary px-2 py-1 rounded"
+                            >h</kbd
+                        >
+                        <span class="ml-4 text-gray-700 dark:text-gray-300">Highlight text</span>
+                    </div>
+                    <div class="flex items-center p-3 bg-background-light dark:bg-background-dark rounded-lg">
+                        <kbd class="font-mono text-sm font-semibold bg-primary/10 text-primary px-2 py-1 rounded"
+                            >f</kbd
+                        >
+                        <span class="ml-4 text-gray-700 dark:text-gray-300">Toggle fullscreen</span>
+                    </div>
+                    <div class="flex items-center p-3 bg-background-light dark:bg-background-dark rounded-lg">
+                        <kbd class="font-mono text-sm font-semibold bg-primary/10 text-primary px-2 py-1 rounded"
+                            >Space</kbd
+                        >
+                        <span class="ml-4 text-gray-700 dark:text-gray-300">Play / Pause Text-to-Speech</span>
+                    </div>
+                </div>
+                <button
+                    class="mt-8 w-full bg-primary text-white font-bold py-3 px-6 rounded-lg hover:bg-primary/90 transition-all duration-300"
+                    id="init-open-pdf"
+                >
+                    Open PDF
+                </button>
+            </div>
         </div>
 
         <!-- Floating Toolbar -->
@@ -174,8 +210,6 @@
                     </div>
                 </div>
 
-                <!-- <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div> -->
-
                 <!-- Settings Menu -->
                 <div class="relative">
                     <button
@@ -189,7 +223,7 @@
 
                     <div
                         id="config-menu"
-                        class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 hidden flex-col gap-2 rounded-lg p-4 sm:p-6 shadow-lg bg-background-light/90 dark:bg-background-dark/90 z-30 w-72 sm:w-96"
+                        class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 hidden flex-col gap-2 rounded-lg p-4 sm:p-6 shadow-lg bg-background-light dark:bg-background-dark z-30 w-72 sm:w-96"
                     >
                         <div class="flex items-center justify-between mb-6">
                             <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
@@ -236,6 +270,13 @@
                                     1.0x
                                 </div>
                             </div>
+                            <div>
+                                <button id="toggle-fullscreen" class="flex items-center justify-center rounded p-2">
+                                    <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
+                                        >fullscreen</span
+                                    >
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -259,9 +300,10 @@
                 const settingsBtn = document.getElementById("settings-button");
                 const settingsMenu = document.getElementById("config-menu");
                 const configMenuClose = document.getElementById("config-menu-close");
-                // const overlay = document.getElementById("mobile-overlay");
 
                 document.getElementById("open-file").addEventListener("click", () => fileInput.click());
+                document.getElementById("init-open-pdf").addEventListener("click", () => fileInput.click());
+
                 fileInput.addEventListener("change", async (e) => {
                     const file = e.target.files[0];
                     if (file && /\.pdf$/i.test(file.name)) {

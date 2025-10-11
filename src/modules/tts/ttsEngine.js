@@ -70,9 +70,9 @@ export class TTSEngine {
 
             const ortJsUrl = "https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/ort.min.js";
             const ortWasmRoot = "https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/";
-            const phonemizerJsUrl = "./thirdparty/piper/piper-o91UDS6e.js";
-            const phonemizerWasmUrl = "./thirdparty/piper/piper_phonemize.wasm";
-            const phonemizerDataUrl = "./thirdparty/piper/piper_phonemize.data";
+            const phonemizerJsUrl = "./piper/piper-o91UDS6e.js";
+            const phonemizerWasmUrl = "./piper/piper_phonemize.wasm";
+            const phonemizerDataUrl = "./piper/piper_phonemize.data";
 
             // Initialize Piper in the worker
             this.client
@@ -91,6 +91,7 @@ export class TTSEngine {
                     this.piperInstance = instance;
                     document.body.style.cursor = "default";
                     this.initialized = true;
+                    console.log("ONNX model loaded!");
                 });
 
             this.voiceId = voiceId;

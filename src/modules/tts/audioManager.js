@@ -4,6 +4,7 @@ import { EVENTS } from "../../constants/events.js";
 export class AudioManager {
     constructor(app) {
         this.app = app;
+        this._playPromise = null;
     }
 
     updatePlayButton() {
@@ -22,6 +23,20 @@ export class AudioManager {
         if (state.isPlaying) {
             return;
         }
+
+        if (this._playPromise) {
+            return this._playPromise;
+        }
+
+        this._playPromise = this._playCurrentSentence(config).finally(() => {
+            this._playPromise = null;
+        });
+        return this._playPromise;
+    }
+
+    async _playCurrentSentence(config) {
+        const { state } = this.app;
+        if (state.isPlaying) return;
 
         if (!state.pdf) {
             this.app.ui.showInfo("Load a document before playing.");
@@ -54,16 +69,24 @@ export class AudioManager {
         }
 
         const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-        if (!s.audioReady) {
+        let attempts = 0;
+        while ((!s.audioReady || !s.audioBuffer) && !s.audioError) {
             if (icon) {
                 icon.textContent = "hourglass_empty";
                 icon.classList.add("animate-spin");
             }
-            this.app.ttsQueue.add(state.currentSentenceIndex, true);
-            this.app.ttsQueue.run();
+            if (attempts === 0) {
+                this.app.ttsQueue.add(state.currentSentenceIndex, true);
+                this.app.ttsQueue.run();
+            }
+            attempts += 1;
             try {
                 await waitFor(() => s.audioReady || s.audioError, 5000);
             } catch {}
+            if (s.audioReady && s.audioBuffer) break;
+            if (s.audioError || state.stopRequested || attempts >= 3) {
+                break;
+            }
         }
 
         if (!s.audioReady || s.audioError || !s.audioBuffer) {
@@ -71,10 +94,7 @@ export class AudioManager {
                 icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
                 icon.classList.remove("animate-spin");
             }
-            this.app.ui.showInfo("❌ Audio not ready.");
-            if (!state.stopRequested) {
-                this.playCurrentSentence();
-            }
+            if (!s.audioError) this.app.ui.showInfo("❌ Audio not ready.");
             return;
         }
 
@@ -88,6 +108,7 @@ export class AudioManager {
         this.stopPlayback(false);
         state.stopRequested = false;
 
+        let shouldRetry = false;
         try {
             if (state.currentSource)
                 try {
@@ -114,7 +135,9 @@ export class AudioManager {
                     this.app.highlightManager.saveCurrentSentenceHighlight();
                 }
                 state.isPlaying = false;
+                state.playingSentenceIndex = -1;
                 this.updatePlayButton();
+                this.app.pdfRenderer.updateHighlightFullDoc();
                 if (!state.autoAdvanceActive) return;
                 if (state.currentSentenceIndex < state.sentences.length - 1) {
                     await delay(120);
@@ -122,7 +145,7 @@ export class AudioManager {
                     await this.app.pdfRenderer.renderSentence(state.currentSentenceIndex + 1, { autoAdvance: true });
                     const nextSentence = state.sentences[state.currentSentenceIndex];
                     if (!state.generationEnabled || nextSentence?.isTextToRead) {
-                        this.playCurrentSentence();
+                        await this.playCurrentSentence();
                     }
                 }
                 this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
@@ -132,7 +155,9 @@ export class AudioManager {
             state.currentSource.start();
             state.isPlaying = true;
             state.autoAdvanceActive = true;
+            state.playingSentenceIndex = state.currentSentenceIndex;
             this.updatePlayButton();
+            this.app.pdfRenderer.updateHighlightFullDoc();
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
         } catch (err) {
             console.error("Playback error:", err);
@@ -141,7 +166,14 @@ export class AudioManager {
                 if (state.audioCtx) await state.audioCtx.close();
             } catch {}
             state.audioCtx = null;
-            this.playCurrentSentence();
+            shouldRetry = !state.stopRequested;
+        } finally {
+            if (shouldRetry) {
+                await delay(200);
+                if (!state.stopRequested) {
+                    setTimeout(() => this.playCurrentSentence(), 0);
+                }
+            }
         }
     }
 
@@ -190,9 +222,12 @@ export class AudioManager {
         state.currentSource = null;
         state.currentGain = null;
         state.isPlaying = false;
+        state.autoAdvanceActive = false;
+        state.playingSentenceIndex = -1;
         this.updatePlayButton();
         const s = state.currentSentence;
         if (s) this.clearWordBoundaryTimers(s);
+        this.app.pdfRenderer.updateHighlightFullDoc();
         this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_PAUSE, { index: state.currentSentenceIndex });
     }
 

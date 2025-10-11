@@ -246,10 +246,13 @@ export class PDFRenderer {
 
             if (!Array.isArray(wordsToRender) || !wordsToRender.length) continue;
 
+            const currentIdx =
+                state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+
             for (const word of wordsToRender) {
                 const div = document.createElement("div");
                 div.className = "persistent-highlight";
-                if (sentenceIndex === state.currentSentenceIndex) div.classList.add("current-playing");
+                if (sentenceIndex === currentIdx) div.classList.add("current-playing");
                 div.style.left = offsetLeft + word.x * scale + "px";
                 div.style.top = offsetTop + (word.y - word.height) * scale + "px";
                 div.style.width = word.width * scale + "px";
@@ -273,7 +276,9 @@ export class PDFRenderer {
         if (state.hoveredSentenceIndex < 0 || state.hoveredSentenceIndex >= state.sentences.length) return;
         const s = state.sentences[state.hoveredSentenceIndex];
         if (!s) return;
-        if (state.hoveredSentenceIndex === state.currentSentenceIndex) return;
+        const currentIdx =
+            state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+        if (state.hoveredSentenceIndex === currentIdx) return;
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${s.pageNumber}"]`);
         if (!wrapper) return;
         const scale = parseFloat(wrapper.dataset.scale) || 1;
@@ -307,12 +312,22 @@ export class PDFRenderer {
         const { state } = this.app;
         if (state.viewMode !== "full") return;
         const container = document.getElementById("pdf-doc-container");
-        if (!container || !sentence) return;
+        if (!container) return;
+
+        const activeIndex =
+            state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+        const targetSentence = sentence || (activeIndex >= 0 ? state.sentences[activeIndex] : null);
 
         // Clear old highlights
         container.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
 
-        const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
+        if (!targetSentence) {
+            this.renderSavedHighlightsFullDoc();
+            this.renderHoverHighlightFullDoc();
+            return;
+        }
+
+        const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${targetSentence.pageNumber}"]`);
         if (!wrapper) return;
         const scale = parseFloat(wrapper.dataset.scale) || 1;
         const canvas = wrapper.querySelector("canvas.page-canvas");
@@ -327,7 +342,7 @@ export class PDFRenderer {
         const offsetTop = canvasRect.top - wrapperRect.top;
         const offsetLeft = canvasRect.left - wrapperRect.left;
 
-        const highlightWords = this.getReadableWords(sentence);
+        const highlightWords = this.getReadableWords(targetSentence);
         if (highlightWords.length) {
             for (const w of highlightWords) {
                 const div = document.createElement("div");
@@ -395,7 +410,10 @@ export class PDFRenderer {
                 ctx.fillRect(xR, yR, widthR, heightR);
             }
 
-            if (sentenceIndex === state.currentSentenceIndex) {
+            const currentIdx =
+                state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+
+            if (sentenceIndex === currentIdx) {
                 for (const word of highlightWords) {
                     const xR = word.x * state.deviceScale;
                     const yTopDisplay = word.y - word.height - offsetYDisplay;
@@ -414,7 +432,9 @@ export class PDFRenderer {
         const { state } = this.app;
         if (!ctx) return;
         if (state.hoveredSentenceIndex < 0 || state.hoveredSentenceIndex >= state.sentences.length) return;
-        if (state.hoveredSentenceIndex === state.currentSentenceIndex) return;
+        const currentIdx =
+            state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+        if (state.hoveredSentenceIndex === currentIdx) return;
         const sentence = state.sentences[state.hoveredSentenceIndex];
         if (!sentence || sentence.pageNumber !== pageNumber) return;
         ctx.save();

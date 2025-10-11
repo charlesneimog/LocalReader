@@ -117,9 +117,7 @@ export class PDFLoader {
                 document.getElementById("pdf-open")?.classList.remove("fa-beat");
             } else {
                 if (!state.piperInstance) {
-                    state.piperInstance = new window.ProperPiperTTS(config.DEFAULT_PIPER_VOICE);
-                    await state.piperInstance.init();
-                    await state.piperInstance.getAvailableVoices();
+                    console.log("Error: Piper instance not found");
                 }
                 app.ttsEngine.initVoices();
                 document.getElementById("pdf-open")?.classList.add("fa-beat");
@@ -294,7 +292,9 @@ export class PDFLoader {
                 const sentence = state.sentences[i];
                 if (!sentence || sentence.layoutProcessed) continue;
                 await app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
-                await app.pdfHeaderFooterDetector.ensureReadabilityForPage(sentence.pageNumber, { force: forceRebuild });
+                await app.pdfHeaderFooterDetector.ensureReadabilityForPage(sentence.pageNumber, {
+                    force: forceRebuild,
+                });
                 if (sentence.layoutProcessed && sentence.isTextToRead) {
                     resolvedIndex = sentence.index;
                     break;

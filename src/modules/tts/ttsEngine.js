@@ -1,9 +1,29 @@
 import { cooperativeYield, delay, normalizeText, formatTextToSpeech } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
+import { PiperWorkerClient } from "./piper-client.js";
 
 export class TTSEngine {
     constructor(app) {
         this.app = app;
+        this.client = null;
+        this.voice = app.config.DEFAULT_PIPER_VOICE;
+        this.piperInstance = null;
+
+        const scriptSrc = (document.currentScript && document.currentScript.src) || window.location.href;
+        const scriptDir = scriptSrc.substring(0, scriptSrc.lastIndexOf("/"));
+        const baseUrl = scriptDir.replace(/\/thirdparty\/piper$/, "");
+        this.baseUrl = baseUrl;
+
+        this.huggingFaceRoot = "https://huggingface.co/rhasspy/piper-voices/resolve/main/";
+        this.initialized = false;
+    }
+
+    async getVoicesLists() {
+        this.voicesUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json";
+        this.huggingFaceRoot = "https://huggingface.co/rhasspy/piper-voices/resolve/main/";
+        const response = await fetch(this.voicesUrl);
+        if (!response.ok) throw new Error("Failed to fetch voices.json");
+        return await response.json();
     }
 
     async ensureAudioContext() {
@@ -25,30 +45,59 @@ export class TTSEngine {
         return state.audioCtx;
     }
 
-    async ensurePiper(voice) {
+    async ensurePiper(voiceId) {
         document.body.style.cursor = "wait";
-        const { state } = this.app;
-        if (!window.ort) throw new Error("ONNX Runtime not loaded.");
-        if (!window.ProperPiperTTS) throw new Error("Piper library not loaded.");
-        if (!state.piperInstance || state.currentPiperVoice !== voice) {
-            if (state.piperLoading) {
-                while (state.piperLoading) await cooperativeYield();
-            } else {
-                state.piperLoading = true;
-                try {
-                    if (state.piperInstance && state.currentPiperVoice !== voice) {
-                        state.piperInstance.changeVoice(voice);
-                    } else {
-                        state.piperInstance = new window.ProperPiperTTS(voice);
-                        state.piperInstance.init();
-                    }
-                    state.currentPiperVoice = voice;
-                } finally {
-                    state.piperLoading = false;
-                }
+        try {
+            this.client = new PiperWorkerClient({ workerUrl: "./src/modules/tts/piper.worker.js" });
+            this.voices = await this.getVoicesLists();
+            if (!this.voices[voiceId]) {
+                throw new Error(`Unknown voice: ${voiceId}. Available voices: ${Object.keys(this.voices).join(", ")}`);
             }
+            if (this.voiceId === voiceId && this.initialized) {
+                console.log(`Voice already set to ${voiceId}`);
+                document.body.style.cursor = "default";
+                return;
+            }
+
+            // Voice paths
+            const voice = this.voices[voiceId];
+            const filePaths = Object.keys(voice.files);
+            const MODEL_URL = this.huggingFaceRoot + filePaths.find((f) => f.endsWith(".onnx"));
+            const CONFIG_URL = this.huggingFaceRoot + filePaths.find((f) => f.endsWith(".onnx.json"));
+
+            const modelBuffer = await getCachedModel("en_US-hfc_male-medium.onnx", MODEL_URL);
+            const voiceConfig = await getCachedJSON("en_US-hfc_male-medium.onnx.json", CONFIG_URL);
+
+            const ortJsUrl = "https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/ort.min.js";
+            const ortWasmRoot = "https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/";
+            const phonemizerJsUrl = "./thirdparty/piper/piper-o91UDS6e.js";
+            const phonemizerWasmUrl = "./thirdparty/piper/piper_phonemize.wasm";
+            const phonemizerDataUrl = "./thirdparty/piper/piper_phonemize.data";
+
+            // Initialize Piper in the worker
+            this.client
+                .init({
+                    modelBuffer,
+                    voiceConfig,
+                    ortJsUrl,
+                    ortWasmRoot,
+                    phonemizerJsUrl,
+                    phonemizerWasmUrl,
+                    phonemizerDataUrl,
+                    logLevel: "error",
+                    transferModel: true,
+                })
+                .then((instance) => {
+                    this.piperInstance = instance;
+                    document.body.style.cursor = "default";
+                    this.initialized = true;
+                });
+
+            this.voiceId = voiceId;
+        } catch (err) {
+            console.error("Failed to initialize Piper:", err);
+            alert("Piper init error: " + err.message);
         }
-        document.body.style.cursor = "default";
     }
 
     async safeDecodeAudioData(arrayBuffer) {

@@ -220,9 +220,7 @@ export class TTSEngine {
 
         const { blob: wavBlob, wavBuffer } = await retryAsync(async () => {
             try {
-                console.log("Synthesizing:", text);
                 const cleaned = formatTextToSpeech(text);
-                document.body.style.cursor = "wait";
                 const activeClient = this.app.state.piperInstance || client;
                 if (!activeClient) throw new Error("Piper worker unavailable");
                 const result = await activeClient.synthesize(cleaned, state.CURRENT_SPEED);

@@ -4,25 +4,31 @@ export class HighlightManager {
     }
 
     saveCurrentSentenceHighlight(color = null) {
-    const { state } = this.app;
-    if (!state) return;
+        const { state } = this.app;
+        if (!state) return;
         if (state.currentSentenceIndex < 0 || state.currentSentenceIndex >= state.sentences.length) return;
-        const highlightColor = color || state.selectedHighlightColor || "#fff8b0";
+        let highlightColor = color || state.selectedHighlightColor || "#FFF176"; // default amarelo
+        const selectedButton = document.querySelector(".highlight-color-option.selected");
+        if (!color && selectedButton) {
+            highlightColor = selectedButton.getAttribute("data-highlight-color");
+        }
         state.savedHighlights.set(state.currentSentenceIndex, {
             color: highlightColor,
             timestamp: Date.now(),
             sentenceText: state.sentences[state.currentSentenceIndex].text,
         });
+
         state.selectedHighlightColor = highlightColor;
+
         this.app.highlightsStorage.saveHighlightsForPdf();
         this.app.pdfRenderer.updateHighlightDisplay();
         this.app.controlsManager.reflectSelectedHighlightColor();
     }
 
     setSelectedHighlightColor(color) {
-    const { state } = this.app;
-    if (!state || !color) return;
-    state.selectedHighlightColor = color;
+        const { state } = this.app;
+        if (!state || !color) return;
+        state.selectedHighlightColor = color;
         this.app.pdfRenderer.updateHighlightDisplay();
         this.app.controlsManager?.reflectSelectedHighlightColor?.();
     }
@@ -34,4 +40,3 @@ export class HighlightManager {
         this.app.pdfRenderer.updateHighlightDisplay();
     }
 }
-

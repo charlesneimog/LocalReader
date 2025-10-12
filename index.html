@@ -24,10 +24,6 @@
             pdfjsLib.GlobalWorkerOptions.workerSrc = "thirdparty/pdf/pdf.worker.js";
         </script>
 
-        <!-- ONNX Runtime + Piper -->
-        <!-- <script src="thirdparty/ort.js"></script> -->
-        <!-- <script src="thirdparty/piper/piper-tts-proper.js"></script> -->
-
         <!-- pdf-lib -->
         <script src="thirdparty/pdf/pdf-lib.js"></script>
 
@@ -44,19 +40,20 @@
 
         <!-- No PDF Overlay -->
         <div
-            class="fixed inset-0 z-10 flex items-center justify-center bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-sm"
+            class="fixed inset-0 z-10 flex items-center justify-center bg-background-light/80 dark:bg-background-dark/80 p-2"
             id="no-pdf-overlay"
         >
             <div
                 class="w-full max-w-lg p-8 text-center bg-white/50 dark:bg-background-dark/50 rounded-xl shadow-2xl backdrop-blur-lg border border-white/20 dark:border-background-dark/20"
             >
                 <div class="flex justify-center mb-6">
-                    <span class="material-symbols-outlined text-7xl text-primary"> picture_as_pdf </span>
+                    <img src="./assets/icons/icon-512.png" alt="App Icon" class="w-24 h-24" />
                 </div>
+
                 <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">PDFCastia</h1>
                 <h3 class="text-6l font-bold text-gray-900 dark:text-white mb-2">Please open a PDF file.</h3>
                 <p class="text-gray-600 dark:text-gray-400 mb-8">Select a file to start reading and listening.</p>
-                <div class="space-y-4 text-left">
+                <div class="hidden sm:block space-y-4 text-left">
                     <div class="flex items-center p-3 bg-background-light dark:bg-background-dark rounded-lg">
                         <kbd class="font-mono text-sm font-semibold bg-primary/10 text-primary px-2 py-1 rounded"
                             >h</kbd
@@ -87,7 +84,7 @@
 
         <div
             id="config-menu"
-            class="fixed backdrop-blur-sm hidden bottom-6 left-1/2 w-96 sm:bottom-24 sm:left-1/2 sm:-translate-x-1/2 bg-gray-100 dark:bg-gray-800 p-6 rounded-lg z-20"
+            class="fixed hidden bottom-24 w-96 left-1/2 -translate-x-1/2 sm:translate-x-0 bg-gray-100 dark:bg-gray-800 rounded-lg p-4 z-20 shadow-2xl"
         >
             <div class="flex items-center justify-between mb-6">
                 <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
@@ -132,11 +129,42 @@
                 </div>
                 <div>
                     <button id="toggle-fullscreen" class="flex items-center justify-center rounded p-2">
-                        <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
+                        <span
+                            class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-primary"
                             >fullscreen</span
                         >
                     </button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Highlight Menu -->
+        <div
+            id="highlight-menu"
+            class="fixed hidden bottom-24 w-64 left-1/2 -translate-x-1/2 sm:translate-x-0 bg-background-light dark:bg-background-dark rounded-lg p-4 z-30 shadow-lg"
+        >
+            <p class="px-2 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3">Highlight Color</p>
+            <div id="highlight-color-options" class="grid grid-cols-4 gap-6">
+                <button
+                    type="button"
+                    class="h-10 w-10 rounded-full bg-yellow-400 highlight-color-option"
+                    data-highlight-color="#FFF176"
+                ></button>
+                <button
+                    type="button"
+                    class="h-10 w-10 rounded-full bg-blue-400 highlight-color-option"
+                    data-highlight-color="#4FC3F7"
+                ></button>
+                <button
+                    type="button"
+                    class="h-10 w-10 rounded-full bg-green-400 highlight-color-option"
+                    data-highlight-color="#81C784"
+                ></button>
+                <button
+                    type="button"
+                    class="h-10 w-10 rounded-full bg-red-400 highlight-color-option"
+                    data-highlight-color="#F44336"
+                ></button>
             </div>
         </div>
 
@@ -145,8 +173,6 @@
             <div
                 class="flex flex-wrap items-center gap-2 rounded-lg bg-background-light/80 p-2 shadow-lg backdrop-blur-md dark:bg-background-dark/80"
             >
-                <!-- wrapper igual ao botão (mesmo padding e hover) -->
-                <!-- Hidden on small screens, visible on medium and up -->
                 <div class="items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20">
                     <span
                         id="user-avatar"
@@ -206,45 +232,14 @@
 
                 <!-- Highlight Color Menu -->
                 <div class="relative">
-                    <input class="peer sr-only" id="color-menu-toggle" type="checkbox" />
-                    <label
-                        class="flex cursor-pointer items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
-                        for="color-menu-toggle"
+                    <button
+                        id="highlight-button"
+                        class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                     >
                         <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
                             >palette</span
                         >
-                    </label>
-
-                    <div
-                        class="peer-checked-block absolute bottom-full mb-2 hidden w-40 rounded-lg bg-background-light/90 p-2 shadow-lg backdrop-blur-md dark:bg-background-dark/90"
-                    >
-                        <p class="px-2 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                            Highlight Color
-                        </p>
-                        <div class="mt-1 grid grid-cols-4 gap-2" id="highlight-color-options">
-                            <button
-                                type="button"
-                                class="h-8 w-8 rounded-full bg-yellow-200 highlight-color-option"
-                                data-highlight-color="#fff8b0"
-                            ></button>
-                            <button
-                                type="button"
-                                class="h-8 w-8 rounded-full bg-blue-200 highlight-color-option"
-                                data-highlight-color="#bde6f4"
-                            ></button>
-                            <button
-                                type="button"
-                                class="h-8 w-8 rounded-full bg-green-200 highlight-color-option"
-                                data-highlight-color="#c9f9c9"
-                            ></button>
-                            <button
-                                type="button"
-                                class="h-8 w-8 rounded-full bg-pink-200 highlight-color-option"
-                                data-highlight-color="#fdd9e1"
-                            ></button>
-                        </div>
-                    </div>
+                    </button>
                 </div>
 
                 <!-- Settings Menu -->
@@ -280,6 +275,9 @@
                 const settingsMenu = document.getElementById("config-menu");
                 const configMenuClose = document.getElementById("config-menu-close");
 
+                const highlightBtn = document.getElementById("highlight-button");
+                const highlightMenu = document.getElementById("highlight-menu");
+
                 document.getElementById("open-file").addEventListener("click", () => fileInput.click());
                 document.getElementById("init-open-pdf").addEventListener("click", () => fileInput.click());
 
@@ -299,6 +297,16 @@
                 configMenuClose.addEventListener("click", () => {
                     settingsMenu.classList.add("hidden");
                     // overlay.classList.remove("active");
+                });
+
+                highlightBtn.addEventListener("click", () => {
+                    highlightMenu.classList.toggle("hidden");
+                });
+
+                document.addEventListener("click", (e) => {
+                    if (!highlightMenu.contains(e.target) && !highlightBtn.contains(e.target)) {
+                        highlightMenu.classList.add("hidden");
+                    }
                 });
 
                 // Close menus when clicking outside

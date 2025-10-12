@@ -258,7 +258,7 @@ export class PDFRenderer {
                 div.style.width = word.width * scale + "px";
                 div.style.height = word.height * scale + "px";
                 const rgb = hexToRgb(highlightData.color);
-                if (rgb) div.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)`;
+                if (rgb) div.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8)`;
                 else div.style.backgroundColor = "rgba(255, 235, 59, 0.3)";
                 div.style.borderRadius = "2px";
                 div.title = `Highlighted: ${sentence.text.substring(0, 50)}...`;
@@ -276,8 +276,7 @@ export class PDFRenderer {
         if (state.hoveredSentenceIndex < 0 || state.hoveredSentenceIndex >= state.sentences.length) return;
         const s = state.sentences[state.hoveredSentenceIndex];
         if (!s) return;
-        const currentIdx =
-            state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+        const currentIdx = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
         if (state.hoveredSentenceIndex === currentIdx) return;
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${s.pageNumber}"]`);
         if (!wrapper) return;
@@ -314,8 +313,7 @@ export class PDFRenderer {
         const container = document.getElementById("pdf-doc-container");
         if (!container) return;
 
-        const activeIndex =
-            state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+        const activeIndex = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
         const targetSentence = sentence || (activeIndex >= 0 ? state.sentences[activeIndex] : null);
 
         // Clear old highlights
@@ -432,8 +430,7 @@ export class PDFRenderer {
         const { state } = this.app;
         if (!ctx) return;
         if (state.hoveredSentenceIndex < 0 || state.hoveredSentenceIndex >= state.sentences.length) return;
-        const currentIdx =
-            state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+        const currentIdx = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
         if (state.hoveredSentenceIndex === currentIdx) return;
         const sentence = state.sentences[state.hoveredSentenceIndex];
         if (!sentence || sentence.pageNumber !== pageNumber) return;

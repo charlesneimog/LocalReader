@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme {
+    --color-primary: #654ef0;
+    --color-background-light: #f6f7f8;
+    --color-background-dark: #101922;
+    --color-highlight-yellow: #fcba03;
+    --font-display: "Inter", sans-serif;
+    --radius-default: 0.25rem;
+    --radius-full: 9999px;
+}
+
+@layer base {
+    button,
+    [role="button"],
+    .cursor-pointer {
+        @apply cursor-pointer;
+    }
+}

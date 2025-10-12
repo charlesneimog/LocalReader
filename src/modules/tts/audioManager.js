@@ -94,7 +94,13 @@ export class AudioManager {
                 icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
                 icon.classList.remove("animate-spin");
             }
-            if (!s.audioError) this.app.ui.showInfo("❌ Audio not ready.");
+            if (!s.audioError) {
+                setTimeout(() => {
+                    this._playCurrentSentence(config);
+                }, 300);
+
+                return;
+            }
             return;
         }
 

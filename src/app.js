@@ -139,8 +139,6 @@ export class PDFTTSApp {
 
         this.audioManager.togglePlay();
         icon.textContent = this.state.isPlaying ? "pause" : "play_arrow";
-
-        console.log("Playing", this.state.isPlaying);
     }
 
     toggleViewMode() {

@@ -332,10 +332,6 @@ export class PDFLoader {
             app.ui.showInfo("No readable sentences found after layout filtering.");
             app.audioManager.updatePlayButton();
         }
-        if (icon) {
-            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-            icon.classList.remove("animate-spin");
-        }
     }
 
     _resolveResumeIndex(prevSentence, prevIndex) {

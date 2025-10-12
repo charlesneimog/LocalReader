@@ -311,16 +311,8 @@
 
                 // Close menus when clicking outside
                 document.addEventListener("click", (e) => {
-                    const colorMenu = document.querySelector("#color-menu-toggle + label + div");
-                    const colorCheckbox = document.getElementById("color-menu-toggle");
-
-                    if (!settingsMenu.contains(e.target) && !settingsBtn.contains(e.target)) {
-                        settingsMenu.classList.add("hidden");
-                        // overlay.classList.remove("active");
-                    }
-
-                    if (!colorMenu.contains(e.target) && !colorCheckbox.contains(e.target)) {
-                        colorCheckbox.checked = false;
+                    if (!highlightMenu.contains(e.target) && !highlightBtn.contains(e.target)) {
+                        highlightMenu.classList.add("hidden");
                     }
                 });
 

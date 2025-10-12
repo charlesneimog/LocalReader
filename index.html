@@ -10,13 +10,12 @@
         <meta name="theme-color" content="#2b2b2b" />
         <meta name="description" content="Listen to your podcasts with local IA" />
 
-        <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
         <link href="https://fonts.googleapis.com" rel="preconnect" />
         <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
-        <link rel="stylesheet" href="src/css/style.css" />
-
+        <link rel="stylesheet" href="./src/css/style.css" />
+        <link rel="stylesheet" href="./src/css/output.css" />
         <script src="./threads.js"></script>
 
         <!-- PDF.js -->
@@ -34,24 +33,6 @@
 
         <!-- Kinde Auth -->
         <script src="https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.umd.min.js"></script>
-
-        <script>
-            tailwind.config = {
-                darkMode: "media",
-                theme: {
-                    extend: {
-                        colors: {
-                            primary: "#654EF0",
-                            "background-light": "#f6f7f8",
-                            "background-dark": "#101922",
-                            "highlight-yellow": "#fff8b0",
-                        },
-                        fontFamily: { display: ["Inter"] },
-                        borderRadius: { DEFAULT: "0.25rem", full: "9999px" },
-                    },
-                },
-            };
-        </script>
     </head>
 
     <body class="bg-background-light dark:bg-background-dark font-display text-slate-800 dark:text-slate-200">
@@ -72,7 +53,8 @@
                 <div class="flex justify-center mb-6">
                     <span class="material-symbols-outlined text-7xl text-primary"> picture_as_pdf </span>
                 </div>
-                <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">Please open a PDF file.</h1>
+                <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">PDFCastia</h1>
+                <h3 class="text-6l font-bold text-gray-900 dark:text-white mb-2">Please open a PDF file.</h3>
                 <p class="text-gray-600 dark:text-gray-400 mb-8">Select a file to start reading and listening.</p>
                 <div class="space-y-4 text-left">
                     <div class="flex items-center p-3 bg-background-light dark:bg-background-dark rounded-lg">
@@ -100,6 +82,61 @@
                 >
                     Open PDF
                 </button>
+            </div>
+        </div>
+
+        <div
+            id="config-menu"
+            class="fixed backdrop-blur-sm hidden bottom-6 left-1/2 w-96 sm:bottom-24 sm:left-1/2 sm:-translate-x-1/2 bg-gray-100 dark:bg-gray-800 p-6 rounded-lg z-20"
+        >
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
+                <button
+                    id="config-menu-close"
+                    class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary"
+                >
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+                        Change voice language
+                    </label>
+                    <select
+                        id="voice-select"
+                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                    ></select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+                        Adjust reading speed
+                    </label>
+                    <div class="flex items-center gap-4">
+                        <span class="text-gray-500 dark:text-gray-400">🐢</span>
+                        <input
+                            id="reading-speed"
+                            type="range"
+                            min="0.5"
+                            max="2"
+                            step="0.1"
+                            value="1"
+                            class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                        />
+                        <span class="text-gray-500 dark:text-gray-400">🐇</span>
+                    </div>
+                    <div id="reading-speed-value" class="text-center text-sm text-gray-500 dark:text-gray-400 mt-2">
+                        1.0x
+                    </div>
+                </div>
+                <div>
+                    <button id="toggle-fullscreen" class="flex items-center justify-center rounded p-2">
+                        <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
+                            >fullscreen</span
+                        >
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -220,65 +257,6 @@
                             >settings</span
                         >
                     </button>
-
-                    <div
-                        id="config-menu"
-                        class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 hidden flex-col gap-2 rounded-lg p-4 sm:p-6 shadow-lg bg-background-light dark:bg-background-dark z-30 w-72 sm:w-96"
-                    >
-                        <div class="flex items-center justify-between mb-6">
-                            <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
-                            <button
-                                id="config-menu-close"
-                                class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary"
-                            >
-                                <span class="material-symbols-outlined">close</span>
-                            </button>
-                        </div>
-
-                        <div class="space-y-6">
-                            <div>
-                                <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
-                                    >Change voice language</label
-                                >
-                                <select
-                                    id="voice-select"
-                                    class="form-select w-full rounded-lg bg-background-light dark:bg-background-dark border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-primary focus:border-primary"
-                                ></select>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2"
-                                    >Adjust reading speed</label
-                                >
-                                <div class="flex items-center gap-4">
-                                    <span class="mdi mdi-tortoise text-slate-500 dark:text-slate-400"></span>
-                                    <input
-                                        id="reading-speed"
-                                        type="range"
-                                        min="0.5"
-                                        max="2"
-                                        step="0.1"
-                                        value="1"
-                                        class="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-primary"
-                                    />
-                                    <span class="mdi mdi-hare text-slate-500 dark:text-slate-400"></span>
-                                </div>
-                                <div
-                                    id="reading-speed-value"
-                                    class="text-center text-sm text-slate-500 dark:text-slate-400 mt-2"
-                                >
-                                    1.0x
-                                </div>
-                            </div>
-                            <div>
-                                <button id="toggle-fullscreen" class="flex items-center justify-center rounded p-2">
-                                    <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
-                                        >fullscreen</span
-                                    >
-                                </button>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -286,12 +264,13 @@
         <!-- Status Message -->
         <div
             id="info-box"
-            class="fixed z-30 rounded-lg bg-background-light/80 px-4 py-2 text-sm text-slate-600 shadow-lg backdrop-blur-md dark:bg-background-dark/80 dark:text-slate-300 bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm md:bottom-4 md:right-4 md:left-auto md:translate-x-0 md:w-auto"
+            class="hidden fixed z-30 rounded-lg bg-background-light/80 px-4 py-2 text-sm text-slate-600 shadow-lg backdrop-blur-md dark:bg-background-dark/80 dark:text-slate-300 bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm md:bottom-4 md:right-4 md:left-auto md:translate-x-0 md:w-auto"
         ></div>
 
-        <div id="warningDiv"></div>
+        <!-- File Input -->
+        <input type="file" id="file-input" accept="application/pdf" class="hidden" />
 
-        <input type="file" id="file-input" accept="application/pdf" style="display: none" />
+        <!-- Initialize App -->
         <script type="module">
             import { app } from "./src/app.js";
 
@@ -340,6 +319,7 @@
                 app.initialize();
             });
         </script>
+        <!-- Service Worker Registration -->
         <script>
             if (typeof navigator.serviceWorker !== "undefined") {
                 navigator.serviceWorker.register("sw.js");

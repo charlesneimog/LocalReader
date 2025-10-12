@@ -502,3 +502,8 @@ html {
     max-width: 95vw;
     word-wrap: break-word;
 }
+/* Add to your style.css */
+#config-menu {
+    max-height: 80vh;
+    overflow-y: auto;
+}

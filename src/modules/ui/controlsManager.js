@@ -7,7 +7,8 @@ export class ControlsManager {
 
     _cacheDOMElements() {
         this.voiceSelect = document.getElementById("voice-select");
-        this.speedSelect = document.getElementById("rate-select");
+        this.speedSelect = document.getElementById("reading-speed");
+        this.speedSelectValue = document.getElementById("reading-speed-value");
 
         this.btnNextSentence = document.getElementById("next-sentence");
         this.btnPrevSentence = document.getElementById("prev-sentence");
@@ -80,6 +81,11 @@ export class ControlsManager {
             });
         }
         if (this.speedSelect) {
+            this.speedSelect.addEventListener("input", () => {
+                const val = parseFloat(this.speedSelect.value);
+                this.speedSelectValue.textContent = val + "x";
+            });
+
             this.speedSelect.addEventListener("change", () => {
                 const val = parseFloat(this.speedSelect.value);
                 this.app.state.CURRENT_SPEED = isNaN(val) ? 1.0 : val;
@@ -87,6 +93,7 @@ export class ControlsManager {
                 this.app.state.autoAdvanceActive = false;
                 this.app.cache.clearAudioFrom(this.app.state.currentSentenceIndex);
                 this.app.ttsEngine.schedulePrefetch();
+                this.speedSelectValue.textContent = val + "x";
             });
         }
         window.addEventListener("keydown", (e) => {

@@ -184,7 +184,7 @@ function loadModel(key) {
 async function getCachedModel(key, url) {
     let buffer = await loadModel(key);
     if (buffer) {
-        console.log("Loaded model from cache.");
+        // console.log("Loaded model from cache.");
         return buffer;
     }
     console.log("Fetching model from network...");
@@ -206,7 +206,7 @@ async function loadJSON(key) {
 async function getCachedJSON(key, url) {
     let data = await loadJSON(key);
     if (data) {
-        console.log("Loaded config from cache.");
+        // console.log("Loaded config from cache.");
         return data;
     }
     console.log("Fetching config from network...");

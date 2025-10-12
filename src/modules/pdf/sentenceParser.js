@@ -20,7 +20,7 @@ export class SentenceParser {
         state.sentences = [];
         state.pageSentencesIndex.clear();
 
-        console.log(`[SentenceParser] Building sentences starting from page ${startPageNumber}...`);
+        // console.log(`[SentenceParser] Building sentences starting from page ${startPageNumber}...`);
 
         const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
         if (icon) {
@@ -48,13 +48,13 @@ export class SentenceParser {
             icon.classList.remove("animate-spin");
         }
 
-        console.log(`[SentenceParser] Created ${state.sentences.length} sentences from ${state.pdf.numPages} pages`);
+        // console.log(`[SentenceParser] Created ${state.sentences.length} sentences from ${state.pdf.numPages} pages`);
     }
 
     async parsePageWords(pageNumber, page) {
         const { app } = this;
         const { config, state } = app;
-    const abbreviations = ["Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "e.g", "i.e.", "etc", "Fig", "p", "al"];
+        const abbreviations = ["Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "e.g", "i.e.", "etc", "Fig", "p", "al"];
         let sentenceIndex = state.sentences.length; // Continue from existing sentences
 
         function isSentenceEnd(wordStr, nextWordStr) {

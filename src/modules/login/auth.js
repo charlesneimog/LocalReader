@@ -19,16 +19,9 @@ export class Login {
             redirect_uri: returnUrl,
         });
 
-        const token = (await this.client.getToken()).access_token;
-
-        const response = await fetch("https://pdfcastia.kinde.com/api/v1/account/entitlements", {
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
-        });
-
-        const data = await response.json();
-        console.log(data);
+        const user = this.client.getUser();
+        console.log(user);
+        document.getElementById("user-avatar").src = user?.picture;
     }
 
     async login() {}

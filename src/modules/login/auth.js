@@ -2,19 +2,23 @@ export class Login {
     constructor(app) {
         this.app = app;
         this.client = null;
+        this.allow_read = true;
     }
 
     async checkProUser(client) {
         try {
             const orgs = await client.getUserOrganizations();
             const orgId = orgs.orgCodes[0];
+            console.log(orgId);
             if (orgId !== "org_65ebf424294") {
-                const warningDiv = document.getElementById("access-warning");
-                warningDiv.innerHTML = `You need to subscribe to PDFCast Pro to get full access!<br>You have 5 minutes of free access.`;
-                warningDiv.style.display = "block";
                 setTimeout(() => {
-                    warningDiv.style.display = "none";
-                }, 10000);
+                    const warningDiv = document.getElementById("access-warning");
+                    warningDiv.innerHTML = `You need to subscribe to PDFCastia Pro to get full access!<br>You have 5 minutes of free access.`;
+                    warningDiv.style.display = "block";
+                    warningDiv.style.textAlign = "center";
+                    this.allow_read = false;
+                    this.app.ttsEngine.client.freeUserTimeLimit();
+                }, 300000);
             }
         } catch (err) {
             console.error("Failed to check Pro user:", err);
@@ -27,38 +31,41 @@ export class Login {
             returnUrl = "https://charlesneimog.github.io/pdf-tts-reader/";
         }
 
-        const client = await createKindeClient({
+        this.client = await createKindeClient({
             domain: "https://pdfcastia.kinde.com",
             client_id: "28453f64b8634f94b45bcec091eadc89",
             redirect_uri: returnUrl,
         });
 
-        const isAuthenticated = await client.isAuthenticated();
+        // Check required configurations
+        const isAuthenticated = await this.client.isAuthenticated();
         if (isAuthenticated) {
-            this._updateUserAvatar(client);
-            await this.checkProUser(client);
-        } else {
-            client.login();
+            this._updateUserAvatar(this.client);
+            await this.checkProUser(this.client);
         }
     }
 
     async _updateUserAvatar(client) {
-        const avatarSpan = document.getElementById("user-avatar");
+        const avatarImg = document.getElementById("user-avatar");
         const user = await client.getUserProfile();
-        avatarSpan.innerHTML = "";
-
-        const img = document.createElement("img");
-        img.src = user?.picture || "default-avatar.png";
-        img.alt = user?.given_name || "User avatar";
-        img.id = "login-user";
-        img.className = "w-7 h-7 rounded-full object-cover border border-slate-300 dark:border-slate-600";
-
-        avatarSpan.appendChild(img);
+        if (avatarImg) {
+            avatarImg.src = user?.picture || "./assets/images/default-user.png";
+        }
     }
 
-    async signOut() {
+    async login() {
+        this.client.login();
+    }
+
+    async logout() {
         const client = this.client;
         if (client) await client.logout();
+    }
+
+    async subscribe() {
+        console.log(this.client);
+        const client = this.client;
+        if (client) await client.register();
     }
 
     async getUser() {

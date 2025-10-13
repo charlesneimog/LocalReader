@@ -19,6 +19,7 @@ let createPiperPhonemizeWorker = null;
 let phonemizerModule = null;
 let currentPhonemizeResolve = null;
 let currentPhonemizeReject = null;
+let limitUserTime = false;
 
 function respond(id, type, payload) {
     self.postMessage({ id, type, ...payload });
@@ -268,6 +269,9 @@ self.onmessage = async (event) => {
         }
 
         if (type === "synthesize") {
+            if (limitUserTime) {
+                throw new Error("Free limit reached");
+            }
             const { text, speed, espeakVoice } = payload;
             const { wavBuffer, sampleRate } = await synthesize(text, speed, espeakVoice);
             // Transfer the WAV buffer to avoid copying
@@ -275,9 +279,12 @@ self.onmessage = async (event) => {
             return;
         }
 
+        if (type === "limit-user-time") {
+            limitUserTime = true;
+        }
+
         respondError(id, type || "unknown", "Unknown message type");
     } catch (err) {
         respondError(id, type || "unknown", err);
     }
 };
-

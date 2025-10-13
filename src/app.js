@@ -29,8 +29,8 @@ import { Login } from "./modules/login/auth.js";
 
 export class PDFTTSApp {
     constructor() {
-        this.login = new Login(this);
-        this.login.init();
+        this.auth = new Login(this);
+        this.auth.init();
 
         // UI
         this.ui = new UIService(this);
@@ -168,25 +168,18 @@ export class PDFTTSApp {
     saveCurrentSentenceHighlight(color) {
         return this.highlightManager.saveCurrentSentenceHighlight(color);
     }
+
+    //
+    async login() {
+        this.auth.login();
+    }
+    async logout() {
+        this.auth.logout();
+    }
+    async subscribe() {
+        this.auth.subscribe();
+    }
 }
 
 // Single shared app instance
 export const app = new PDFTTSApp();
-
-// Preserve global window API
-window.toggleViewMode = () => app.toggleViewMode();
-window.loadPDF = (file, options) => app.loadPDF(file, options);
-window.nextSentence = () => app.nextSentence(true);
-window.prevSentence = () => app.prevSentence(true);
-window.playSentence = () => app.audioManager.playCurrentSentence();
-window.togglePlay = () => app.togglePlay();
-
-window.listSavedProgress = () => app.listSavedProgress();
-window.clearPdfProgress = (key) => app.clearPdfProgress(key);
-
-window.listSavedHighlights = () => app.listSavedHighlights();
-window.clearPdfHighlights = (key) => app.clearPdfHighlights(key);
-window.exportHighlights = () => app.exportPdfWithHighlights();
-window.saveHighlight = () => app.saveCurrentSentenceHighlight();
-
-window.initializePdfApp = () => app.initialize();

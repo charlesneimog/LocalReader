@@ -9,7 +9,6 @@ export class Login {
         try {
             const orgs = await client.getUserOrganizations();
             const orgId = orgs.orgCodes[0];
-            console.log(orgId);
             if (orgId !== "org_65ebf424294") {
                 setTimeout(() => {
                     const warningDiv = document.getElementById("access-warning");

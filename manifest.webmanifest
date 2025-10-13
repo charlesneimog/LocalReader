@@ -13,11 +13,11 @@
     "theme_color": "#654ef0",
     "orientation": "portrait",
     "icons": [
-    {
-      "src": "assets/icons/icon.svg",
-      "sizes": "any",
-      "type": "svg"
-    },
+        {
+            "src": "assets/icons/icon.svg",
+            "sizes": "any",
+            "type": "svg"
+        },
         {
             "src": "assets/icons/icon-192.png",
             "sizes": "192x192",
@@ -29,8 +29,8 @@
             "type": "image/png"
         },
         {
-            "src": "assets/icons/maskable_icon.png",
-            "sizes": "240x240",
+            "src": "assets/icons/mask-512.png",
+            "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"
         }

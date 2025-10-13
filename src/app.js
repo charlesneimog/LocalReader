@@ -168,8 +168,6 @@ export class PDFTTSApp {
     saveCurrentSentenceHighlight(color) {
         return this.highlightManager.saveCurrentSentenceHighlight(color);
     }
-
-    //
     async login() {
         this.auth.login();
     }

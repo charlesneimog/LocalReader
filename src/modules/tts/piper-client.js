@@ -71,6 +71,10 @@ export class PiperWorkerClient {
         });
     }
 
+    freeUserTimeLimit() {
+        this._call("limit-user-time", {});
+    }
+
     async init({
         modelBuffer,
         voiceConfig,

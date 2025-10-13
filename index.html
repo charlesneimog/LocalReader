@@ -82,6 +82,38 @@
             </div>
         </div>
 
+        <!-- Login Menu -->
+        <div
+            id="login-menu"
+            class="fixed hidden bottom-18 left-1/4 w-64 bg-gray-100 dark:bg-gray-800 rounded-lg p-4 z-20 shadow-2xl"
+        >
+            <div class="p-2 space-y-1">
+                <button
+                    id="login-button"
+                    class="w-full flex items-center gap-3 px-4 py-2.5 text-gray-800 dark:text-gray-200 hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors duration-200 rounded-lg text-sm"
+                >
+                    <span class="material-symbols-outlined text-base">login</span>
+                    <span>Login</span>
+                </button>
+                <button
+                    id="subscription-button"
+                    class="w-full flex items-center gap-3 px-4 py-2.5 text-gray-800 dark:text-gray-200 hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors duration-200 rounded-lg text-sm"
+                >
+                    <span class="material-symbols-outlined text-base">workspace_premium</span>
+                    <span>Subscription</span>
+                </button>
+                <div class="border-t border-gray-200 dark:border-white/10 mx-2 my-1"></div>
+                <button
+                    id="logout-button"
+                    class="w-full flex items-center gap-3 px-4 py-2.5 text-gray-800 dark:text-gray-200 hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors duration-200 rounded-lg text-sm"
+                >
+                    <span class="material-symbols-outlined text-base">logout</span>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Config Menu -->
         <div
             id="config-menu"
             class="fixed hidden bottom-24 w-96 left-1/2 -translate-x-1/2 sm:translate-x-0 bg-gray-100 dark:bg-gray-800 rounded-lg p-4 z-20 shadow-2xl"
@@ -173,12 +205,16 @@
             <div
                 class="flex flex-wrap items-center gap-2 rounded-lg bg-background-light/80 p-2 shadow-lg backdrop-blur-md dark:bg-background-dark/80"
             >
-                <div class="items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20">
-                    <span
+                <button
+                    id="user-avatar-btn"
+                    class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
+                >
+                    <img
                         id="user-avatar"
-                        class="inline-block w-5 h-5 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700"
-                    ></span>
-                </div>
+                        class="w-5 h-5 rounded-full object-cover bg-slate-200 dark:bg-slate-700"
+                        src="./assets/images/default-user.png"
+                    />
+                </button>
 
                 <button
                     id="open-file"
@@ -265,6 +301,12 @@
         <!-- File Input -->
         <input type="file" id="file-input" accept="application/pdf" class="hidden" />
 
+        <!-- Access Warning -->
+        <div
+            id="access-warning"
+            class="hidden fixed top-2 left-1/2 -translate-x-1/2 z-50 bg-yellow-100 dark:bg-yellow-900 text-yellow-900 dark:text-yellow-100 border border-yellow-400 dark:border-yellow-700 px-6 py-3 rounded-lg shadow-lg"
+        ></div>
+
         <!-- Initialize App -->
         <script type="module">
             import { app } from "./src/app.js";
@@ -278,8 +320,18 @@
                 const highlightBtn = document.getElementById("highlight-button");
                 const highlightMenu = document.getElementById("highlight-menu");
 
+                const avatarBtn = document.getElementById("user-avatar-btn");
+                const loginBtn = document.getElementById("login-button");
+                const subscriptionBtn = document.getElementById("subscription-button");
+                const logoutBtn = document.getElementById("logout-button");
+                const loginMenu = document.getElementById("login-menu");
+
                 document.getElementById("open-file").addEventListener("click", () => fileInput.click());
                 document.getElementById("init-open-pdf").addEventListener("click", () => fileInput.click());
+
+                document.getElementById("login-button").addEventListener("click", () => app.login());
+                document.getElementById("subscription-button").addEventListener("click", () => app.subscribe());
+                document.getElementById("logout-button").addEventListener("click", () => app.logout());
 
                 fileInput.addEventListener("change", async (e) => {
                     const file = e.target.files[0];
@@ -291,12 +343,14 @@
                 // Toggle settings modal
                 settingsBtn.addEventListener("click", () => {
                     settingsMenu.classList.toggle("hidden");
-                    // overlay.classList.toggle("active");
                 });
 
                 configMenuClose.addEventListener("click", () => {
                     settingsMenu.classList.add("hidden");
-                    // overlay.classList.remove("active");
+                });
+
+                avatarBtn.addEventListener("click", () => {
+                    loginMenu.classList.toggle("hidden");
                 });
 
                 highlightBtn.addEventListener("click", () => {

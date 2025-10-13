@@ -33,9 +33,9 @@ export class TTSEngine {
         const { state, config } = this.app;
         if (!state.audioCtx) {
             try {
-                state.audioCtx = new (window.AudioContext || window.webkitAudioContext)(config.AUDIO_CONTEXT_OPTIONS);
+                state.audioCtx = new window.AudioContext(config.AUDIO_CONTEXT_OPTIONS);
             } catch {
-                state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                state.audioCtx = new window.AudioContext();
             }
         }
         if (state.audioCtx.state === "suspended") {

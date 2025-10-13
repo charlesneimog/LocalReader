@@ -16,7 +16,6 @@
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
         <link rel="stylesheet" href="./src/css/style.css" />
         <link rel="stylesheet" href="./src/css/output.css" />
-        <script src="./threads.js"></script>
 
         <!-- PDF.js -->
         <script src="thirdparty/pdf/pdf.js"></script>
@@ -26,9 +25,6 @@
 
         <!-- pdf-lib -->
         <script src="thirdparty/pdf/pdf-lib.js"></script>
-
-        <!-- Kinde Auth -->
-        <script src="https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.umd.min.js"></script>
     </head>
 
     <body class="bg-background-light dark:bg-background-dark font-display text-slate-800 dark:text-slate-200">
@@ -96,11 +92,11 @@
                     <span>Login</span>
                 </button>
                 <button
-                    id="subscription-button"
+                    id="manage-button"
                     class="w-full flex items-center gap-3 px-4 py-2.5 text-gray-800 dark:text-gray-200 hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors duration-200 rounded-lg text-sm"
                 >
-                    <span class="material-symbols-outlined text-base">workspace_premium</span>
-                    <span>Subscription</span>
+                    <span class="material-symbols-outlined text-base">manage_accounts</span>
+                    <span>Manage Account</span>
                 </button>
                 <div class="border-t border-gray-200 dark:border-white/10 mx-2 my-1"></div>
                 <button
@@ -330,7 +326,7 @@
                 document.getElementById("init-open-pdf").addEventListener("click", () => fileInput.click());
 
                 document.getElementById("login-button").addEventListener("click", () => app.login());
-                document.getElementById("subscription-button").addEventListener("click", () => app.subscribe());
+                document.getElementById("manage-button").addEventListener("click", () => app.subscribe());
                 document.getElementById("logout-button").addEventListener("click", () => app.logout());
 
                 fileInput.addEventListener("change", async (e) => {

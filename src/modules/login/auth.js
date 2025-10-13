@@ -1,27 +1,10 @@
+import createKindeClient from "https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.esm.js";
+
 export class Login {
     constructor(app) {
         this.app = app;
         this.client = null;
         this.allow_read = true;
-    }
-
-    async checkProUser(client) {
-        try {
-            const orgs = await client.getUserOrganizations();
-            const orgId = orgs.orgCodes[0];
-            if (orgId !== "org_65ebf424294") {
-                setTimeout(() => {
-                    const warningDiv = document.getElementById("access-warning");
-                    warningDiv.innerHTML = `You need to subscribe to PDFCastia Pro to get full access!<br>You have 5 minutes of free access.`;
-                    warningDiv.style.display = "block";
-                    warningDiv.style.textAlign = "center";
-                    this.allow_read = false;
-                    this.app.ttsEngine.client.freeUserTimeLimit();
-                }, 300000);
-            }
-        } catch (err) {
-            console.error("Failed to check Pro user:", err);
-        }
     }
 
     async init() {
@@ -36,39 +19,21 @@ export class Login {
             redirect_uri: returnUrl,
         });
 
-        // Check required configurations
-        const isAuthenticated = await this.client.isAuthenticated();
-        if (isAuthenticated) {
-            this._updateUserAvatar(this.client);
-            await this.checkProUser(this.client);
-        }
+        const token = (await this.client.getToken()).access_token;
+
+        const response = await fetch("https://pdfcastia.kinde.com/api/v1/account/entitlements", {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+
+        const data = await response.json();
+        console.log(data);
     }
 
-    async _updateUserAvatar(client) {
-        const avatarImg = document.getElementById("user-avatar");
-        const user = await client.getUserProfile();
-        if (avatarImg) {
-            avatarImg.src = user?.picture || "./assets/images/default-user.png";
-        }
-    }
+    async login() {}
 
-    async login() {
-        this.client.login();
-    }
+    async logout() {}
 
-    async logout() {
-        const client = this.client;
-        if (client) await client.logout();
-    }
-
-    async subscribe() {
-        console.log(this.client);
-        const client = this.client;
-        if (client) await client.register();
-    }
-
-    async getUser() {
-        const client = this.client;
-        return client ? client.getUserProfile() : null;
-    }
+    async subscribe() {}
 }

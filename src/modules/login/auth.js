@@ -19,9 +19,8 @@ export class Login {
             redirect_uri: returnUrl,
         });
 
-        const user = this.client.getUser();
-        console.log(user);
-        document.getElementById("user-avatar").src = user?.picture;
+        const user = await this.client.getUser();
+        document.getElementById("user-avatar").src = user.picture;
     }
 
     async login() {}

@@ -11,7 +11,7 @@
     "display": "fullscreen",
     "background_color": "#ffffff",
     "theme_color": "#654ef0",
-    "orientation": "portrait",
+    "orientation": "any",
     "icons": [
         {
             "src": "assets/icons/icon.svg",

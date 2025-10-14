@@ -69,6 +69,7 @@ export function formatTextToSpeech(text) {
     return text;
 }
 
-export function isMobile() {
+export function isMobile(config) {
+    // Support both direct call and config-based call for compatibility
     return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }

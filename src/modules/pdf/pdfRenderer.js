@@ -295,12 +295,8 @@ export class PDFRenderer {
             const div = document.createElement("div");
             div.className = "hover-highlight";
             div.style.left = offsetLeft + w.x * scale + "px";
+            // Unified coordinate transformation: word.y is bottom of text, subtract height for top
             div.style.top = offsetTop + (w.y - w.height) * scale + "px";
-            if (isMobile()) {
-                div.style.top = offsetTop + w.y * scale + "px";
-            } else {
-                div.style.top = offsetTop + (w.y - w.height) * scale + "px";
-            }
             div.style.width = w.width * scale + "px";
             div.style.height = w.height * scale + "px";
             wrapper.appendChild(div);
@@ -347,11 +343,8 @@ export class PDFRenderer {
                 div.className = "pdf-word-highlight";
                 div.style.position = "absolute";
                 div.style.left = offsetLeft + w.x * scale + "px";
-                if (isMobile()) {
-                    div.style.top = offsetTop + w.y * scale + "px";
-                } else {
-                    div.style.top = offsetTop + (w.y - w.height) * scale + "px";
-                }
+                // Unified coordinate transformation: word.y is bottom of text, subtract height for top
+                div.style.top = offsetTop + (w.y - w.height) * scale + "px";
                 div.style.width = Math.max(1, w.width * scale) + "px";
                 div.style.height = Math.max(1, w.height * scale) + "px";
                 div.style.pointerEvents = "none";

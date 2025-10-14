@@ -12,20 +12,20 @@ export function mapClientPointToPdf(e, state, config) {
         const viewportDisplay = state.viewportDisplayByPage.get(state.currentSingleViewPageNumber);
         if (!viewportDisplay) return null;
 
+        // Unified coordinate mapping: CSS pixels to display coordinates
         const cssWidth = rect.width;
-        let xDisplay, yDisplay;
-        if (isMobile(config)) {
-            const scaleCSS = cssWidth / viewportDisplay.width;
-            xDisplay = (xClient - rect.left) / scaleCSS;
-            yDisplay = (yClient - rect.top) / scaleCSS;
-        } else {
-            xDisplay = xClient - rect.left;
-            yDisplay = yClient - rect.top + state.currentSingleViewOffsetY;
-        }
+        const cssHeight = rect.height;
+        const scaleCSS = cssWidth / viewportDisplay.width;
+        const xDisplay = (xClient - rect.left) / scaleCSS;
+        const yDisplay = (yClient - rect.top) / scaleCSS;
+        
+        // For single view mode, add scroll offset
+        const adjustedYDisplay = state.viewMode === "single" ? yDisplay + state.currentSingleViewOffsetY : yDisplay;
+        
         return {
             pageNumber: state.currentSingleViewPageNumber,
             xDisplay,
-            yDisplay
+            yDisplay: adjustedYDisplay
         };
     } else {
         const container = document.getElementById("pdf-doc-container");
@@ -47,8 +47,8 @@ export function mapClientPointToPdf(e, state, config) {
         
         if (xClient < rect.left || xClient > rect.right || yClient < rect.top || yClient > rect.bottom) return null;
         
-        // Calculate display coordinates accounting for actual rendered size
-        // The canvas is rendered at deviceScale but displayed at CSS scale
+        // Unified coordinate mapping: CSS pixels to display coordinates
+        // The scale factor converts from CSS pixels to display coordinates
         const xDisplay = (xClient - rect.left) / scale;
         const yDisplay = (yClient - rect.top) / scale;
         

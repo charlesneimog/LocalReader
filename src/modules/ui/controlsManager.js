@@ -113,6 +113,8 @@ export class ControlsManager {
         });
 
         window.addEventListener("beforeunload", () => this.app.progressManager.saveProgress());
+        
+        // Handle viewport resize
         window.addEventListener("resize", () => {
             const s = this.app.state;
             if (s.viewMode === "full") {
@@ -123,6 +125,8 @@ export class ControlsManager {
                 this.app.pdfRenderer.renderSentence(s.currentSentenceIndex);
             }
         });
+        
+        // Handle orientation changes on mobile
         window.addEventListener("orientationchange", () => {
             setTimeout(() => {
                 const s = this.app.state;
@@ -135,6 +139,36 @@ export class ControlsManager {
                 }
             }, 150);
         });
+
+        // Handle device pixel ratio changes (zoom, display changes)
+        // This ensures highlights stay aligned when user zooms or moves window between displays
+        if (window.matchMedia) {
+            const updateOnDPRChange = () => {
+                const newDPR = window.devicePixelRatio || 1;
+                if (Math.abs(newDPR - this.app.state.deviceScale) > 0.01) {
+                    this.app.state.deviceScale = newDPR;
+                    // Clear render cache as it needs to be regenerated at new DPR
+                    this.app.state.fullPageRenderCache.clear();
+                    const s = this.app.state;
+                    if (s.viewMode === "full") {
+                        this.app.pdfRenderer.rescaleAllPages();
+                        this.app.pdfRenderer.updateHighlightFullDoc(s.currentSentence);
+                        this.app.pdfRenderer.renderHoverHighlightFullDoc();
+                    } else {
+                        this.app.pdfRenderer.renderSentence(s.currentSentenceIndex);
+                    }
+                }
+            };
+            
+            // Watch for DPR changes
+            const mediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+            if (mediaQuery.addEventListener) {
+                mediaQuery.addEventListener("change", updateOnDPRChange);
+            } else if (mediaQuery.addListener) {
+                // Fallback for older browsers
+                mediaQuery.addListener(updateOnDPRChange);
+            }
+        }
 
         this.reflectSelectedHighlightColor();
     }

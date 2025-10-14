@@ -8,7 +8,7 @@
     "scope": "/pdf-tts-reader/",
     "lang": "en",
     "dir": "ltr",
-    "display": "standalone",
+    "display": "fullscreen",
     "background_color": "#ffffff",
     "theme_color": "#654ef0",
     "orientation": "portrait",

@@ -141,13 +141,12 @@ export class ControlsManager {
         });
 
         // Handle device pixel ratio changes (zoom, display changes)
-        // This ensures highlights stay aligned when user zooms or moves window between displays
         if (window.matchMedia) {
             const updateOnDPRChange = () => {
                 const newDPR = window.devicePixelRatio || 1;
                 if (Math.abs(newDPR - this.app.state.deviceScale) > 0.01) {
                     this.app.state.deviceScale = newDPR;
-                    // Clear render cache as it needs to be regenerated at new DPR
+                    // Clear render cache as it needs regeneration at new DPR
                     this.app.state.fullPageRenderCache.clear();
                     const s = this.app.state;
                     if (s.viewMode === "full") {

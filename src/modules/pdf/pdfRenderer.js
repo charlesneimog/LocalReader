@@ -1,4 +1,4 @@
-import { clamp, hexToRgb } from "../utils/helpers.js";
+import { isMobile, clamp, hexToRgb } from "../utils/helpers.js";
 import { getPageDisplayScale } from "../utils/responsive.js";
 import { EVENTS } from "../../constants/events.js";
 
@@ -295,7 +295,7 @@ export class PDFRenderer {
             const div = document.createElement("div");
             div.className = "hover-highlight";
             div.style.left = offsetLeft + w.x * scale + "px";
-            // Unified coordinate transformation: word.y is bottom of text, subtract height for top
+            // Always use top edge (w.y - w.height) for positioning
             div.style.top = offsetTop + (w.y - w.height) * scale + "px";
             div.style.width = w.width * scale + "px";
             div.style.height = w.height * scale + "px";
@@ -343,7 +343,7 @@ export class PDFRenderer {
                 div.className = "pdf-word-highlight";
                 div.style.position = "absolute";
                 div.style.left = offsetLeft + w.x * scale + "px";
-                // Unified coordinate transformation: word.y is bottom of text, subtract height for top
+                // Always use top edge (w.y - w.height) for positioning
                 div.style.top = offsetTop + (w.y - w.height) * scale + "px";
                 div.style.width = Math.max(1, w.width * scale) + "px";
                 div.style.height = Math.max(1, w.height * scale) + "px";

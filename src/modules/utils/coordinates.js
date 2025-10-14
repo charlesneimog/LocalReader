@@ -1,3 +1,5 @@
+import { isMobile } from "./helpers.js";
+
 export function mapClientPointToPdf(e, state, config) {
     if (state.viewMode === "single") {
         const pdfCanvas = document.getElementById("pdf-canvas");
@@ -10,20 +12,19 @@ export function mapClientPointToPdf(e, state, config) {
         const viewportDisplay = state.viewportDisplayByPage.get(state.currentSingleViewPageNumber);
         if (!viewportDisplay) return null;
 
-        // Unified coordinate mapping: CSS pixels to display coordinates
+        // Unified coordinate mapping: always use scale-based transformation
         const cssWidth = rect.width;
-        const cssHeight = rect.height;
         const scaleCSS = cssWidth / viewportDisplay.width;
-        const xDisplay = (xClient - rect.left) / scaleCSS;
-        const yDisplay = (yClient - rect.top) / scaleCSS;
+        let xDisplay = (xClient - rect.left) / scaleCSS;
+        let yDisplay = (yClient - rect.top) / scaleCSS;
         
-        // For single view mode, add scroll offset
-        const adjustedYDisplay = state.viewMode === "single" ? yDisplay + state.currentSingleViewOffsetY : yDisplay;
+        // Add scroll offset for single view mode
+        yDisplay += state.currentSingleViewOffsetY;
         
         return {
             pageNumber: state.currentSingleViewPageNumber,
             xDisplay,
-            yDisplay: adjustedYDisplay
+            yDisplay
         };
     } else {
         const container = document.getElementById("pdf-doc-container");
@@ -45,8 +46,8 @@ export function mapClientPointToPdf(e, state, config) {
         
         if (xClient < rect.left || xClient > rect.right || yClient < rect.top || yClient > rect.bottom) return null;
         
-        // Unified coordinate mapping: CSS pixels to display coordinates
-        // The scale factor converts from CSS pixels to display coordinates
+        // Calculate display coordinates accounting for actual rendered size
+        // The canvas is rendered at deviceScale but displayed at CSS scale
         const xDisplay = (xClient - rect.left) / scale;
         const yDisplay = (yClient - rect.top) / scale;
         

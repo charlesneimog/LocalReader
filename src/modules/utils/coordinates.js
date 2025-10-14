@@ -1,5 +1,3 @@
-import { isMobile } from "./helpers.js";
-
 export function mapClientPointToPdf(e, state, config) {
     if (state.viewMode === "single") {
         const pdfCanvas = document.getElementById("pdf-canvas");

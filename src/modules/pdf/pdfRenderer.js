@@ -1,4 +1,4 @@
-import { isMobile, clamp, hexToRgb } from "../utils/helpers.js";
+import { clamp, hexToRgb } from "../utils/helpers.js";
 import { getPageDisplayScale } from "../utils/responsive.js";
 import { EVENTS } from "../../constants/events.js";
 

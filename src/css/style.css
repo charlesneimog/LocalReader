@@ -14,6 +14,7 @@
     --focus-ring: 0 0 0 3px rgba(0, 140, 255, 0.45);
     --hover-highlight-color: rgba(0, 150, 255, 0.28);
     --hover-highlight-stroke: rgba(0, 150, 255, 0.9);
+    --vh: 1vh;
 }
 @media (prefers-color-scheme: light) {
     :root {
@@ -69,7 +70,8 @@ body {
     background: var(--bg);
     color: var(--fg);
     -webkit-font-smoothing: antialiased;
-    height: 100vh;
+    min-height: calc(var(--vh, 1vh) * 100);
+    height: calc(var(--vh, 1vh) * 100);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -189,10 +191,14 @@ input[type="color"]:hover:not(:disabled) {
     overflow-y: auto;
     overflow-x: hidden;
     background: var(--bg);
-    padding: 24px 0 48px;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 48px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
     margin: 0;
     border-top: 1px solid var(--panel-border);
     scroll-behavior: smooth;
+    min-height: calc(var(--vh, 1vh) * 100);
 }
 .pdf-page-wrapper {
     position: relative;
@@ -291,7 +297,8 @@ input[type="color"]:hover:not(:disabled) {
     body {
         overflow: auto !important;
         font-size: 15px;
-        height: 100dvh;
+        min-height: calc(var(--vh, 1vh) * 100);
+        height: calc(var(--vh, 1vh) * 100);
     }
     #controls.toolbar {
         flex-direction: column;
@@ -330,8 +337,8 @@ input[type="color"]:hover:not(:disabled) {
 body,
 html {
     overflow: auto !important;
-    min-height: 100dvh;
-    height: 100dvh;
+    min-height: calc(var(--vh, 1vh) * 100);
+    height: calc(var(--vh, 1vh) * 100);
 }
 
 #controls.toolbar--collapsed .btn-group > :not([data-essential="true"]) {

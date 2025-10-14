@@ -5,6 +5,7 @@ import { CacheManager } from "./core/cacheManager.js";
 
 import * as helperFns from "./modules/utils/helpers.js";
 import { ensureAriaRegions } from "./modules/utils/ariaManager.js";
+import { viewportHeightManager } from "./modules/utils/viewport.js";
 
 import { PDFLoader } from "./modules/pdf/pdfLoader.js";
 import { PDFRenderer } from "./modules/pdf/pdfRenderer.js";
@@ -46,6 +47,8 @@ export class PDFTTSApp {
 
         // Utilities
         this.helpers = helperFns;
+    this.viewportManager = viewportHeightManager;
+    this._handleViewportHeightChange = this._handleViewportHeightChange.bind(this);
 
         // Storage / Persistence
         this.progressManager = new ProgressManager(this);
@@ -79,6 +82,10 @@ export class PDFTTSApp {
             icon.textContent = "hourglass_empty";
             icon.classList.add("animate-spin");
         }
+
+        this.viewportManager.addListener(this._handleViewportHeightChange);
+        this.viewportManager.start();
+        this._handleViewportHeightChange(this.viewportManager.getCurrentHeight());
 
         await this._ensureAriaRegions();
         await this._loadInitialPDF();
@@ -176,6 +183,14 @@ export class PDFTTSApp {
     }
     async subscribe() {
         this.auth.subscribe();
+    }
+
+    _handleViewportHeightChange(height) {
+        if (!Number.isFinite(height)) return;
+        this.state.viewportHeight = height;
+        if (this.pdfRenderer && typeof this.pdfRenderer.handleViewportHeightChange === "function") {
+            this.pdfRenderer.handleViewportHeightChange(height);
+        }
     }
 }
 

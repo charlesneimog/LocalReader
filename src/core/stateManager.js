@@ -45,7 +45,7 @@ export class StateManager {
         // Highlights
         this.savedHighlights = new Map();
         this.autoHighlightEnabled = false;
-    this.selectedHighlightColor = "#fff8b0";
+        this.selectedHighlightColor = "#fff8b0";
 
         // Layout Detection Cache
         this.layoutDetectionCache = new Map(); // pageNumber → { detections, validWordIndices, timestamp }
@@ -60,6 +60,7 @@ export class StateManager {
         // Other runtime
         this.CURRENT_SPEED = 1.0;
         this.audioCtx = null;
+        this.viewportHeight = window.visualViewport ? Math.round(window.visualViewport.height) : window.innerHeight;
     }
 
     get currentSentence() {

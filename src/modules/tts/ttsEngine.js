@@ -280,6 +280,7 @@ export class TTSEngine {
             audioError: null,
             wordBoundaries,
         });
+        delete sentence._restartAttempted;
     }
 
     async synthesizeSequential(idx) {
@@ -318,6 +319,7 @@ export class TTSEngine {
                 prefetchQueued: false,
                 wordBoundaries: cached.wordBoundaries || [],
             });
+            delete s._restartAttempted;
             return;
         }
 
@@ -337,8 +339,25 @@ export class TTSEngine {
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
         } catch (err) {
             s.audioError = err;
-            this.app.ui.showInfo(`TTS error (sentence ${s.index + 1})`);
+            this.app.ui.showInfo(`TTS error, resetting engine for ${err.message}`);
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
+            try {
+                if (!s._restartAttempted) {
+                    s._restartAttempted = true;
+                    await this.resetEngine({ clearCache: true, reason: err.message });
+                    const retrySentence = this.app.state.sentences[idx];
+                    if (retrySentence) {
+                        retrySentence.audioError = null;
+                        retrySentence.audioInProgress = false;
+                    }
+                    if (this.app.state.generationEnabled && this.app.ttsQueue) {
+                        this.app.ttsQueue.add(idx, true);
+                        this.app.ttsQueue.run();
+                    }
+                }
+            } catch (resetErr) {
+                console.error("Failed to reset TTS engine:", resetErr);
+            }
         } finally {
             s.audioInProgress = false;
             if (icon) {
@@ -394,6 +413,81 @@ export class TTSEngine {
         if (micIcon) {
             micIcon.classList.remove("fa-spinner", "fa-spin");
             micIcon.classList.add("fa-microphone");
+        }
+    }
+
+    async resetEngine({ clearCache = true, reason } = {}) {
+        const { state } = this.app;
+        console.warn("Restarting TTS engine", reason || "");
+
+        if (this.app.audioManager?.stopPlayback) {
+            try {
+                await this.app.audioManager.stopPlayback(false);
+            } catch (err) {
+                console.warn("stopPlayback during reset failed:", err);
+            }
+        }
+
+        if (this.initializingPromise) {
+            try {
+                await this.initializingPromise.catch(() => {});
+            } catch {}
+        }
+        this.initializingPromise = null;
+        this.pendingVoiceId = null;
+
+        if (this.client) {
+            try {
+                this.client.terminate();
+            } catch (err) {
+                console.warn("Failed to terminate Piper worker:", err);
+            }
+        }
+        this.client = null;
+        this.initialized = false;
+        this.voiceId = null;
+
+        if (state.audioCtx) {
+            try {
+                await state.audioCtx.close();
+            } catch (err) {
+                console.warn("AudioContext close failed:", err);
+            }
+            state.audioCtx = null;
+        }
+
+        state.piperInstance = null;
+        state.currentPiperVoice = null;
+        state.piperLoading = false;
+        state.stopRequested = false;
+
+        if (clearCache && state.audioCache) {
+            try {
+                state.audioCache.clear();
+            } catch (err) {
+                console.warn("Audio cache clear failed:", err);
+            }
+        }
+
+        if (clearCache && Array.isArray(state.sentences)) {
+            for (const sentence of state.sentences) {
+                if (!sentence) continue;
+                if (Array.isArray(sentence.playbackWordTimers)) {
+                    for (const timer of sentence.playbackWordTimers) clearTimeout(timer);
+                }
+                sentence.playbackWordTimers = [];
+                sentence.audioBlob = null;
+                sentence.wavBlob = null;
+                sentence.audioBuffer = null;
+                sentence.audioReady = false;
+                sentence.audioInProgress = false;
+                sentence.lastVoice = null;
+                sentence.lastSpeed = null;
+                sentence.audioError = null;
+                sentence.prefetchQueued = false;
+                sentence.wordBoundaries = [];
+                delete sentence._restartAttempted;
+            }
         }
     }
 }

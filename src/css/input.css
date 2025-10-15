@@ -17,3 +17,7 @@
         @apply cursor-pointer;
     }
 }
+
+.hidden-class {
+    @apply ring-2 ring-offset-2 ring-slate-400;
+}

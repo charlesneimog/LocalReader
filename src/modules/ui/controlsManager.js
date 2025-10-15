@@ -27,6 +27,12 @@ export class ControlsManager {
         this.overlayHelp = document.getElementById("help-overlay");
         this.controlsToolbar = document.getElementById("controls");
         this.wakeLock = null;
+
+        this.app.highlightManager?.setSelectedHighlightColor("#ffda76");
+        const icon = this.saveHighlightBtn.querySelector(".material-symbols-outlined");
+        if (icon) {
+            icon.style.color = "#ffda76";
+        }
     }
 
     _setupEventListeners() {
@@ -68,9 +74,14 @@ export class ControlsManager {
                     const color = btn.dataset.highlightColor;
                     if (!color) return;
                     this.app.highlightManager?.setSelectedHighlightColor(color);
+                    const icon = this.saveHighlightBtn.querySelector(".material-symbols-outlined");
+                    if (icon) {
+                        icon.style.color = color;
+                    }
                 });
             });
         }
+
         if (this.voiceSelect) {
             this.voiceSelect.addEventListener("change", () => {
                 this.app.audioManager.stopPlayback(true);
@@ -108,6 +119,19 @@ export class ControlsManager {
                 this.app.saveCurrentSentenceHighlight();
             } else if (e.code === "KeyF") {
                 this.toggleFullscreen();
+            } else if (["Digit1", "Digit2", "Digit3", "Digit4"].includes(e.code)) {
+                const index = parseInt(e.code.replace("Digit", ""), 10) - 1;
+                const btn = this.highlightColorButtons?.[index];
+                if (!btn) return;
+                const color = btn.dataset.highlightColor;
+                if (!color) return;
+                this.app.highlightManager?.setSelectedHighlightColor(color);
+                const icon = this.saveHighlightBtn.querySelector(".material-symbols-outlined");
+                if (icon) {
+                    icon.style.color = color;
+                }
+                // btn.classList.add("ring-2", "ring-offset-2", "ring-slate-400");
+                // setTimeout(() => btn.classList.remove("ring-2", "ring-offset-2", "ring-slate-400"), 200);
             }
         });
 

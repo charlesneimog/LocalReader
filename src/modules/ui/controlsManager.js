@@ -55,7 +55,6 @@ export class ControlsManager {
         if (this.saveHighlightBtn) {
             this.saveHighlightBtn.addEventListener("click", () => {
                 this.app.highlightManager.saveCurrentSentenceHighlight();
-                this.app.ui.showInfo("Highlight saved!");
             });
         }
         if (this.exportHighlightsBtn) {

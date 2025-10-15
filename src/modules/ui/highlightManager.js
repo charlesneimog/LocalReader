@@ -35,8 +35,13 @@ export class HighlightManager {
 
     clearHighlight(sentenceIndex) {
         const { state } = this.app;
+        if (!state.pdf) {
+            this.app.ui.showInfo("Load a document before highlight something.");
+            return;
+        }
         state.savedHighlights.delete(sentenceIndex);
         this.app.highlightsStorage.saveHighlightsForPdf();
         this.app.pdfRenderer.updateHighlightDisplay();
+        this.app.ui.showInfo("Highlight Saved");
     }
 }

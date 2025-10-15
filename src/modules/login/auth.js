@@ -25,8 +25,10 @@ export class Login {
             this.client.login();
         }
         const user = await this.client.getUser();
-        document.getElementById("user-avatar").src = user?.picture;
-        this.name = user.given_name + " " + user.family_name;
+        if (user){
+            document.getElementById("user-avatar").src = user.picture;
+            this.name = user.given_name + " " + user.family_name;
+        }
     }
 
     getUserName() {

@@ -97,7 +97,7 @@ export class ExportManager {
                 const annotationContents = sentence?.text ? sentence.text.slice(0, 1024) : "";
 
                 // TODO: Add login userName or identifier here
-                const annotationAuthor = this.app?.config?.APP_NAME || "pdf-tts-reader";
+                const annotationAuthor = this.app.auth.getUserName() || "PDFCastia";
                 const uniqueId = `hl-${pageNum}-${sentenceIndex}-${createdAt.getTime()}`;
 
                 const highlightDict = pdfDoc.context.obj({

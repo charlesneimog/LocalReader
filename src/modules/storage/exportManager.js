@@ -57,14 +57,29 @@ export class ExportManager {
                         ? sentence.readableWords
                         : sentence.words;
 
+                // Detect the coordinate reference used for this page so we can convert to PDF space (origin bottom-left)
+                const renderer = this.app?.pdfRenderer;
+                let coordSystem = renderer?.pageCoordinateSystems?.get(pageNum) || null;
+                if (!coordSystem && renderer && typeof renderer.detectPageCoordinateSystem === "function") {
+                    coordSystem = renderer.detectPageCoordinateSystem(pageNum, wordsToAnnotate) || null;
+                    if (coordSystem && renderer.pageCoordinateSystems) {
+                        renderer.pageCoordinateSystems.set(pageNum, coordSystem);
+                    }
+                }
+                coordSystem = coordSystem || "baseline";
+
                 for (const word of wordsToAnnotate) {
                     const x1 = word.x * scaleX;
-                    const yTop = height - word.y * scaleY; // convert from viewport y to PDF y (origin bottom-left)
                     const x2 = x1 + word.width * scaleX;
-                    const yBottom = yTop - word.height * scaleY;
 
-                    // Use ordering: top-left, top-right, bottom-left, bottom-right
-                    quadPoints.push(x1, yTop, x2, yTop, x1, yBottom, x2, yBottom);
+                    const displayTop = coordSystem === "top-based" ? word.y : word.y - word.height;
+                    const displayBottom = displayTop + word.height;
+
+                    const yTop = height - displayTop * scaleY;
+                    const yBottom = height - displayBottom * scaleY;
+
+                    // Use ordering: top-left, top-right, bottom-right, bottom-left per PDF spec
+                    quadPoints.push(x1, yTop, x2, yTop, x2, yBottom, x1, yBottom);
                 }
 
                 if (quadPoints.length === 0) continue;
@@ -80,15 +95,17 @@ export class ExportManager {
                 const createdAt = highlightData?.timestamp ? new Date(highlightData.timestamp) : new Date();
                 const modifiedAt = new Date();
                 const annotationContents = sentence?.text ? sentence.text.slice(0, 1024) : "";
+
+                // TODO: Add login userName or identifier here
                 const annotationAuthor = this.app?.config?.APP_NAME || "pdf-tts-reader";
                 const uniqueId = `hl-${pageNum}-${sentenceIndex}-${createdAt.getTime()}`;
 
                 const highlightDict = pdfDoc.context.obj({
                     Type: PDFName.of("Annot"),
                     Subtype: PDFName.of("Highlight"),
-                    Rect: [xMin, yMin, xMax, yMax],
-                    QuadPoints: quadPoints,
-                    C: colorArray,
+                    Rect: pdfDoc.context.obj([xMin, yMin, xMax, yMax]),
+                    QuadPoints: pdfDoc.context.obj(quadPoints),
+                    C: pdfDoc.context.obj(colorArray),
                     F: PDFNumber.of(4),
                     CA: PDFNumber.of(1),
                     NM: PDFString.of(uniqueId),

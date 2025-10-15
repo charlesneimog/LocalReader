@@ -433,14 +433,5 @@
                 app.initialize();
             });
         </script>
-        <!-- Service Worker Registration -->
-        <script>
-            if ("serviceWorker" in navigator) {
-                navigator.serviceWorker
-                    .register("./sw.js")
-                    .then((reg) => console.log("Service Worker registrado:", reg.scope))
-                    .catch((err) => console.error("Erro no Service Worker:", err));
-            }
-        </script>
     </body>
 </html>

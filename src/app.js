@@ -47,8 +47,8 @@ export class PDFTTSApp {
 
         // Utilities
         this.helpers = helperFns;
-    this.viewportManager = viewportHeightManager;
-    this._handleViewportHeightChange = this._handleViewportHeightChange.bind(this);
+        this.viewportManager = viewportHeightManager;
+        this._handleViewportHeightChange = this._handleViewportHeightChange.bind(this);
 
         // Storage / Persistence
         this.progressManager = new ProgressManager(this);
@@ -66,6 +66,15 @@ export class PDFTTSApp {
         this.audioManager = new AudioManager(this);
         this.ttsQueue = new TTSQueueManager(this);
         this.wordHighlighter = new WordHighlighter(this);
+
+        if ("serviceWorker" in navigator) {
+            const swPath = `${window.location.origin}${window.location.pathname.replace(/\/$/, "")}/sw.js`;
+            console.log(swPath);
+            navigator.serviceWorker
+                .register(swPath)
+                .then((reg) => console.log("Service Worker registrado:", reg.scope))
+                .catch((err) => console.error("Erro no Service Worker:", err));
+        }
     }
 
     async _ensureAriaRegions() {

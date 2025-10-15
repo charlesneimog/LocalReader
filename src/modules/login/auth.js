@@ -5,6 +5,7 @@ export class Login {
         this.app = app;
         this.client = null;
         this.allow_read = true;
+        this.name = null;
     }
 
     async init() {
@@ -19,8 +20,17 @@ export class Login {
             redirect_uri: returnUrl,
         });
 
+        if (await this.client.isAuthenticated()) {
+        } else {
+            this.client.login();
+        }
         const user = await this.client.getUser();
-        document.getElementById("user-avatar").src = user.picture;
+        document.getElementById("user-avatar").src = user?.picture;
+        this.name = user.given_name + " " + user.family_name;
+    }
+
+    getUserName() {
+        return this.name;
     }
 
     async login() {}

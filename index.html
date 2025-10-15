@@ -11,8 +11,8 @@
         <meta name="description" content="Listen to your podcasts with local IA" />
 
         <!-- Favicon -->
-        <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32x32.png" />
-        <link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/favicon-16x16.png" />
+        <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32x32.png" />
+        <link rel="icon" type="image/png" sizes="16x16" href="./assets/icons/favicon-16x16.png" />
         <!-- <link rel="apple-touch-icon" href="/apple-touch-icon.png" /> -->
 
         <!-- PWA -->
@@ -167,12 +167,63 @@
                         1.0x
                     </div>
                 </div>
-                <div>
+
+                <!-- ────────────── Relogio ─────────────-->
+                <!-- <div> -->
+                <!--     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2" -->
+                <!--         >Auto-stop Timer</label -->
+                <!--     > -->
+                <!--     <div class="flex flex-col items-center gap-4"> -->
+                <!--         <div class="relative w-24 h-24 cursor-pointer"> -->
+                <!--             <svg class="w-full h-full" viewBox="0 0 100 100"> -->
+                <!--                 <circle -->
+                <!--                     class="text-slate-200 dark:text-slate-700" -->
+                <!--                     cx="50" -->
+                <!--                     cy="50" -->
+                <!--                     fill="transparent" -->
+                <!--                     r="45" -->
+                <!--                     stroke="currentColor" -->
+                <!--                     stroke-width="8" -->
+                <!--                 ></circle> -->
+                <!--                 <circle -->
+                <!--                     class="text-primary" -->
+                <!--                     cx="50" -->
+                <!--                     cy="50" -->
+                <!--                     fill="transparent" -->
+                <!--                     r="45" -->
+                <!--                     stroke="currentColor" -->
+                <!--                     stroke-linecap="round" -->
+                <!--                     stroke-width="8" -->
+                <!--                     style=" -->
+                <!--                         stroke-dasharray: 282.6; -->
+                <!--                         stroke-dashoffset: 211.95; -->
+                <!--                         transform: rotate(-90deg); -->
+                <!--                         transform-origin: 50% 50%; -->
+                <!--                     " -->
+                <!--                 ></circle> -->
+                <!--             </svg> -->
+                <!--             <div class="absolute inset-0 flex flex-col items-center justify-center"> -->
+                <!--                 <span class="text-1xl font-bold text-slate-800 dark:text-slate-200">30</span> -->
+                <!--                 <span class="text-sm text-slate-500 dark:text-slate-400">min.</span> -->
+                <!--             </div> -->
+                <!--         </div> -->
+                <!--     </div> -->
+                <!-- </div> -->
+
+                <div class="flex gap-2">
                     <button id="toggle-fullscreen" class="flex items-center justify-center rounded p-2">
                         <span
                             class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-primary"
-                            >fullscreen</span
                         >
+                            fullscreen
+                        </span>
+                    </button>
+                    <button id="toggle-help" class="flex items-center justify-center rounded p-2">
+                        <span
+                            class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-primary"
+                        >
+                            help
+                        </span>
                     </button>
                 </div>
             </div>
@@ -187,8 +238,8 @@
             <div id="highlight-color-options" class="grid grid-cols-4 gap-6">
                 <button
                     type="button"
-                    class="h-10 w-10 rounded-full bg-yellow-400 highlight-color-option"
-                    data-highlight-color="#FFF176"
+                    class="h-10 w-10 rounded-full bg-yellow-400 highlight-color-option ring-2 ring-offset-2 ring-slate-400"
+                    data-highlight-color="#ffda76"
                 ></button>
                 <button
                     type="button"
@@ -386,7 +437,7 @@
         <script>
             if ("serviceWorker" in navigator) {
                 navigator.serviceWorker
-                    .register("/sw.js")
+                    .register("./sw.js")
                     .then((reg) => console.log("Service Worker registrado:", reg.scope))
                     .catch((err) => console.error("Erro no Service Worker:", err));
             }

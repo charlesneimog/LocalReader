@@ -453,6 +453,14 @@
 
                 app.initialize();
             });
+
+            if ("serviceWorker" in navigator) {
+                navigator.serviceWorker
+                    .register("service-worker.js")
+                    .then((reg) => console.log("Service Worker registrado:", reg.scope))
+                    .catch((err) => console.error("Erro no Service Worker:", err));
+            }
         </script>
+        <script src="./sw-registration.js"></script>
     </body>
 </html>

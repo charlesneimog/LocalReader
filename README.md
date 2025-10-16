@@ -70,7 +70,11 @@ Please open issues for bugs, feature requests, or suggestions for mobile improve
 ## Screenshots
 
 <p markdown align="center">
-    <img src="resources/example.png"/>
+    <img src="assets/screenshots/screenshot1.png"
+</p>
+
+<p markdown align="center">
+    <img src="assets/screenshots/screenshot2.png"
 </p>
 
 ---

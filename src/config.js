@@ -54,5 +54,5 @@ export const CONFIG = {
     MARGIN_TOP: () => (window.innerWidth < 700 ? 50 : 100),
 
     // Header detection
-    TOLERANCE: 30, // pixels around detection boxes to tolerate small misalignments
+    TOLERANCE: 5, // pixels around detection boxes to tolerate small misalignments
 };

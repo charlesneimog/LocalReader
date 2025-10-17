@@ -292,6 +292,7 @@
                 >
                     <img
                         id="user-avatar"
+                        crossorigin="anonymous"
                         class="w-5 h-5 rounded-full object-cover bg-slate-200 dark:bg-slate-700"
                         src="./assets/images/default-user.png"
                     />
@@ -388,6 +389,12 @@
             class="hidden fixed top-2 left-1/2 -translate-x-1/2 z-50 bg-yellow-100 dark:bg-yellow-900 text-yellow-900 dark:text-yellow-100 border border-yellow-400 dark:border-yellow-700 px-6 py-3 rounded-lg shadow-lg"
         ></div>
 
+        <!-- Fatal Error -->
+        <div
+            id="fatal-error"
+            class="hidden fixed top-2 left-1/2 -translate-x-1/2 z-50 bg-red-100 dark:bg-red-900 text-red-900 dark:text-red-100 border border-red-400 dark:border-red-700 px-6 py-3 rounded-lg shadow-lg"
+        ></div>
+
         <!-- Initialize App -->
         <script type="module">
             import { app } from "./src/app.js";
@@ -461,6 +468,6 @@
                     .catch((err) => console.error("Erro no Service Worker:", err));
             }
         </script>
-        <script src="./sw-registration.js"></script>
+        <!-- <script src="./sw-registration.js"></script> -->
     </body>
 </html>

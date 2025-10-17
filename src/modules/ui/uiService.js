@@ -3,7 +3,9 @@ export class UIService {
     constructor(app) {
         this.app = app;
         this.infoBox = document.getElementById("info-box");
-        this.hideTimeout = null;
+        this.fatalErrorBox = document.getElementById("fatal-error");
+        this.hideMessageTimeout = null;
+        this.hideErrorTimeout = null;
     }
 
     showInfo(msg) {
@@ -17,12 +19,29 @@ export class UIService {
         this.infoBox.style.display = "block";
 
         // Cancela qualquer timeout anterior
-        clearTimeout(this.hideTimeout);
+        clearTimeout(this.hideMessageTimeout);
 
         // Inicia novo timeout para esconder depois de 2s
-        this.hideTimeout = setTimeout(() => {
+        this.hideMessageTimeout = setTimeout(() => {
             this.infoBox.style.display = "none";
         }, 5000);
     }
-}
 
+    showFatalError(msg) {
+        if (!this.fatalErrorBox) {
+            alert(msg);
+        }
+
+        // Mostra a mensagem
+        this.fatalErrorBox.textContent = msg;
+        this.fatalErrorBox.style.display = "block";
+
+        // Cancela qualquer timeout anterior
+        clearTimeout(this.hideErrorTimeout);
+
+        // Inicia novo timeout para esconder depois de 2s
+        this.hideErrorTimeout = setTimeout(() => {
+            this.fatalErrorBox.style.display = "none";
+        }, 30000);
+    }
+}

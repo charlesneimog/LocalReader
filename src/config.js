@@ -2,7 +2,7 @@
 export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 0,
-    VERSION_PATCH: 99,
+    VERSION_PATCH: 100,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -58,5 +58,5 @@ export const CONFIG = {
     MARGIN_TOP: () => (window.innerWidth < 700 ? 50 : 100),
 
     // Header detection
-    TOLERANCE: 5, // pixels around detection boxes to tolerate small misalignments
+    TOLERANCE: 30, // pixels around detection boxes to tolerate small misalignments
 };

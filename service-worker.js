@@ -225,12 +225,7 @@ const installHandler = (e) => {
     e.waitUntil(
         caches
             .open(cacheName)
-            .then((cache) =>
-                Promise.all([
-                    cache.addAll(cacheRequests),
-                    createIndexedDB(IDBConfig),
-                ]),
-            )
+            .then((cache) => Promise.all([cache.addAll(cacheRequests), createIndexedDB(IDBConfig)]))
             .catch((err) => console.error("install error", err)),
     );
 };
@@ -262,41 +257,38 @@ const cleanRedirect = async (response) => {
 // the fetch event handler for the Service Worker that is invoked for each request
 const fetchHandler = async (e) => {
     const { request } = e;
+    const url = request.url;
+
+    // ✅ Skip intercepting PDF.js and other worker scripts
+    if (url.includes("pdf.worker.js") || url.includes("pdf.js")) {
+        return; // Let the browser fetch directly
+    }
 
     e.respondWith(
         (async () => {
             try {
                 // store requests to IndexedDB that are eligible for retry when offline and return the offline page
-                // as response so no error is logged
                 if (isOffline() && isRequestEligibleForRetry(request)) {
                     console.log("storing request", request);
                     await storeRequest(request);
 
                     const fallback = await caches.match(resolveUrl(OFFLINE_FALLBACK));
-                    if (fallback) {
-                        return fallback;
-                    }
+                    if (fallback) return fallback;
 
                     return new Response(null, { status: 503, statusText: "Offline" });
                 }
 
                 // try to get the response from the cache
                 const response = await caches.match(request, { ignoreVary: true, ignoreSearch: true });
-                if (response) {
-                    return response.redirected ? cleanRedirect(response) : response;
-                }
+                if (response) return response.redirected ? cleanRedirect(response) : response;
 
                 // if not in the cache, try to fetch the response from the network
                 const fetchResponse = await fetch(e.request);
-                if (fetchResponse) {
-                    return fetchResponse;
-                }
+                if (fetchResponse) return fetchResponse;
             } catch (err) {
-                // a fetch error occurred, serve the offline page since we don't have a cached response
+                // fetch failed, serve fallback if possible
                 const fallback = await caches.match(resolveUrl(OFFLINE_FALLBACK));
-                if (fallback) {
-                    return fallback;
-                }
+                if (fallback) return fallback;
 
                 return new Response(null, { status: 503, statusText: "Offline" });
             }

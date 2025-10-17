@@ -35,9 +35,14 @@ export class PDFHeaderFooterDetector {
                 const pending = this._pendingWorkerRequests.get(requestId);
                 if (pending) {
                     this._pendingWorkerRequests.delete(requestId);
-                    pending.reject(event.data.error || new Error("Worker detection error"));
-                } else {
-                    console.error("Layout worker error", event.data.error);
+                    const error = event.data.error || new Error("Worker detection error");
+                    if (error.name === "AbortError") {
+                        console.warn("Worker operation was aborted (likely canceled or terminated early)");
+                    } else {
+                        console.error("Layout worker error", error);
+                        this.app.ui.showFatalError("Layout worker exit with fatal error, please report!");
+                    }
+                    pending.reject(error);
                 }
             }
         };
@@ -336,12 +341,11 @@ export class PDFHeaderFooterDetector {
     }
 
     _expandBox(box, viewportDisplay) {
-        const TOLERANCE = 20;
         return {
-            x1: Math.max(0, box.x1 - TOLERANCE),
-            y1: Math.max(0, box.y1 - TOLERANCE),
-            x2: Math.min(viewportDisplay.width, box.x2 + TOLERANCE),
-            y2: Math.min(viewportDisplay.height, box.y2 + TOLERANCE),
+            x1: Math.max(0, box.x1),
+            y1: Math.max(0, box.y1),
+            x2: Math.min(viewportDisplay.width, box.x2),
+            y2: Math.min(viewportDisplay.height, box.y2),
         };
     }
 

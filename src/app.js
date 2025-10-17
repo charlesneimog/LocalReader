@@ -66,6 +66,10 @@ export class PDFTTSApp {
         this.audioManager = new AudioManager(this);
         this.ttsQueue = new TTSQueueManager(this);
         this.wordHighlighter = new WordHighlighter(this);
+
+        // app version
+        document.getElementById("appversion").textContent =
+            `v${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}`;
     }
 
     async _ensureAriaRegions() {

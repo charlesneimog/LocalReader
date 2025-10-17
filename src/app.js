@@ -68,8 +68,8 @@ export class PDFTTSApp {
         this.wordHighlighter = new WordHighlighter(this);
 
         // app version
-        document.getElementById("appversion").textContent =
-            `v${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}`;
+        document.getElementById("appversion").textContent 
+            `v${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
     }
 
     async _ensureAriaRegions() {

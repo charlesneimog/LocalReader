@@ -98,7 +98,8 @@ export class ControlsManager {
 
             this.speedSelect.addEventListener("change", () => {
                 const val = parseFloat(this.speedSelect.value);
-                this.app.state.CURRENT_SPEED = isNaN(val) ? 1.0 : val;
+                this.app.state.CURRENT_SPEED = Math.abs(isNaN(val) ? 1.0 : val - 1 - 1);
+                // this.app.ui.showInfo("Current speed is " + this.app.state.CURRENT_SPEED);
                 this.app.audioManager.stopPlayback(true);
                 this.app.state.autoAdvanceActive = false;
                 this.app.cache.clearAudioFrom(this.app.state.currentSentenceIndex);

@@ -29,14 +29,14 @@
         <link rel="stylesheet" href="./src/css/output.css" />
 
         <!-- PDF.js -->
-        <script src="thirdparty/pdf/pdf.js"></script>
+        <script src="./thirdparty/pdf/pdf.js"></script>
         <script>
-            pdfjsLib.GlobalWorkerOptions.workerSrc = "thirdparty/pdf/pdf.worker.js";
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "./thirdparty/pdf/pdf.worker.js";
         </script>
 
         <!-- pdf-lib -->
-        <script src="thirdparty/pdf/pdf-lib.js"></script>
-        <script src="threads.js"></script>
+        <script src="./thirdparty/pdf/pdf-lib.js"></script>
+        <script src="./threads.js"></script>
     </head>
 
     <body class="bg-background-light dark:bg-background-dark font-display text-slate-800 dark:text-slate-200">
@@ -88,7 +88,6 @@
                     Open PDF
                 </button>
                 <span id="appversion" class="text-xs font-medium text-gray-300 dark:text-gray-300"></span>
-
             </div>
         </div>
 
@@ -293,8 +292,6 @@
                 >
                     <img
                         id="user-avatar"
-                        referrerpolicy="no-referrer"
-                        crossorigin="anonymous"
                         class="w-5 h-5 rounded-full object-cover bg-slate-200 dark:bg-slate-700"
                         src="./assets/images/default-user.png"
                     />

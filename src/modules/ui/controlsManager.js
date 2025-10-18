@@ -153,19 +153,30 @@ export class ControlsManager {
 
         // Orientation
         this.lockBtn.addEventListener("click", async () => {
-            if (!screen.orientation) {
+            if (!screen.orientation || !screen.orientation.lock) {
                 alert("API de orientação não suportada neste navegador.");
                 return;
             }
 
-            if (!this.isLocked) {
-                await screen.orientation.lock(screen.orientation.type);
-                this.lockBtn.classList.add("bg-primary/10", "text-primary");
-                this.isLocked = true;
-            } else {
-                screen.orientation.unlock();
-                this.lockBtn.classList.remove("bg-primary/10", "text-primary");
-                this.isLocked = false;
+            if (!document.fullscreenElement) {
+                await this.toggleFullscreen();
+            }
+
+            this.lockBtn.classList.toggle("bg-primary/10");
+            this.lockBtn.classList.toggle("text-primary");
+
+            if (screen.orientation.lock) {
+                if (!this.isLocked) {
+                    try {
+                        await screen.orientation.lock(screen.orientation.type);
+                    } catch (e) {}
+                    this.isLocked = true;
+                } else {
+                    try {
+                        screen.orientation.unlock();
+                    } catch (e) {}
+                    this.isLocked = false;
+                }
             }
         });
 

@@ -180,11 +180,79 @@ export class ControlsManager {
             }
         });
 
-        window.addEventListener("orientationchange", this.orientationChange());
+    // Handle orientation change: fit PDF to new container width
+    this._orientationTimer = null;
+    this.orientationChange = this.orientationChange.bind(this);
+    window.addEventListener("orientationchange", this.orientationChange, { passive: true });
     }
 
     orientationChange() {
-        //
+        if (this.isLocked) return; // don't alter layout when orientation is locked
+
+        if (this._orientationTimer) clearTimeout(this._orientationTimer);
+        this._orientationTimer = setTimeout(async () => {
+            const { state, config, pdfRenderer } = this.app;
+            if (!state?.pdf) return;
+
+            const container = document.getElementById("pdf-doc-container");
+            const containerWidth = Math.max(1, container?.clientWidth || window.innerWidth);
+
+            // Recompute viewportDisplay for each page using the full container width
+            const oldViewports = new Map(state.viewportDisplayByPage);
+            state.viewportDisplayByPage.clear();
+
+            for (const [pageNumber, page] of state.pagesCache.entries()) {
+                try {
+                    const unscaled = page.getViewport({ scale: 1 });
+                    const displayScale = containerWidth / unscaled.width;
+                    const viewportDisplay = page.getViewport({ scale: displayScale });
+                    state.viewportDisplayByPage.set(pageNumber, viewportDisplay);
+
+                    const oldVp = oldViewports.get(pageNumber);
+                    if (page.pageWords && oldVp?.width && oldVp?.height) {
+                        const sx = viewportDisplay.width / oldVp.width;
+                        const sy = viewportDisplay.height / oldVp.height;
+                        if (Number.isFinite(sx) && Number.isFinite(sy) && sx > 0 && sy > 0) {
+                            for (const w of page.pageWords) {
+                                if (!w?.bbox) continue;
+                                w.x *= sx;
+                                w.y *= sy;
+                                w.width *= sx;
+                                w.height *= sy;
+                                w.bbox.x *= sx;
+                                w.bbox.y *= sy;
+                                w.bbox.width *= sx;
+                                w.bbox.height *= sy;
+                                w.bbox.x1 *= sx;
+                                w.bbox.y1 *= sy;
+                                w.bbox.x2 *= sx;
+                                w.bbox.y2 *= sy;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn("[orientationChange] Viewport recompute failed for page", pageNumber, err);
+                }
+            }
+
+            // Force re-render at new size
+            state.fullPageRenderCache.clear();
+            state.deviceScale = window.devicePixelRatio || 1;
+
+            if (state.viewMode === "full") {
+                try {
+                    await this.app.pdfRenderer.renderFullDocumentIfNeeded();
+                    pdfRenderer.rescaleAllPages();
+                    pdfRenderer.updateHighlightFullDoc(state.currentSentence);
+                    pdfRenderer.renderHoverHighlightFullDoc();
+                    if (state.currentSentence) pdfRenderer.scrollSentenceIntoView(state.currentSentence);
+                } catch (e) {
+                    console.warn("[orientationChange] Full doc re-render failed", e);
+                }
+            } else {
+                this.app.pdfRenderer.renderSentence(state.currentSentenceIndex);
+            }
+        }, 160);
     }
 
     _selectHighlightIndex = (index) => {

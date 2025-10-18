@@ -3,6 +3,9 @@ export class ControlsManager {
         this.app = app;
         this._cacheDOMElements();
         this._setupEventListeners();
+
+        // internal
+        this.isLocked = false;
     }
 
     // Cache all used DOM nodes once
@@ -27,19 +30,19 @@ export class ControlsManager {
         this.ttsStatus = document.getElementById("tts-status");
         this.overlayHelp = document.getElementById("help-overlay");
         this.controlsToolbar = document.getElementById("controls");
-    this.lockBtn = document.getElementById("lock-screen");
+        this.lockBtn = document.getElementById("lock-screen");
 
         // Default highlight color
         this.app.highlightManager?.setSelectedHighlightColor("#ffda76");
         const icon = this.saveHighlightBtn?.querySelector(".material-symbols-outlined");
-        if (icon) icon.style.color = "#ffda76";
+        if (icon) {
+            icon.style.color = "#ffda76";
+        }
     }
 
     _setupEventListeners() {
         const { app } = this;
-
         const on = (el, type, fn) => el && el.addEventListener(type, fn, { passive: true });
-
         const stopAndResetAudio = () => {
             app.audioManager.stopPlayback(true);
             app.state.autoAdvanceActive = false;
@@ -146,11 +149,31 @@ export class ControlsManager {
 
         // Persist progress on unload
         window.addEventListener("beforeunload", () => app.progressManager.saveProgress());
-
-    // Orientation lock control via toolbar button
-    this._initOrientationLock();
-
         this.reflectSelectedHighlightColor();
+
+        // Orientation
+        this.lockBtn.addEventListener("click", async () => {
+            if (!screen.orientation) {
+                alert("API de orientação não suportada neste navegador.");
+                return;
+            }
+
+            if (!this.isLocked) {
+                await screen.orientation.lock(screen.orientation.type);
+                this.lockBtn.classList.add("bg-primary/10", "text-primary");
+                this.isLocked = true;
+            } else {
+                screen.orientation.unlock();
+                this.lockBtn.classList.remove("bg-primary/10", "text-primary");
+                this.isLocked = false;
+            }
+        });
+
+        window.addEventListener("orientationchange", this.orientationChange());
+    }
+
+    orientationChange() {
+        //
     }
 
     _selectHighlightIndex = (index) => {
@@ -164,23 +187,6 @@ export class ControlsManager {
         this.reflectSelectedHighlightColor();
     };
 
-    collapseToolbar() {
-        this.controlsToolbar?.classList.add("toolbar--collapsed");
-    }
-
-    expandToolbar() {
-        if (!this.controlsToolbar) return;
-        this.controlsToolbar.classList.remove("toolbar--collapsed", "toolbar--hidden");
-    }
-
-    hideToolbarTemporarily() {
-        this.controlsToolbar?.classList.add("toolbar--hidden");
-    }
-
-    showToolbar() {
-        this.controlsToolbar?.classList.remove("toolbar--hidden");
-    }
-
     toggleCollapsedState() {
         if (!this.controlsToolbar) return;
         this.controlsToolbar.classList.toggle("toolbar--collapsed");
@@ -188,6 +194,7 @@ export class ControlsManager {
 
     async toggleFullscreen() {
         this.toggleCollapsedState();
+
         const doc = document;
         const docEl = doc.documentElement;
         const requestFull =
@@ -204,20 +211,18 @@ export class ControlsManager {
         if (!isFull) {
             await requestFull.call(docEl);
             this.enableWakeLock();
+            this.bntFullScreen.classList.add("bg-primary/10", "text-primary");
         } else {
             await exitFull.call(doc);
             this.disableWakeLock();
+            this.bntFullScreen.classList.remove("bg-primary/10", "text-primary");
         }
     }
 
     async enableWakeLock() {
-        try {
-            if ("wakeLock" in navigator) {
-                this.wakeLock = await navigator.wakeLock.request("screen");
-                this.wakeLock.addEventListener("release", () => {});
-            }
-        } catch (err) {
-            console.error(`${err.name}, ${err.message}`);
+        if ("wakeLock" in navigator) {
+            this.wakeLock = await navigator.wakeLock.request("screen");
+            this.wakeLock.addEventListener("release", () => {});
         }
     }
 
@@ -240,118 +245,5 @@ export class ControlsManager {
             btn.classList.toggle("is-active", isActive);
             btn.setAttribute("aria-pressed", isActive ? "true" : "false");
         });
-    }
-
-    // ---------- Orientation lock via toolbar button ----------
-    _initOrientationLock() {
-        const isMobile = /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        const getOrientation = () => (window.innerWidth > window.innerHeight ? "landscape" : "portrait");
-
-        this._orientationLocked = false;
-        this._lockedOrientation = getOrientation();
-        this._lastViewport = { w: window.innerWidth, h: window.innerHeight };
-
-        const updateButtonState = () => {
-            if (!this.lockBtn) return;
-            this.lockBtn.setAttribute("aria-pressed", this._orientationLocked ? "true" : "false");
-            this.lockBtn.classList.toggle("is-active", !!this._orientationLocked);
-        };
-
-        const tryLock = async (mode) => {
-            if (screen.orientation?.lock) {
-                try {
-                    await screen.orientation.lock(mode);
-                    return true;
-                } catch {
-                    return false;
-                }
-            }
-            return false;
-        };
-
-        const tryUnlock = async () => {
-            if (screen.orientation?.unlock) {
-                try {
-                    screen.orientation.unlock();
-                    return true;
-                } catch {
-                    return false;
-                }
-            }
-            return false;
-        };
-
-        const freezeUI = () => {
-            window.__freezeViewportUpdates = true;
-            const { w, h } = this._lastViewport;
-            const root = document.documentElement;
-            const body = document.body;
-            if (root) {
-                root.style.width = `${w}px`;
-                root.style.height = `${h}px`;
-                root.style.overflow = "hidden";
-            }
-            if (body) {
-                body.style.width = `${w}px`;
-                body.style.height = `${h}px`;
-                body.style.overflow = "hidden";
-            }
-        };
-        const unfreezeUI = () => {
-            window.__freezeViewportUpdates = false;
-            const root = document.documentElement;
-            const body = document.body;
-            if (root) {
-                root.style.width = "";
-                root.style.height = "";
-                root.style.overflow = "";
-            }
-            if (body) {
-                body.style.width = "";
-                body.style.height = "";
-                body.style.overflow = "";
-            }
-        };
-
-        const onLockClick = async () => {
-            if (!this._orientationLocked) {
-                this._lockedOrientation = getOrientation();
-                const locked = await tryLock(this._lockedOrientation);
-                if (!locked && isMobile) {
-                    // Fallback: freeze if lock not supported
-                    freezeUI();
-                }
-                this._orientationLocked = true;
-                updateButtonState();
-            } else {
-                const unlocked = await tryUnlock();
-                if (!unlocked) {
-                    // If fallback freeze was used, unfreeze
-                    unfreezeUI();
-                }
-                this._orientationLocked = false;
-                updateButtonState();
-            }
-        };
-
-        // If device rotates while locked, try to re-lock or keep frozen
-        const handleOrientationChange = async () => {
-            if (!this._orientationLocked) return;
-            // Attempt to keep the locked mode
-            const ok = await tryLock(this._lockedOrientation);
-            if (!ok && isMobile) {
-                freezeUI();
-            }
-        };
-
-        this.lockBtn?.addEventListener("click", onLockClick, { passive: true });
-        window.addEventListener("orientationchange", handleOrientationChange, { passive: true });
-        window.addEventListener("resize", () => {
-            if (!this._orientationLocked) {
-                this._lastViewport = { w: window.innerWidth, h: window.innerHeight };
-            }
-        }, { passive: true });
-
-        updateButtonState();
     }
 }

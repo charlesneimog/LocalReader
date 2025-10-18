@@ -8,6 +8,43 @@ export class PDFRenderer {
         this.pageCoordinateSystems = new Map(); // Track coordinate system per page
     }
 
+    // Ensure pageWords are scaled to currentDisplayScale for the given page
+    ensurePageWordsScaled(pageNumber) {
+        const { state } = this.app;
+        const page = state.pagesCache.get(pageNumber);
+        if (!page || !page.pageWords) return;
+        if (!page.needsWordRescale) return;
+
+        const s = page.currentDisplayScale || page.baseDisplayScale || 1;
+        if (!Number.isFinite(s) || s <= 0) return;
+
+        for (const w of page.pageWords) {
+            // Recompute from canonical geometry captured during preprocessing
+            if (w && typeof w._baseX === "number") {
+                const x = w._baseX * s;
+                const y = w._baseYDisplay * s;
+                const width = w._baseWidth * s;
+                const height = w._baseHeight * s;
+
+                w.x = x;
+                w.y = y;
+                w.width = width;
+                w.height = height;
+                if (!w.bbox) w.bbox = {};
+                const bboxTop = y - height;
+                w.bbox.x = x;
+                w.bbox.y = bboxTop;
+                w.bbox.width = width;
+                w.bbox.height = height;
+                w.bbox.x1 = x;
+                w.bbox.y1 = bboxTop;
+                w.bbox.x2 = x + width;
+                w.bbox.y2 = bboxTop + height;
+            }
+        }
+        page.needsWordRescale = false;
+    }
+
     getReadableWords(sentence) {
         if (!sentence) return [];
         if (Array.isArray(sentence.readableWords) && sentence.readableWords.length) {
@@ -237,6 +274,74 @@ export class PDFRenderer {
         }
     }
 
+    // Efficiently refresh layout after viewport change without rebuilding all wrappers
+    async refreshLayoutAfterViewportChange() {
+        const { state, config } = this.app;
+        if (state.viewMode !== "full") return;
+        const container = document.getElementById("pdf-doc-container");
+        if (!container) return;
+
+        // If container is empty (first render), fall back to full build
+        if (!container.querySelector(".pdf-page-wrapper")) {
+            return this.renderFullDocumentIfNeeded();
+        }
+
+        const wrappers = Array.from(container.querySelectorAll(".pdf-page-wrapper"));
+        const viewport = container.getBoundingClientRect();
+
+        // Determine visible and near-visible pages
+        const nearMargin = 600; // px around viewport
+        const tasks = [];
+        for (const wrapper of wrappers) {
+            const p = parseInt(wrapper.dataset.pageNumber, 10);
+            const viewportDisplay = state.viewportDisplayByPage.get(p);
+            if (!viewportDisplay) continue;
+
+            // Apply updated scale/size
+            this.applyPageScale(wrapper, viewportDisplay);
+
+            // If intersecting with extended viewport, ensure canvas up to date
+            const rect = wrapper.getBoundingClientRect();
+            const intersects = rect.bottom >= viewport.top - nearMargin && rect.top <= viewport.bottom + nearMargin;
+            if (intersects) {
+                tasks.push(
+                    (async () => {
+                        try {
+                            const fullPageCanvas = await this.ensureFullPageRendered(p);
+                            let c = wrapper.querySelector("canvas.page-canvas");
+                            if (!c) {
+                                c = document.createElement("canvas");
+                                c.className = "page-canvas";
+                                wrapper.insertBefore(c, wrapper.firstChild);
+                            }
+                            c.width = Math.round(fullPageCanvas.width);
+                            c.height = Math.round(fullPageCanvas.height);
+                            const ctx = c.getContext("2d");
+                            ctx.drawImage(fullPageCanvas, 0, 0);
+                        } catch (e) {
+                            // skip errors per page to keep UI responsive
+                        }
+                    })(),
+                );
+            } else {
+                // Drop heavy canvas for far pages
+                const c = wrapper.querySelector("canvas.page-canvas");
+                if (c) c.remove();
+                state.fullPageRenderCache.delete(p);
+            }
+        }
+
+        // Throttle concurrent page draws
+        const BATCH = 3;
+        for (let i = 0; i < tasks.length; i += BATCH) {
+            // eslint-disable-next-line no-await-in-loop
+            await Promise.allSettled(tasks.slice(i, i + BATCH));
+        }
+
+        // Update highlights after sizes settle
+        this.updateHighlightFullDoc(state.currentSentence);
+    }
+
     applyPageScale(wrapper, viewportDisplay) {
         const { state, config } = this.app;
         const scale = getPageDisplayScale(viewportDisplay, config);
@@ -268,9 +373,11 @@ export class PDFRenderer {
         if (state.viewMode !== "full") return;
         const container = document.getElementById("pdf-doc-container");
         if (!container) return;
+        this.ensurePageWordsScaled(sentence.pageNumber);
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
         if (!wrapper) return;
-        const bbox = this.getSentenceBoundingBox(sentence);
+        // Ensure sentence bbox matches current scaling for accurate scroll
+        const bbox = this.recomputeSentenceBBoxIfNeeded(sentence);
         if (!bbox) {
             wrapper.scrollIntoView({ behavior: "smooth", block: "center" });
             return;
@@ -281,6 +388,55 @@ export class PDFRenderer {
         const targetY = wrapperTop + bbox.y * scaleY - this.app.config.SCROLL_MARGIN;
         const maxScroll = container.scrollHeight - container.clientHeight;
         container.scrollTo({ top: clamp(targetY, 0, maxScroll), behavior: "smooth" });
+    }
+
+    // Recompute and cache sentence bbox from current scaled words if existing bbox is stale or missing
+    recomputeSentenceBBoxIfNeeded(sentence) {
+        if (!sentence) return null;
+        const words = this.getReadableWords(sentence);
+        if (!Array.isArray(words) || words.length === 0) return this.getSentenceBoundingBox(sentence);
+
+        // Calibrate coordinate system when needed
+        if (!this.pageCoordinateSystems.has(sentence.pageNumber)) {
+            this.calibratePageCoordinateSystem(sentence.pageNumber, sentence);
+        }
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        for (const w of words) {
+            const x1 = w.x;
+            const yTop = this.getCorrectedVerticalPosition(w, 1, sentence.pageNumber);
+            const x2 = x1 + w.width;
+            const y2 = yTop + w.height;
+            if (x1 < minX) minX = x1;
+            if (yTop < minY) minY = yTop;
+            if (x2 > maxX) maxX = x2;
+            if (y2 > maxY) maxY = y2;
+        }
+
+        if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+            return this.getSentenceBoundingBox(sentence);
+        }
+
+        const bbox = {
+            x: minX,
+            y: minY,
+            width: Math.max(1, maxX - minX),
+            height: Math.max(1, maxY - minY),
+            x1: minX,
+            y1: minY,
+            x2: maxX,
+            y2: maxY,
+            centerX: (minX + maxX) / 2,
+            centerY: (minY + maxY) / 2,
+        };
+
+        // Prefer to cache in bboxReadable to preserve original bbox
+        sentence.bboxReadable = bbox;
+        return bbox;
     }
 
     clearFullDocHighlights() {
@@ -301,6 +457,7 @@ export class PDFRenderer {
         for (const [sentenceIndex, highlightData] of state.savedHighlights.entries()) {
             const sentence = state.sentences[sentenceIndex];
             if (!sentence) continue;
+            this.ensurePageWordsScaled(sentence.pageNumber);
             const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
             if (!wrapper) continue;
             const canvas = wrapper.querySelector("canvas.page-canvas");
@@ -361,6 +518,7 @@ export class PDFRenderer {
         if (!s) return;
         const currentIdx = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
         if (state.hoveredSentenceIndex === currentIdx) return;
+    this.ensurePageWordsScaled(s.pageNumber);
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${s.pageNumber}"]`);
         if (!wrapper) return;
         const canvas = wrapper.querySelector("canvas.page-canvas");
@@ -417,6 +575,7 @@ export class PDFRenderer {
         if (!wrapper) return;
         const canvas = wrapper.querySelector("canvas.page-canvas");
         if (!canvas) return;
+    this.ensurePageWordsScaled(targetSentence.pageNumber);
 
         // Ensure position relative on wrapper
         if (getComputedStyle(wrapper).position === "static") wrapper.style.position = "relative";
@@ -474,6 +633,7 @@ export class PDFRenderer {
     highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay) {
         const { state } = this.app;
         if (!ctx || !sentence) return;
+        this.ensurePageWordsScaled(sentence.pageNumber);
         ctx.save();
         ctx.fillStyle = "rgba(255,255,0,0.28)";
         const highlightWords = this.getReadableWords(sentence);
@@ -498,6 +658,7 @@ export class PDFRenderer {
     renderSavedHighlightsSingleCanvas(ctx, pageNumber, offsetYDisplay) {
         const { state } = this.app;
         if (!ctx) return;
+        this.ensurePageWordsScaled(pageNumber);
         ctx.save();
         for (const [sentenceIndex, highlightData] of state.savedHighlights.entries()) {
             const sentence = state.sentences[sentenceIndex];
@@ -547,6 +708,7 @@ export class PDFRenderer {
     drawHoveredSentenceSingleCanvas(ctx, pageNumber, offsetYDisplay) {
         const { state } = this.app;
         if (!ctx) return;
+        this.ensurePageWordsScaled(pageNumber);
         if (state.hoveredSentenceIndex < 0 || state.hoveredSentenceIndex >= state.sentences.length) return;
         const currentIdx = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
         if (state.hoveredSentenceIndex === currentIdx) return;

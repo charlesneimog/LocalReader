@@ -182,6 +182,7 @@ export class ControlsManager {
 
     // Handle orientation change: fit PDF to new container width
     this._orientationTimer = null;
+    this._lastContainerWidth = null;
     this.orientationChange = this.orientationChange.bind(this);
     window.addEventListener("orientationchange", this.orientationChange, { passive: true });
     }
@@ -196,42 +197,30 @@ export class ControlsManager {
 
             const container = document.getElementById("pdf-doc-container");
             const containerWidth = Math.max(1, container?.clientWidth || window.innerWidth);
+            if (this._lastContainerWidth && Math.abs(containerWidth - this._lastContainerWidth) < 2) {
+                // width didn't change meaningfully; skip work
+                return;
+            }
+            this._lastContainerWidth = containerWidth;
 
-            // Recompute viewportDisplay for each page using the full container width
-            const oldViewports = new Map(state.viewportDisplayByPage);
-            state.viewportDisplayByPage.clear();
-
+            // Recompute viewportDisplay per page lazily: mark pages for rescale instead of mutating all words now
+            let i = 0;
             for (const [pageNumber, page] of state.pagesCache.entries()) {
                 try {
-                    const unscaled = page.getViewport({ scale: 1 });
-                    const displayScale = containerWidth / unscaled.width;
-                    const viewportDisplay = page.getViewport({ scale: displayScale });
+                    const unscaledWidth = page.unscaledWidth || page.getViewport({ scale: 1 }).width;
+                    const unscaledHeight = page.unscaledHeight || page.getViewport({ scale: 1 }).height;
+                    const displayScale = containerWidth / unscaledWidth;
+                    const viewportDisplay = { width: unscaledWidth * displayScale, height: unscaledHeight * displayScale };
                     state.viewportDisplayByPage.set(pageNumber, viewportDisplay);
-
-                    const oldVp = oldViewports.get(pageNumber);
-                    if (page.pageWords && oldVp?.width && oldVp?.height) {
-                        const sx = viewportDisplay.width / oldVp.width;
-                        const sy = viewportDisplay.height / oldVp.height;
-                        if (Number.isFinite(sx) && Number.isFinite(sy) && sx > 0 && sy > 0) {
-                            for (const w of page.pageWords) {
-                                if (!w?.bbox) continue;
-                                w.x *= sx;
-                                w.y *= sy;
-                                w.width *= sx;
-                                w.height *= sy;
-                                w.bbox.x *= sx;
-                                w.bbox.y *= sy;
-                                w.bbox.width *= sx;
-                                w.bbox.height *= sy;
-                                w.bbox.x1 *= sx;
-                                w.bbox.y1 *= sy;
-                                w.bbox.x2 *= sx;
-                                w.bbox.y2 *= sy;
-                            }
-                        }
-                    }
+                    page.currentDisplayScale = displayScale;
+                    page.needsWordRescale = true;
                 } catch (err) {
                     console.warn("[orientationChange] Viewport recompute failed for page", pageNumber, err);
+                }
+                if (++i % 200 === 0) {
+                    // Yield to keep UI responsive on very large PDFs
+                    // eslint-disable-next-line no-await-in-loop
+                    await new Promise(requestAnimationFrame);
                 }
             }
 
@@ -241,8 +230,7 @@ export class ControlsManager {
 
             if (state.viewMode === "full") {
                 try {
-                    await this.app.pdfRenderer.renderFullDocumentIfNeeded();
-                    pdfRenderer.rescaleAllPages();
+                    await this.app.pdfRenderer.refreshLayoutAfterViewportChange();
                     pdfRenderer.updateHighlightFullDoc(state.currentSentence);
                     pdfRenderer.renderHoverHighlightFullDoc();
                     if (state.currentSentence) pdfRenderer.scrollSentenceIntoView(state.currentSentence);

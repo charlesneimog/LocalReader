@@ -32,6 +32,13 @@ export class PDFLoader {
         const viewportDisplay = page.getViewport({ scale: displayScale });
         state.viewportDisplayByPage.set(pageNumber, viewportDisplay);
 
+        // Store base/unscaled metrics to support lazy rescaling later
+        page.unscaledWidth = unscaled.width;
+        page.unscaledHeight = unscaled.height;
+        page.baseDisplayScale = displayScale; // initial scale used to compute pageWords below
+        page.currentDisplayScale = displayScale; // will change on orientation/resize
+        page.needsWordRescale = false; // becomes true when display scale changes
+
         const textContent = await page.getTextContent();
         const pageWords = [];
 
@@ -44,6 +51,13 @@ export class PDFLoader {
             const y = viewportDisplay.height - f * displayScale;
             const width = (item.width || Math.abs(a)) * displayScale;
             const height = (item.height || Math.abs(d)) * displayScale;
+
+            // Canonical (unscaled) values relative to unscaled page coordinates
+            // Such that: scaledValue = canonicalValue * page.currentDisplayScale
+            const canonX = e; // already in unscaled units
+            const canonYDisplay = unscaled.height - f; // matches computation above before scaling
+            const canonWidth = item.width || Math.abs(a);
+            const canonHeight = item.height || Math.abs(d);
 
             const tokens = item.str.split(/(\s+)/).filter((t) => t.trim().length > 0);
             const markLineBreak = !!item.hasEOL;
@@ -70,6 +84,12 @@ export class PDFLoader {
                         y2: bboxTop + height,
                     },
                     isReadable: null,
+
+                    // Canonical base geometry (for lazy rescaling)
+                    _baseX: canonX,
+                    _baseYDisplay: canonYDisplay,
+                    _baseWidth: canonWidth,
+                    _baseHeight: canonHeight,
                 };
                 pageWords.push(word);
                 return word;

@@ -5,6 +5,7 @@ export class ControlsManager {
         this._setupEventListeners();
     }
 
+    // Cache all used DOM nodes once
     _cacheDOMElements() {
         this.voiceSelect = document.getElementById("voice-select");
         this.speedSelect = document.getElementById("reading-speed");
@@ -26,173 +27,168 @@ export class ControlsManager {
         this.ttsStatus = document.getElementById("tts-status");
         this.overlayHelp = document.getElementById("help-overlay");
         this.controlsToolbar = document.getElementById("controls");
-        this.wakeLock = null;
+    this.lockBtn = document.getElementById("lock-screen");
 
+        // Default highlight color
         this.app.highlightManager?.setSelectedHighlightColor("#ffda76");
-        const icon = this.saveHighlightBtn.querySelector(".material-symbols-outlined");
-        if (icon) {
-            icon.style.color = "#ffda76";
-        }
+        const icon = this.saveHighlightBtn?.querySelector(".material-symbols-outlined");
+        if (icon) icon.style.color = "#ffda76";
     }
 
     _setupEventListeners() {
-        if (this.btnNextSentence) this.btnNextSentence.addEventListener("click", () => this.app.nextSentence(true));
-        if (this.btnPrevSentence) this.btnPrevSentence.addEventListener("click", () => this.app.prevSentence(true));
-        if (this.btnPlayToggle) this.btnPlayToggle.addEventListener("click", () => this.app.togglePlay());
-        if (this.bntHelp) this.bntHelp.addEventListener("click", () => (this.overlayHelp.style.display = "block"));
-        if (this.bntFullScreen) this.bntFullScreen.addEventListener("click", () => this.toggleFullscreen());
-        if (this.bntHelpClose)
-            this.bntHelpClose.addEventListener("click", () => (this.overlayHelp.style.display = "none"));
+        const { app } = this;
 
-        if (this.btnNextPage)
-            this.btnNextPage.addEventListener("click", () => {
-                this.app.audioManager.stopPlayback(true);
-                this.app.state.autoAdvanceActive = false;
-                this.app.ttsQueue.reset();
-                this.app.nextPageNav();
-            });
-        if (this.btnPrevPage)
-            this.btnPrevPage.addEventListener("click", () => {
-                this.app.audioManager.stopPlayback(true);
-                this.app.state.autoAdvanceActive = false;
-                this.app.ttsQueue.reset();
-                this.app.prevPageNav();
-            });
-        if (this.saveHighlightBtn) {
-            this.saveHighlightBtn.addEventListener("click", () => {
-                this.app.highlightManager.saveCurrentSentenceHighlight();
-            });
-        }
-        if (this.exportHighlightsBtn) {
-            this.exportHighlightsBtn.addEventListener("click", () => this.app.exportManager.exportPdfWithHighlights());
-        }
+        const on = (el, type, fn) => el && el.addEventListener(type, fn, { passive: true });
+
+        const stopAndResetAudio = () => {
+            app.audioManager.stopPlayback(true);
+            app.state.autoAdvanceActive = false;
+            app.ttsQueue.reset();
+        };
+
+        // Basic controls
+        on(this.btnNextSentence, "click", () => app.nextSentence(true));
+        on(this.btnPrevSentence, "click", () => app.prevSentence(true));
+        on(this.btnPlayToggle, "click", () => app.togglePlay());
+        on(this.bntFullScreen, "click", () => this.toggleFullscreen());
+
+        // Help overlay
+        on(this.bntHelp, "click", () => (this.overlayHelp.style.display = "block"));
+        on(this.bntHelpClose, "click", () => (this.overlayHelp.style.display = "none"));
+
+        // Page navigation
+        on(this.btnNextPage, "click", () => {
+            stopAndResetAudio();
+            app.nextPageNav();
+        });
+        on(this.btnPrevPage, "click", () => {
+            stopAndResetAudio();
+            app.prevPageNav();
+        });
+
+        // Highlights
+        on(this.saveHighlightBtn, "click", () => app.highlightManager.saveCurrentSentenceHighlight());
+        on(this.exportHighlightsBtn, "click", () => app.exportManager.exportPdfWithHighlights());
+
         if (this.highlightColorButtons?.length) {
             this.highlightColorButtons.forEach((btn) => {
                 btn.setAttribute("aria-pressed", "false");
                 btn.setAttribute("role", "button");
-                btn.addEventListener("click", () => {
+                on(btn, "click", () => {
                     const color = btn.dataset.highlightColor;
                     if (!color) return;
-                    this.app.highlightManager?.setSelectedHighlightColor(color);
-                    const icon = this.saveHighlightBtn.querySelector(".material-symbols-outlined");
-                    if (icon) {
-                        icon.style.color = color;
-                    }
+                    app.highlightManager?.setSelectedHighlightColor(color);
+                    const icon = this.saveHighlightBtn?.querySelector(".material-symbols-outlined");
+                    if (icon) icon.style.color = color;
+                    this.reflectSelectedHighlightColor();
                 });
             });
         }
 
-        if (this.voiceSelect) {
-            this.voiceSelect.addEventListener("change", () => {
-                this.app.audioManager.stopPlayback(true);
-                this.app.state.autoAdvanceActive = false;
-                this.app.cache.clearAudioFrom(this.app.state.currentSentenceIndex);
-                this.app.ttsEngine.schedulePrefetch();
-            });
-        }
+        // Voice and speed
+        on(this.voiceSelect, "change", () => {
+            app.audioManager.stopPlayback(true);
+            app.state.autoAdvanceActive = false;
+            app.cache.clearAudioFrom(app.state.currentSentenceIndex);
+            app.ttsEngine.schedulePrefetch();
+        });
+
         if (this.speedSelect) {
-            this.speedSelect.addEventListener("input", () => {
+            const updateSpeedDisplay = () => {
                 const val = parseFloat(this.speedSelect.value);
-                this.speedSelectValue.textContent = val + "x";
+                this.speedSelectValue.textContent = (isNaN(val) ? 1 : val) + "x";
+            };
+
+            on(this.speedSelect, "input", updateSpeedDisplay);
+
+            on(this.speedSelect, "change", () => {
+                const val = parseFloat(this.speedSelect.value);
+                app.state.CURRENT_SPEED = Math.abs(isNaN(val) ? 1.0 : val - 2); // original logic preserved
+                app.audioManager.stopPlayback(true);
+                app.state.autoAdvanceActive = false;
+                app.cache.clearAudioFrom(app.state.currentSentenceIndex);
+                app.ttsEngine.schedulePrefetch();
+                updateSpeedDisplay();
             });
 
-            this.speedSelect.addEventListener("change", () => {
-                const val = parseFloat(this.speedSelect.value);
-                this.app.state.CURRENT_SPEED = Math.abs(isNaN(val) ? 1.0 : val - 1 - 1);
-                // this.app.ui.showInfo("Current speed is " + this.app.state.CURRENT_SPEED);
-                this.app.audioManager.stopPlayback(true);
-                this.app.state.autoAdvanceActive = false;
-                this.app.cache.clearAudioFrom(this.app.state.currentSentenceIndex);
-                this.app.ttsEngine.schedulePrefetch();
-                this.speedSelectValue.textContent = val + "x";
-            });
+            // Initialize display
+            const initVal = parseFloat(this.speedSelect.value);
+            this.speedSelectValue.textContent = (isNaN(initVal) ? 1 : initVal) + "x";
         }
-        window.addEventListener("keydown", (e) => {
-            if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-            if (e.code === "Space") {
-                e.preventDefault();
-                this.app.togglePlay();
-            } else if (e.code === "ArrowRight") {
-                this.app.nextSentence(true);
-            } else if (e.code === "ArrowLeft") {
-                this.app.prevSentence(true);
-            } else if (e.code === "KeyH") {
-                this.app.saveCurrentSentenceHighlight();
-            } else if (e.code === "KeyF") {
-                this.toggleFullscreen();
-            } else if (["Digit1", "Digit2", "Digit3", "Digit4"].includes(e.code)) {
-                const index = parseInt(e.code.replace("Digit", ""), 10) - 1;
-                const btn = this.highlightColorButtons?.[index];
-                if (!btn) return;
-                const color = btn.dataset.highlightColor;
-                if (!color) return;
-                this.app.highlightManager?.setSelectedHighlightColor(color);
-                const icon = this.saveHighlightBtn.querySelector(".material-symbols-outlined");
-                if (icon) {
-                    icon.style.color = color;
-                }
-                // btn.classList.add("ring-2", "ring-offset-2", "ring-slate-400");
-                // setTimeout(() => btn.classList.remove("ring-2", "ring-offset-2", "ring-slate-400"), 200);
-            }
-        });
 
-        window.addEventListener("beforeunload", () => this.app.progressManager.saveProgress());
-        window.addEventListener("resize", () => {
-            const s = this.app.state;
-            if (s.viewMode === "full") {
-                this.app.pdfRenderer.rescaleAllPages();
-                this.app.pdfRenderer.updateHighlightFullDoc(s.currentSentence);
-                this.app.pdfRenderer.renderHoverHighlightFullDoc();
-            } else {
-                this.app.pdfRenderer.renderSentence(s.currentSentenceIndex);
-            }
-        });
-        window.addEventListener("orientationchange", () => {
-            setTimeout(() => {
-                const s = this.app.state;
-                if (s.viewMode === "full") {
-                    this.app.pdfRenderer.rescaleAllPages();
-                    this.app.pdfRenderer.updateHighlightFullDoc(s.currentSentence);
-                    this.app.pdfRenderer.renderHoverHighlightFullDoc();
-                } else {
-                    this.app.pdfRenderer.renderSentence(s.currentSentenceIndex);
-                }
-            }, 150);
-        });
+        // Keyboard shortcuts
+        window.addEventListener(
+            "keydown",
+            (e) => {
+                const tag = e.target?.tagName || "";
+                if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) return;
+
+                const actions = {
+                    Space: () => {
+                        e.preventDefault();
+                        app.togglePlay();
+                    },
+                    ArrowRight: () => app.nextSentence(true),
+                    ArrowLeft: () => app.prevSentence(true),
+                    KeyH: () => app.saveCurrentSentenceHighlight(),
+                    KeyF: () => this.toggleFullscreen(),
+                    Digit1: () => this._selectHighlightIndex(0),
+                    Digit2: () => this._selectHighlightIndex(1),
+                    Digit3: () => this._selectHighlightIndex(2),
+                    Digit4: () => this._selectHighlightIndex(3),
+                };
+
+                const fn = actions[e.code];
+                if (fn) fn();
+            },
+            { passive: false },
+        );
+
+        // Persist progress on unload
+        window.addEventListener("beforeunload", () => app.progressManager.saveProgress());
+
+    // Orientation lock control via toolbar button
+    this._initOrientationLock();
 
         this.reflectSelectedHighlightColor();
     }
 
+    _selectHighlightIndex = (index) => {
+        const btn = this.highlightColorButtons?.[index];
+        if (!btn) return;
+        const color = btn.dataset.highlightColor;
+        if (!color) return;
+        this.app.highlightManager?.setSelectedHighlightColor(color);
+        const icon = this.saveHighlightBtn?.querySelector(".material-symbols-outlined");
+        if (icon) icon.style.color = color;
+        this.reflectSelectedHighlightColor();
+    };
+
     collapseToolbar() {
-        if (!this.controlsToolbar) return;
-        this.controlsToolbar.classList.add("toolbar--collapsed");
+        this.controlsToolbar?.classList.add("toolbar--collapsed");
     }
 
     expandToolbar() {
         if (!this.controlsToolbar) return;
-        this.controlsToolbar.classList.remove("toolbar--collapsed");
-        this.controlsToolbar.classList.remove("toolbar--hidden"); // caso estivesse totalmente ocultada
+        this.controlsToolbar.classList.remove("toolbar--collapsed", "toolbar--hidden");
     }
 
     hideToolbarTemporarily() {
-        if (!this.controlsToolbar) return;
-        this.controlsToolbar.classList.add("toolbar--hidden");
+        this.controlsToolbar?.classList.add("toolbar--hidden");
     }
 
     showToolbar() {
-        if (!this.collapseToolbar) return;
-        this.controlsToolbar.classList.remove("toolbar--hidden");
+        this.controlsToolbar?.classList.remove("toolbar--hidden");
     }
 
     toggleCollapsedState() {
         if (!this.controlsToolbar) return;
-        if (this.controlsToolbar.classList.contains("toolbar--collapsed")) this.expandToolbar();
-        else this.collapseToolbar();
+        this.controlsToolbar.classList.toggle("toolbar--collapsed");
     }
 
     async toggleFullscreen() {
         this.toggleCollapsedState();
-        const doc = window.document;
+        const doc = document;
         const docEl = doc.documentElement;
         const requestFull =
             docEl.requestFullscreen ||
@@ -202,12 +198,10 @@ export class ControlsManager {
         const exitFull =
             doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
 
-        if (
-            !doc.fullscreenElement &&
-            !doc.mozFullScreenElement &&
-            !doc.webkitFullscreenElement &&
-            !doc.msFullscreenElement
-        ) {
+        const isFull =
+            doc.fullscreenElement || doc.mozFullScreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement;
+
+        if (!isFull) {
             await requestFull.call(docEl);
             this.enableWakeLock();
         } else {
@@ -226,6 +220,7 @@ export class ControlsManager {
             console.error(`${err.name}, ${err.message}`);
         }
     }
+
     disableWakeLock() {
         if (this.wakeLock) {
             this.wakeLock.release();
@@ -236,15 +231,127 @@ export class ControlsManager {
     reflectSelectedHighlightColor() {
         if (!this.highlightColorButtons?.length) return;
         const selectedColor = this.app.state?.selectedHighlightColor;
-        let activeButton = null;
-        if (selectedColor) {
-            activeButton = this.highlightColorButtons.find((btn) => btn.dataset.highlightColor === selectedColor);
-        }
-        if (!activeButton) activeButton = this.highlightColorButtons[0];
+        let activeButton =
+            (selectedColor && this.highlightColorButtons.find((btn) => btn.dataset.highlightColor === selectedColor)) ||
+            this.highlightColorButtons[0];
+
         this.highlightColorButtons.forEach((btn) => {
             const isActive = btn === activeButton;
             btn.classList.toggle("is-active", isActive);
             btn.setAttribute("aria-pressed", isActive ? "true" : "false");
         });
+    }
+
+    // ---------- Orientation lock via toolbar button ----------
+    _initOrientationLock() {
+        const isMobile = /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const getOrientation = () => (window.innerWidth > window.innerHeight ? "landscape" : "portrait");
+
+        this._orientationLocked = false;
+        this._lockedOrientation = getOrientation();
+        this._lastViewport = { w: window.innerWidth, h: window.innerHeight };
+
+        const updateButtonState = () => {
+            if (!this.lockBtn) return;
+            this.lockBtn.setAttribute("aria-pressed", this._orientationLocked ? "true" : "false");
+            this.lockBtn.classList.toggle("is-active", !!this._orientationLocked);
+        };
+
+        const tryLock = async (mode) => {
+            if (screen.orientation?.lock) {
+                try {
+                    await screen.orientation.lock(mode);
+                    return true;
+                } catch {
+                    return false;
+                }
+            }
+            return false;
+        };
+
+        const tryUnlock = async () => {
+            if (screen.orientation?.unlock) {
+                try {
+                    screen.orientation.unlock();
+                    return true;
+                } catch {
+                    return false;
+                }
+            }
+            return false;
+        };
+
+        const freezeUI = () => {
+            window.__freezeViewportUpdates = true;
+            const { w, h } = this._lastViewport;
+            const root = document.documentElement;
+            const body = document.body;
+            if (root) {
+                root.style.width = `${w}px`;
+                root.style.height = `${h}px`;
+                root.style.overflow = "hidden";
+            }
+            if (body) {
+                body.style.width = `${w}px`;
+                body.style.height = `${h}px`;
+                body.style.overflow = "hidden";
+            }
+        };
+        const unfreezeUI = () => {
+            window.__freezeViewportUpdates = false;
+            const root = document.documentElement;
+            const body = document.body;
+            if (root) {
+                root.style.width = "";
+                root.style.height = "";
+                root.style.overflow = "";
+            }
+            if (body) {
+                body.style.width = "";
+                body.style.height = "";
+                body.style.overflow = "";
+            }
+        };
+
+        const onLockClick = async () => {
+            if (!this._orientationLocked) {
+                this._lockedOrientation = getOrientation();
+                const locked = await tryLock(this._lockedOrientation);
+                if (!locked && isMobile) {
+                    // Fallback: freeze if lock not supported
+                    freezeUI();
+                }
+                this._orientationLocked = true;
+                updateButtonState();
+            } else {
+                const unlocked = await tryUnlock();
+                if (!unlocked) {
+                    // If fallback freeze was used, unfreeze
+                    unfreezeUI();
+                }
+                this._orientationLocked = false;
+                updateButtonState();
+            }
+        };
+
+        // If device rotates while locked, try to re-lock or keep frozen
+        const handleOrientationChange = async () => {
+            if (!this._orientationLocked) return;
+            // Attempt to keep the locked mode
+            const ok = await tryLock(this._lockedOrientation);
+            if (!ok && isMobile) {
+                freezeUI();
+            }
+        };
+
+        this.lockBtn?.addEventListener("click", onLockClick, { passive: true });
+        window.addEventListener("orientationchange", handleOrientationChange, { passive: true });
+        window.addEventListener("resize", () => {
+            if (!this._orientationLocked) {
+                this._lastViewport = { w: window.innerWidth, h: window.innerHeight };
+            }
+        }, { passive: true });
+
+        updateButtonState();
     }
 }

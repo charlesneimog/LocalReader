@@ -61,6 +61,7 @@ export class StateManager {
         this.CURRENT_SPEED = 1.0;
         this.audioCtx = null;
         this.viewportHeight = window.visualViewport ? Math.round(window.visualViewport.height) : window.innerHeight;
+        this.awaitingOrientationDecision = false;
     }
 
     get currentSentence() {

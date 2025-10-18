@@ -71,6 +71,7 @@ export class ViewportHeightManager {
     }
 
     _updateCssVariable(height) {
+        if (window.__freezeViewportUpdates) return;
         if (!Number.isFinite(height)) return;
         if (height === this._lastHeight) return;
         this._lastHeight = height;

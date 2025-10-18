@@ -593,6 +593,8 @@ export class PDFRenderer {
         this._viewportHeightRaf = requestAnimationFrame(() => {
             this._viewportHeightRaf = null;
             const { state } = this.app;
+            if (window.__freezeViewportUpdates) return;
+            if (state.awaitingOrientationDecision) return;
             if (state.viewMode === "full") {
                 this.rescaleAllPages();
                 this.updateHighlightFullDoc(state.currentSentence);

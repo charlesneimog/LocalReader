@@ -191,6 +191,9 @@ export class PDFTTSApp {
 
     _handleViewportHeightChange(height) {
         if (!Number.isFinite(height)) return;
+        if (window.__freezeViewportUpdates) return;
+        // If we're waiting for user confirmation to change orientation on mobile, don't auto-adjust UI
+        if (this.state.awaitingOrientationDecision) return;
         this.state.viewportHeight = height;
         if (this.pdfRenderer && typeof this.pdfRenderer.handleViewportHeightChange === "function") {
             this.pdfRenderer.handleViewportHeightChange(height);

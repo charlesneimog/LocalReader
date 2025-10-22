@@ -5,7 +5,6 @@ export class PDFLoader {
     constructor(app) {
         this.app = app;
         this._headerFooterStylesInjected = false;
-        // this._pendingHFResults = new Map();
     }
 
     computePdfKeyFromSource(source) {
@@ -114,7 +113,7 @@ export class PDFLoader {
         page.pageWords = pageWords;
     }
 
-    async loadPDF(file = null, { resume = true } = {}) {
+    async loadPDF(file = null, { resume = true, existingKey = null } = {}) {
         const { app } = this;
         const { state, config } = app;
 
@@ -156,7 +155,22 @@ export class PDFLoader {
                 return;
             }
 
-            state.currentPdfKey = this.computePdfKeyFromSource(state.currentPdfDescriptor);
+            if (existingKey) {
+                state.currentPdfKey = existingKey;
+            } else {
+                state.currentPdfKey = this.computePdfKeyFromSource(state.currentPdfDescriptor);
+            }
+
+            if (file instanceof File) {
+                const existingPDF = await app.progressManager.loadPdfFromIndexedDB(state.currentPdfKey);
+                if (!existingPDF) {
+                    await app.progressManager.savePdfToIndexedDB(file, state.currentPdfKey);
+                    this.app.ui.showInfo("PDF salvo no IndexedDB!");
+                } else {
+                    this.app.ui.showInfo("PDF já existe no IndexedDB, usando o existente.");
+                }
+            }
+
             app.cache.clearAll();
             state.layoutDetectionCache.clear();
             state.layoutDetectionInProgress.clear();
@@ -214,6 +228,8 @@ export class PDFLoader {
 
             app.eventBus.emit(EVENTS.PDF_LOADED, { pages: state.pdf.numPages, sentences: state.sentences.length });
             app.eventBus.emit(EVENTS.SENTENCES_PARSED, state.sentences);
+            const header = document.getElementById("previous-pdf-header");
+            header.classList.add("hidden");
         } catch (e) {
             console.error(e);
             app.ui.showInfo("Error: " + e.message);

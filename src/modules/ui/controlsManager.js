@@ -38,6 +38,9 @@ export class ControlsManager {
         if (icon) {
             icon.style.color = "#ffda76";
         }
+
+        // cache
+        this.btnClearCache = document.getElementById("clear-cache-btn");
     }
 
     _setupEventListeners() {
@@ -180,11 +183,21 @@ export class ControlsManager {
             }
         });
 
-    // Handle orientation change: fit PDF to new container width
-    this._orientationTimer = null;
-    this._lastContainerWidth = null;
-    this.orientationChange = this.orientationChange.bind(this);
-    window.addEventListener("orientationchange", this.orientationChange, { passive: true });
+        // Handle orientation change: fit PDF to new container width
+        this._orientationTimer = null;
+        this._lastContainerWidth = null;
+        this.orientationChange = this.orientationChange.bind(this);
+        window.addEventListener("orientationchange", this.orientationChange, { passive: true });
+
+        //
+        on(this.btnClearCache, "click", () => {
+            {
+                const confirmed = confirm("Are you sure you want to clear all pdfs saved?");
+                if (confirmed) {
+                    this.app.progressManager.clearPDFCache();
+                }
+            }
+        });
     }
 
     orientationChange() {
@@ -210,7 +223,10 @@ export class ControlsManager {
                     const unscaledWidth = page.unscaledWidth || page.getViewport({ scale: 1 }).width;
                     const unscaledHeight = page.unscaledHeight || page.getViewport({ scale: 1 }).height;
                     const displayScale = containerWidth / unscaledWidth;
-                    const viewportDisplay = { width: unscaledWidth * displayScale, height: unscaledHeight * displayScale };
+                    const viewportDisplay = {
+                        width: unscaledWidth * displayScale,
+                        height: unscaledHeight * displayScale,
+                    };
                     state.viewportDisplayByPage.set(pageNumber, viewportDisplay);
                     page.currentDisplayScale = displayScale;
                     page.needsWordRescale = true;

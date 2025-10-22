@@ -25,13 +25,14 @@ import { UIService } from "./modules/ui/uiService.js";
 import { ProgressManager } from "./modules/storage/progressManager.js";
 import { HighlightsStorage } from "./modules/storage/highlightsStorage.js";
 import { ExportManager } from "./modules/storage/exportManager.js";
+import { PDFThumbnailCache } from "./modules/storage/pdfThumbnailCache.js";
 
 import { Login } from "./modules/login/auth.js";
 
 export class PDFTTSApp {
     constructor() {
-        // this.auth = new Login(this);
-        // this.auth.init();
+        this.auth = new Login(this);
+        this.auth.init();
 
         // UI
         this.ui = new UIService(this);
@@ -54,6 +55,7 @@ export class PDFTTSApp {
         this.progressManager = new ProgressManager(this);
         this.highlightsStorage = new HighlightsStorage(this);
         this.exportManager = new ExportManager(this);
+        this.pdfThumbnailCache = new PDFThumbnailCache(this);
 
         // PDF / Text
         this.pdfLoader = new PDFLoader(this);
@@ -66,6 +68,8 @@ export class PDFTTSApp {
         this.audioManager = new AudioManager(this);
         this.ttsQueue = new TTSQueueManager(this);
         this.wordHighlighter = new WordHighlighter(this);
+
+        this.showSavedPDFs();
 
         // app version
         document.getElementById("appversion").textContent =
@@ -198,6 +202,13 @@ export class PDFTTSApp {
         if (this.pdfRenderer && typeof this.pdfRenderer.handleViewportHeightChange === "function") {
             this.pdfRenderer.handleViewportHeightChange(height);
         }
+    }
+
+    /**
+     * Show saved PDFs - delegated to PDFThumbnailCache
+     */
+    async showSavedPDFs() {
+        return this.pdfThumbnailCache.showSavedPDFs();
     }
 }
 

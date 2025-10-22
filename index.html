@@ -44,10 +44,10 @@
                 let refreshing = false;
 
                 // Detect controller change and reload page
-                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                navigator.serviceWorker.addEventListener("controllerchange", () => {
                     if (refreshing) return;
                     refreshing = true;
-                    console.log('[PWA] New service worker activated, reloading...');
+                    console.log("[PWA] New service worker activated, reloading...");
                     window.location.reload();
                 });
 
@@ -58,17 +58,17 @@
 
                         // Check for updates every 60 seconds
                         setInterval(() => {
-                            reg.update().catch(err => console.warn('[PWA] Update check failed:', err));
+                            reg.update().catch((err) => console.warn("[PWA] Update check failed:", err));
                         }, 60000);
 
                         // Listen for waiting service worker
-                        reg.addEventListener('updatefound', () => {
+                        reg.addEventListener("updatefound", () => {
                             const newWorker = reg.installing;
-                            console.log('[PWA] New service worker found, installing...');
+                            console.log("[PWA] New service worker found, installing...");
 
-                            newWorker.addEventListener('statechange', () => {
-                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                    console.log('[PWA] New service worker installed, will activate on next reload');
+                            newWorker.addEventListener("statechange", () => {
+                                if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+                                    console.log("[PWA] New service worker installed, will activate on next reload");
                                     // Optionally show update notification to user
                                     // You can add a UI prompt here asking user to reload
                                 }
@@ -84,9 +84,28 @@
         </div>
         <div id="pdf-doc-container"></div>
 
+        <!-- Previous Pdf open -->
+        <div
+            id="previous-pdf-header"
+            class="hidden fixed inset-0 z-10 flex flex-col items-center pt-8 gap-4 bg-background-light/80 dark:bg-background-dark/80 p-2"
+        >
+            <img src="./assets/icons/icon-512.png" alt="App Icon" class="w-24 h-24" />
+            <h1 class="text-2xl font-bold text-text-primary dark:text-white">PDFCastia</h1>
+            <div id="pdf-previous-list" class="flex justify-start w-full overflow-x-auto px-12 py-6">
+                <div
+                    class="min-w-full text-center bg-white/50 dark:bg-background-dark/50 rounded-xl shadow-2xl backdrop-blur-lg border border-white/20 dark:border-background-dark/20"
+                >
+                    <main
+                        id="previous-pdf-container"
+                        class="flex flex-row gap-4 overflow-x-auto scroll-smooth px-8 py-4"
+                    ></main>
+                </div>
+            </div>
+        </div>
+
         <!-- No PDF Overlay -->
         <div
-            class="fixed inset-0 z-10 flex items-center justify-center bg-background-light/80 dark:bg-background-dark/80 p-2"
+            class="hidden fixed inset-0 z-10 flex items-center justify-center bg-background-light/80 dark:bg-background-dark/80 p-2"
             id="no-pdf-overlay"
         >
             <div
@@ -132,7 +151,7 @@
         <!-- Login Menu -->
         <div
             id="login-menu"
-            class="fixed hidden bottom-18 left-1/4 w-64 bg-gray-100 dark:bg-gray-800 rounded-lg p-4 z-20 shadow-2xl"
+            class="hidden fixed bottom-18 left-1/4 w-64 bg-gray-100 dark:bg-gray-800 rounded-lg p-4 z-20 shadow-2xl"
         >
             <div class="p-2 space-y-1">
                 <button
@@ -207,48 +226,6 @@
                     </div>
                 </div>
 
-                <!-- ────────────── Relogio ─────────────-->
-                <!-- <div> -->
-                <!--     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2" -->
-                <!--         >Auto-stop Timer</label -->
-                <!--     > -->
-                <!--     <div class="flex flex-col items-center gap-4"> -->
-                <!--         <div class="relative w-24 h-24 cursor-pointer"> -->
-                <!--             <svg class="w-full h-full" viewBox="0 0 100 100"> -->
-                <!--                 <circle -->
-                <!--                     class="text-slate-200 dark:text-slate-700" -->
-                <!--                     cx="50" -->
-                <!--                     cy="50" -->
-                <!--                     fill="transparent" -->
-                <!--                     r="45" -->
-                <!--                     stroke="currentColor" -->
-                <!--                     stroke-width="8" -->
-                <!--                 ></circle> -->
-                <!--                 <circle -->
-                <!--                     class="text-primary" -->
-                <!--                     cx="50" -->
-                <!--                     cy="50" -->
-                <!--                     fill="transparent" -->
-                <!--                     r="45" -->
-                <!--                     stroke="currentColor" -->
-                <!--                     stroke-linecap="round" -->
-                <!--                     stroke-width="8" -->
-                <!--                     style=" -->
-                <!--                         stroke-dasharray: 282.6; -->
-                <!--                         stroke-dashoffset: 211.95; -->
-                <!--                         transform: rotate(-90deg); -->
-                <!--                         transform-origin: 50% 50%; -->
-                <!--                     " -->
-                <!--                 ></circle> -->
-                <!--             </svg> -->
-                <!--             <div class="absolute inset-0 flex flex-col items-center justify-center"> -->
-                <!--                 <span class="text-1xl font-bold text-slate-800 dark:text-slate-200">30</span> -->
-                <!--                 <span class="text-sm text-slate-500 dark:text-slate-400">min.</span> -->
-                <!--             </div> -->
-                <!--         </div> -->
-                <!--     </div> -->
-                <!-- </div> -->
-
                 <div class="flex gap-2">
                     <button
                         id="toggle-fullscreen"
@@ -295,6 +272,17 @@
                             class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-primary"
                         >
                             help
+                        </span>
+                    </button>
+                    <button
+                        id="clear-cache-btn"
+                        title="Clear cache"
+                        class="flex items-center justify-center rounded p-2 ml-2"
+                    >
+                        <span
+                            class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300 hover:text-red-500 dark:hover:text-red-500"
+                        >
+                            delete_forever
                         </span>
                     </button>
                 </div>

@@ -1,14 +1,114 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>WebRTC P2P via QR e Câmera</title>
-<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
-<script
-    src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
-    integrity="sha512-r6rDA7W6ZeQhvl8S7yRVQUKVHdexq+GAlNkNNqVC7YyIV+NwqCTJe2hDWCiffTyRNOeGEzRRJ9ifvRm/HCzGYg=="
-    crossorigin="anonymous"
-    referrerpolicy="no-referrer"
-></script>
+<title>WebRTC P2P LAN via Token</title>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode"></script>
+<script>
+    const log = (s) => {
+        const el = document.getElementById("log");
+        el.textContent += s + "\n";
+        el.scrollTop = el.scrollHeight;
+    };
+
+    let pc = null,
+        dc = null;
+    let isHost = false;
+    let token = "";
+
+    // --- Gerar token e QR
+    document.getElementById("hostStart").onclick = () => {
+        isHost = true;
+        token = Math.floor(10000000 + Math.random() * 90000000).toString();
+        document.getElementById("hostToken").textContent = token;
+        log("Token gerado: " + token);
+        document.getElementById("tokenQR").textContent = token;
+        startConnection();
+    };
+
+    // --- Cliente lê QR (simulação com input)
+    document.getElementById("clientConnect").onclick = () => {
+        isHost = false;
+        token = document.getElementById("clientToken").value.trim();
+        if (!token) {
+            alert("Insira token");
+            return;
+        }
+        log("Token lido: " + token);
+        startConnection();
+    };
+
+    // --- Inicia PeerConnection
+    function startConnection() {
+        pc = new RTCPeerConnection({ iceServers: [] });
+
+        if (isHost) {
+            dc = pc.createDataChannel("p2p");
+            setupDC(dc);
+        } else {
+            pc.ondatachannel = (e) => {
+                dc = e.channel;
+                setupDC(dc);
+            };
+        }
+
+        pc.onicecandidate = (e) => {
+            if (e.candidate && dc && dc.readyState === "open") {
+                // envia candidato via DataChannel assim que abrir
+                dc.send(JSON.stringify({ type: "ice", candidate: e.candidate }));
+            }
+        };
+
+        if (isHost) {
+            pc.createOffer()
+                .then((o) => pc.setLocalDescription(o))
+                .then(() => {
+                    log("Offer criada. Aguardando cliente abrir DataChannel...");
+                });
+        } else {
+            // Cliente aguarda oferta via LAN DataChannel (simulação: oferta é enviada manualmente)
+            log("Cliente pronto. Esperando host iniciar conexão...");
+        }
+    }
+
+    // --- Setup DataChannel
+    function setupDC(ch) {
+        ch.onopen = () => {
+            log("DataChannel aberto");
+            if (isHost) ch.send(JSON.stringify({ type: "auth", token: token }));
+        };
+        ch.onmessage = (e) => {
+            try {
+                const msg = JSON.parse(e.data);
+                if (msg.type === "auth") {
+                    if (msg.token === token) {
+                        log("Token correto! Conexão autenticada.");
+                    } else {
+                        log("Token incorreto. Fechando...");
+                        ch.close();
+                    }
+                } else if (msg.type === "chat") {
+                    log("<< " + msg.text);
+                } else if (msg.type === "ice") {
+                    pc.addIceCandidate(msg.candidate);
+                }
+            } catch (err) {
+                log("<< " + e.data);
+            }
+        };
+    }
+
+    // --- Chat
+    document.getElementById("send").onclick = () => {
+        const t = document.getElementById("msg").value;
+        if (!dc || dc.readyState !== "open") {
+            alert("DataChannel não aberto");
+            return;
+        }
+        dc.send(JSON.stringify({ type: "chat", text: t }));
+        log(">> " + t);
+        document.getElementById("msg").value = "";
+    };
+</script>
+
 <style>
     body {
         font-family:
@@ -21,147 +121,40 @@
     button {
         margin: 4px;
     }
-    .section {
-        border: 1px solid #ddd;
-        padding: 10px;
-        border-radius: 6px;
-        margin-bottom: 12px;
+    input {
+        margin: 4px;
     }
-    #reader {
-        width: 250px;
-        height: 250px;
-        border: 1px solid #ccc;
-        margin-bottom: 10px;
+    pre {
+        height: 200px;
+        overflow: auto;
+        background: #f7f7f7;
+        padding: 8px;
+    }
+    #tokenQR {
+        font-size: 24px;
+        font-weight: bold;
+        margin: 6px 0;
     }
 </style>
 
-<h2>WebRTC P2P via QR + Câmera</h2>
+<h2>WebRTC P2P LAN via Token</h2>
 
-<div class="section">
-    <h3>Host / Gerador</h3>
-    <button id="hostStart">Gerar QR de conexão</button>
+<div>
+    <h3>Host</h3>
+    <button id="hostStart">Gerar Token e QR</button>
     <div>Token: <span id="hostToken"></span></div>
-    <div id="hostQR"></div>
+    <div id="tokenQR"></div>
 </div>
 
-<div class="section">
-    <h3>Cliente / Scanner</h3>
-    <div id="reader"></div>
-    <button id="startScan">Iniciar Câmera QR</button>
+<div>
+    <h3>Cliente</h3>
+    <input id="clientToken" placeholder="Insira token do Host" />
+    <button id="clientConnect">Conectar</button>
 </div>
 
-<div class="section">
+<div>
     <h3>Chat</h3>
-    <input id="msg" placeholder="mensagem" style="width: 80%" /><button id="send">Enviar</button>
-    <pre id="log" style="height: 200px; overflow: auto; background: #f7f7f7; padding: 8px"></pre>
+    <input id="msg" placeholder="mensagem" style="width: 70%" />
+    <button id="send">Enviar</button>
+    <pre id="log"></pre>
 </div>
-
-<script>
-    const log = (s) => {
-        const el = document.getElementById("log");
-        el.textContent += s + "\n";
-        el.scrollTop = el.scrollHeight;
-    };
-    function genToken() {
-        return Math.floor(10000000 + Math.random() * 90000000).toString();
-    }
-
-    let pcHost = null,
-        pcClient = null,
-        hostChannel = null,
-        clientChannel = null,
-        hostToken = "";
-
-    // --- Host: gerar QR
-    document.getElementById("hostStart").onclick = async () => {
-        hostToken = genToken();
-        document.getElementById("hostToken").textContent = hostToken;
-
-        pcHost = new RTCPeerConnection({ iceServers: [] });
-        hostChannel = pcHost.createDataChannel("p2p");
-        setupDataChannel(hostChannel, "host");
-
-        pcHost.oniceconnectionstatechange = () => log("ICE Host: " + pcHost.iceConnectionState);
-
-        const offer = await pcHost.createOffer();
-        await pcHost.setLocalDescription(offer);
-
-        await new Promise((res) => {
-            pcHost.onicecandidate = (e) => {
-                if (!e.candidate) res();
-            };
-        });
-
-        const payload = JSON.stringify({ sdp: pcHost.localDescription.sdp, token: hostToken });
-        const compressed = LZString.compressToEncodedURIComponent(payload);
-
-        const qrContainer = document.getElementById("hostQR");
-        qrContainer.innerHTML = "";
-        QRCode.toCanvas(compressed, { width: 500 }, (err, canvas) => {
-            if (err) console.error(err);
-            else qrContainer.appendChild(canvas);
-        });
-        log("QR gerado! Escaneie no outro dispositivo.");
-    };
-
-    // --- Cliente: ler QR
-    document.getElementById("startScan").onclick = () => {
-        const html5QrCode = new Html5Qrcode("reader");
-        html5QrCode.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: 250 },
-            async (decodedText, decodedResult) => {
-                html5QrCode.stop();
-                log("QR lido!");
-                const decoded = LZString.decompressFromEncodedURIComponent(decodedText);
-                const { sdp, token } = JSON.parse(decoded);
-                log("Token detectado: " + token);
-
-                pcClient = new RTCPeerConnection({ iceServers: [] });
-                pcClient.ondatachannel = (evt) => {
-                    clientChannel = evt.channel;
-                    setupDataChannel(clientChannel, "client");
-                };
-                pcClient.oniceconnectionstatechange = () => log("ICE Client: " + pcClient.iceConnectionState);
-
-                await pcClient.setRemoteDescription({ type: "offer", sdp });
-                const answer = await pcClient.createAnswer();
-                await pcClient.setLocalDescription(answer);
-
-                // envio da answer manual: no mesmo navegador/abertura LAN, você precisaria copiar a answer para o host
-                // se quiser totalmente automatizado via LAN precisa de servidor de sinalização
-                log("Answer gerada (copie para o host para abrir DataChannel).");
-                log(LZString.compressToEncodedURIComponent(JSON.stringify({ sdp: answer.sdp, token })));
-            },
-            (err) => {},
-        );
-    };
-
-    // --- DataChannel
-    function setupDataChannel(ch, who) {
-        ch.onopen = () => log("DataChannel aberto (" + who + ")");
-        ch.onclose = () => log("DataChannel fechado (" + who + ")");
-        ch.onmessage = (e) => {
-            try {
-                const msg = JSON.parse(e.data);
-                if (msg.type === "auth") log("Auth token recebido: " + msg.token);
-                else if (msg.type === "chat") log("<< " + msg.text);
-            } catch {
-                log("<< " + e.data);
-            }
-        };
-    }
-
-    // --- Chat
-    document.getElementById("send").onclick = () => {
-        const t = document.getElementById("msg").value;
-        if ((!hostChannel && !clientChannel) || (hostChannel || clientChannel).readyState !== "open") {
-            alert("DataChannel não aberto");
-            return;
-        }
-        const ch = hostChannel || clientChannel;
-        ch.send(JSON.stringify({ type: "chat", text: t }));
-        log(">> " + t);
-        document.getElementById("msg").value = "";
-    };
-</script>

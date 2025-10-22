@@ -58,6 +58,8 @@ export const CONFIG = {
     VIEWPORT_HEIGHT_CSS: () => Math.max(260, window.innerHeight * 0.82),
     MARGIN_TOP: () => (window.innerWidth < 700 ? 50 : 100),
 
+    MS_ON_FOCUS_TO_RENDER: 30,
+
     // Header detection
     TOLERANCE: 30, // pixels around detection boxes to tolerate small misalignments
 };

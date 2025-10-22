@@ -69,7 +69,6 @@ export class SentenceParser {
         // CRITICAL: Filter words by layout BEFORE creating sentences
         const wordsToProcess = page.pageWords;
         if (!wordsToProcess || wordsToProcess.length === 0) {
-            console.warn(`[SentenceParser] Page ${pageNumber} has no words to process`);
             return;
         }
 

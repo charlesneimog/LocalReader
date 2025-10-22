@@ -80,9 +80,10 @@ export function isMobile() {
     return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
+
 export function getWebsiteRoot() {
     const { protocol, hostname, port, pathname } = window.location;
-    if (hostname === "localhost") {
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
         return `${protocol}//${hostname}${port ? `:${port}` : ""}/`;
     }
     const pathSegments = pathname.split("/").filter(Boolean);

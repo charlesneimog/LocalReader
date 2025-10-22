@@ -107,7 +107,10 @@ export class PDFRenderer {
     }
 
     getViewportHeight() {
-        return this.app?.state?.viewportHeight || (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+        return (
+            this.app?.state?.viewportHeight ||
+            (window.visualViewport ? window.visualViewport.height : window.innerHeight)
+        );
     }
 
     getPageScaleFactors(wrapper, canvas, pageNumber) {
@@ -138,7 +141,7 @@ export class PDFRenderer {
         if (words.length > 0) {
             const detectedSystem = this.detectPageCoordinateSystem(pageNumber, words);
             this.pageCoordinateSystems.set(pageNumber, detectedSystem);
-            console.log(`[PDFRenderer] Page ${pageNumber} coordinate system: ${detectedSystem}`);
+            // console.log(`[PDFRenderer] Page ${pageNumber} coordinate system: ${detectedSystem}`);
         }
     }
 
@@ -190,74 +193,104 @@ export class PDFRenderer {
         if (!container) return;
         container.innerHTML = "";
 
-        // IntersectionObserver para renderização virtual
+        let lastVisiblePage = null;
+        let focusTimer = null;
+
+        const renderPageIfNeeded = async (pageNumber) => {
+            const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${pageNumber}"]`);
+            if (!wrapper) return;
+
+            // Skip if already rendered (either in DOM or in cache)
+            if (wrapper.querySelector("canvas.page-canvas") || state.fullPageRenderCache.has(pageNumber)) return;
+
+            const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+            const scale = getPageDisplayScale(viewportDisplay, config);
+
+            // Fetch or render the full-resolution page canvas
+            const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
+
+            // Store reference in cache (so we can reuse)
+            state.fullPageRenderCache.set(pageNumber, fullPageCanvas);
+
+            const c = document.createElement("canvas");
+            c.className = "page-canvas";
+            c.width = Math.round(fullPageCanvas.width);
+            c.height = Math.round(fullPageCanvas.height);
+
+            const ctx = c.getContext("2d");
+            ctx.drawImage(fullPageCanvas, 0, 0, fullPageCanvas.width, fullPageCanvas.height, 0, 0, c.width, c.height);
+
+            c.style.width = "100%";
+            c.style.height = "100%";
+
+            wrapper.dataset.scale = scale.toString();
+            wrapper.style.width = viewportDisplay.width * scale + "px";
+            wrapper.style.height = viewportDisplay.height * scale + "px";
+            wrapper.insertBefore(c, wrapper.firstChild);
+        };
+
         const observer = new IntersectionObserver(
             async (entries) => {
                 for (const entry of entries) {
                     const pageNumber = parseInt(entry.target.dataset.pageNumber, 10);
                     const wrapper = entry.target;
-                    const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
-                    const scale = getPageDisplayScale(viewportDisplay, config);
 
                     if (entry.isIntersecting) {
-                        // Renderiza canvas se ainda não existir
-                        if (!wrapper.querySelector("canvas.page-canvas")) {
-                            const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
+                        // User focused on a new page
+                        lastVisiblePage = pageNumber;
 
-                            const c = document.createElement("canvas");
-                            c.className = "page-canvas";
-                            c.width = Math.round(fullPageCanvas.width);
-                            c.height = Math.round(fullPageCanvas.height);
+                        // Cancel any previous timer
+                        if (focusTimer) clearTimeout(focusTimer);
 
-                            const ctx = c.getContext("2d");
-                            ctx.drawImage(
-                                fullPageCanvas,
-                                0,
-                                0,
-                                fullPageCanvas.width,
-                                fullPageCanvas.height,
-                                0,
-                                0,
-                                c.width,
-                                c.height,
-                            );
+                        // Wait before rendering — only if focus stays
+                        focusTimer = setTimeout(async () => {
+                            if (!wrapper.isConnected) return;
 
-                            wrapper.insertBefore(c, wrapper.firstChild);
-                        }
-                    } else {
-                        // Remove canvas pesado quando sai do viewport
-                        const c = wrapper.querySelector("canvas.page-canvas");
-                        if (c) c.remove();
-                        state.fullPageRenderCache.delete(pageNumber);
-                    }
+                            const rect = wrapper.getBoundingClientRect();
+                            const rootRect = container.getBoundingClientRect();
+                            const stillVisible = rect.bottom > rootRect.top && rect.top < rootRect.bottom;
+                            if (!stillVisible) return;
 
-                    // Aplica escala CSS correta no wrapper e no canvas
-                    wrapper.dataset.scale = scale.toString();
-                    wrapper.style.width = viewportDisplay.width * scale + "px";
-                    wrapper.style.height = viewportDisplay.height * scale + "px";
+                            // Determine the range
+                            const minPage = Math.max(1, lastVisiblePage - 2);
+                            const maxPage = Math.min(state.pdf.numPages, lastVisiblePage + 2);
+                            await renderPageIfNeeded(lastVisiblePage);
+                            for (let p = lastVisiblePage + 1; p <= maxPage; p++) {
+                                await renderPageIfNeeded(p);
+                            }
+                            for (let p = lastVisiblePage - 1; p >= minPage; p--) {
+                                await renderPageIfNeeded(p);
+                            }
 
-                    const c = wrapper.querySelector("canvas.page-canvas");
-                    if (c) {
-                        c.style.width = "100%";
-                        c.style.height = "100%";
+                            // Remove pages outside that range
+                            for (let p = 1; p <= state.pdf.numPages; p++) {
+                                if (p < minPage || p > maxPage) {
+                                    const w = container.querySelector(`.pdf-page-wrapper[data-page-number="${p}"]`);
+                                    if (w) {
+                                        const c = w.querySelector("canvas.page-canvas");
+                                        if (c) c.remove();
+                                        state.fullPageRenderCache.delete(p);
+                                    }
+                                }
+                            }
+                        }, this.app.config.MS_ON_FOCUS_TO_RENDER);
                     }
                 }
             },
             {
                 root: container,
-                rootMargin: "300px", // pré-carrega antes da página aparecer
+                rootMargin: "300px", // preload trigger zone
                 threshold: 0.1,
             },
         );
 
-        // Cria wrappers para todas as páginas
+        // Create wrappers for all pages
         for (let p = 1; p <= state.pdf.numPages; p++) {
             const viewportDisplay = state.viewportDisplayByPage.get(p);
             const wrapper = document.createElement("div");
             wrapper.className = "pdf-page-wrapper";
             wrapper.dataset.pageNumber = p;
 
-            // Reserva altura mínima para scroll contínuo
             wrapper.style.position = "relative";
             wrapper.style.minHeight = viewportDisplay.height + "px";
             wrapper.style.width = viewportDisplay.width + "px";
@@ -518,7 +551,7 @@ export class PDFRenderer {
         if (!s) return;
         const currentIdx = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
         if (state.hoveredSentenceIndex === currentIdx) return;
-    this.ensurePageWordsScaled(s.pageNumber);
+        this.ensurePageWordsScaled(s.pageNumber);
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${s.pageNumber}"]`);
         if (!wrapper) return;
         const canvas = wrapper.querySelector("canvas.page-canvas");
@@ -529,7 +562,7 @@ export class PDFRenderer {
         const canvasRect = canvas.getBoundingClientRect();
         const offsetTop = canvasRect.top - wrapperRect.top;
         const offsetLeft = canvasRect.left - wrapperRect.left;
-    const { scaleX, scaleY } = this.getPageScaleFactors(wrapper, canvas, s.pageNumber);
+        const { scaleX, scaleY } = this.getPageScaleFactors(wrapper, canvas, s.pageNumber);
 
         const highlightWords = this.getReadableWords(s);
 
@@ -575,7 +608,7 @@ export class PDFRenderer {
         if (!wrapper) return;
         const canvas = wrapper.querySelector("canvas.page-canvas");
         if (!canvas) return;
-    this.ensurePageWordsScaled(targetSentence.pageNumber);
+        this.ensurePageWordsScaled(targetSentence.pageNumber);
 
         // Ensure position relative on wrapper
         if (getComputedStyle(wrapper).position === "static") wrapper.style.position = "relative";
@@ -585,7 +618,7 @@ export class PDFRenderer {
         const canvasRect = canvas.getBoundingClientRect();
         const offsetTop = canvasRect.top - wrapperRect.top;
         const offsetLeft = canvasRect.left - wrapperRect.left;
-    const { scaleX, scaleY } = this.getPageScaleFactors(wrapper, canvas, targetSentence.pageNumber);
+        const { scaleX, scaleY } = this.getPageScaleFactors(wrapper, canvas, targetSentence.pageNumber);
 
         const highlightWords = this.getReadableWords(targetSentence);
 

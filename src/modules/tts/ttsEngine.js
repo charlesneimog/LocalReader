@@ -123,8 +123,8 @@ export class TTSEngine {
             const voiceConfig = await getCachedJSON(configFile, CONFIG_URL);
 
             const baseUrl = getWebsiteRoot();
-            const ortJsUrl = `${baseUrl}thirdparty/ort.js`;
-            const ortWasmRoot = `${baseUrl}thirdparty/`;
+            const ortJsUrl = `${baseUrl}thirdparty/ort/ort.js`;
+            const ortWasmRoot = `${baseUrl}thirdparty/ort/`;
             const phonemizerJsUrl = `${baseUrl}thirdparty/piper/piper-o91UDS6e.js`;
             const phonemizerWasmUrl = `${baseUrl}thirdparty/piper/piper_phonemize.wasm`;
             const phonemizerDataUrl = `${baseUrl}thirdparty/piper/piper_phonemize.data`;

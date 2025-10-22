@@ -41,11 +41,43 @@
 
     <body class="bg-background-light dark:bg-background-dark font-display text-slate-800 dark:text-slate-200">
         <script>
+            // Enhanced Service Worker Registration with update handling
             if ("serviceWorker" in navigator) {
+                let refreshing = false;
+
+                // Detect controller change and reload page
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (refreshing) return;
+                    refreshing = true;
+                    console.log('[PWA] New service worker activated, reloading...');
+                    window.location.reload();
+                });
+
                 navigator.serviceWorker
-                    .register("sw.js")
-                    .then((reg) => console.log("Service Worker registrado:", reg.scope))
-                    .catch((err) => console.error("Erro no Service Worker:", err));
+                    .register("sw.js", { updateViaCache: "none" })
+                    .then((reg) => {
+                        console.log("[PWA] Service Worker registered:", reg.scope);
+
+                        // Check for updates every 60 seconds
+                        setInterval(() => {
+                            reg.update().catch(err => console.warn('[PWA] Update check failed:', err));
+                        }, 60000);
+
+                        // Listen for waiting service worker
+                        reg.addEventListener('updatefound', () => {
+                            const newWorker = reg.installing;
+                            console.log('[PWA] New service worker found, installing...');
+
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    console.log('[PWA] New service worker installed, will activate on next reload');
+                                    // Optionally show update notification to user
+                                    // You can add a UI prompt here asking user to reload
+                                }
+                            });
+                        });
+                    })
+                    .catch((err) => console.error("[PWA] Service Worker registration failed:", err));
             }
         </script>
         <!-- PDF Display -->

@@ -1,4 +1,4 @@
-import { cooperativeYield, delay, normalizeText, formatTextToSpeech } from "../utils/helpers.js";
+import { getWebsiteRoot, cooperativeYield, delay, normalizeText, formatTextToSpeech } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
 import { PiperWorkerClient } from "./piper-client.js";
 
@@ -122,11 +122,12 @@ export class TTSEngine {
             const modelBuffer = await getCachedModel(modelFile, MODEL_URL);
             const voiceConfig = await getCachedJSON(configFile, CONFIG_URL);
 
-            const ortJsUrl = "./../../../thirdparty/ort.js";
-            const ortWasmRoot = "./../../../thirdparty/";
-            const phonemizerJsUrl = "./../../../thirdparty/piper/piper-o91UDS6e.js";
-            const phonemizerWasmUrl = "./../../../thirdparty/piper/piper_phonemize.wasm";
-            const phonemizerDataUrl = "./../../../thirdparty/piper/piper_phonemize.data";
+            const baseUrl = getWebsiteRoot();
+            const ortJsUrl = `${baseUrl}thirdparty/ort.js`;
+            const ortWasmRoot = `${baseUrl}thirdparty/`;
+            const phonemizerJsUrl = `${baseUrl}thirdparty/piper/piper-o91UDS6e.js`;
+            const phonemizerWasmUrl = `${baseUrl}thirdparty/piper/piper_phonemize.wasm`;
+            const phonemizerDataUrl = `${baseUrl}thirdparty/piper/piper_phonemize.data`;
 
             if (!this.initialized) {
                 await this.client.init({

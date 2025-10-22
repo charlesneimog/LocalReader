@@ -1,11 +1,11 @@
 export const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
-export const delay = (ms) => new Promise(r => setTimeout(r, ms));
+export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function cooperativeYield() {
     if (typeof requestIdleCallback === "function") {
-        return new Promise(res => requestIdleCallback(() => res()));
+        return new Promise((res) => requestIdleCallback(() => res()));
     }
-    return new Promise(res => setTimeout(res, 0));
+    return new Promise((res) => setTimeout(res, 0));
 }
 
 export function waitFor(condFn, timeoutMs = 10000, interval = 120) {
@@ -26,21 +26,28 @@ export function waitFor(condFn, timeoutMs = 10000, interval = 120) {
 export function hexToRgb(hex) {
     hex = hex.replace(/^#/, "");
     if (hex.length === 3) {
-        hex = hex.split("").map(c => c + c).join("");
+        hex = hex
+            .split("")
+            .map((c) => c + c)
+            .join("");
     }
     const bigint = parseInt(hex, 16);
     if (Number.isNaN(bigint)) return null;
     return {
         r: (bigint >> 16) & 255,
         g: (bigint >> 8) & 255,
-        b: bigint & 255
+        b: bigint & 255,
     };
 }
 
 export function regionToFlag(region) {
     if (!region) return "";
-    return region.toUpperCase().replace(/[^A-Z]/g, "").split("")
-        .map(c => String.fromCodePoint(c.charCodeAt(0) + 0x1f1a5)).join("");
+    return region
+        .toUpperCase()
+        .replace(/[^A-Z]/g, "")
+        .split("")
+        .map((c) => String.fromCodePoint(c.charCodeAt(0) + 0x1f1a5))
+        .join("");
 }
 
 export function capitalizeFirst(str) {
@@ -72,3 +79,14 @@ export function formatTextToSpeech(text) {
 export function isMobile() {
     return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
+
+export function getWebsiteRoot() {
+    const { protocol, hostname, port, pathname } = window.location;
+    if (hostname === "localhost") {
+        return `${protocol}//${hostname}${port ? `:${port}` : ""}/`;
+    }
+    const pathSegments = pathname.split("/").filter(Boolean);
+    const repoSegment = pathSegments[0] || "";
+    return `${protocol}//${hostname}/${repoSegment}/`;
+}
+

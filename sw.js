@@ -1,11 +1,135 @@
-const APP_VERSION = 1;
+const APP_VERSION = 2; // Incremented for new offline-first version
 const cacheName = `PDFCastia-v${APP_VERSION}`;
-const staticFiles = ["/index.html"];
+const runtimeCache = `PDFCastia-runtime-v${APP_VERSION}`;
+
+// Determine the base path (works for both root and subpath deployments)
+const getBasePath = () => {
+  const path = self.location.pathname;
+  // If hosted in subdirectory like /pdf-tts-reader/
+  if (path.includes('/pdf-tts-reader/')) {
+    return '/pdf-tts-reader';
+  }
+  return '';
+};
+
+const BASE_PATH = getBasePath();
+
+// Helper to resolve paths
+const resolvePath = (path) => {
+  if (path.startsWith('http')) return path;
+  return BASE_PATH + path;
+};
 
 // routes to cache
-const routes = ["/", "/src"];
-const filesToCache = [...routes, ...staticFiles];
+const staticFiles = [
+  "/",
+  "/index.html",
+  "/offline.html",
+  "/manifest.webmanifest",
+  "/threads.js",
+
+  // Assets
+  "/assets/icons/favicon-16x16.png",
+  "/assets/icons/favicon-32x32.png",
+  "/assets/icons/favicon.svg",
+  "/assets/icons/icon-192.png",
+  "/assets/icons/icon-512.png",
+  "/assets/icons/icon-1024.png",
+  "/assets/icons/logo.png",
+  "/assets/icons/logo.svg",
+  "/assets/icons/mask-512.png",
+  "/assets/icons/mask.svg",
+  "/assets/images/default-user.png",
+  "/assets/screenshots/screenshot1.png",
+  "/assets/screenshots/screenshot2.png",
+
+  // CSS
+  "/src/css/style.css",
+  "/src/css/input.css",
+  "/src/css/output.css",
+
+  // JS principais
+  "/src/app.js",
+  "/src/config.js",
+  "/src/constants/cacheManager.js",
+  "/src/constants/events.js",
+  "/src/core/cacheManager.js",
+  "/src/core/eventBus.js",
+  "/src/core/stateManager.js",
+  "/src/modules/index.js",
+
+  // Módulos (principais)
+  "/src/modules/login/auth.js",
+  "/src/modules/pdf/pdfLoader.js",
+  "/src/modules/pdf/pdfRenderer.js",
+  "/src/modules/pdf/pdfHeaderFooterDetector.js",
+  "/src/modules/pdf/sentenceParser.js",
+  "/src/modules/pdf/ts.js",
+  "/src/modules/storage/exportManager.js",
+  "/src/modules/storage/highlightsStorage.js",
+  "/src/modules/storage/progressManager.js",
+  "/src/modules/tts/audioManager.js",
+  "/src/modules/tts/piper-client.js",
+  "/src/modules/tts/piper.worker.js",
+  "/src/modules/tts/synthesisQueue.js",
+  "/src/modules/tts/ttsEngine.js",
+  "/src/modules/tts/wordHighlighter.js",
+  "/src/modules/ui/controlsManager.js",
+  "/src/modules/ui/highlightManager.js",
+  "/src/modules/ui/interactionHandler.js",
+  "/src/modules/ui/uiService.js",
+  "/src/modules/utils/ariaManager.js",
+  "/src/modules/utils/coordinates.js",
+  "/src/modules/utils/helpers.js",
+  "/src/modules/utils/responsive.js",
+  "/src/modules/utils/viewport.js",
+
+  // Third-party
+  "/thirdparty/ort.js",
+  "/thirdparty/ort-wasm-simd.wasm",
+  "/thirdparty/ort-wasm-simd-threaded.jsep.mjs",
+  "/thirdparty/ort-wasm-simd-threaded.jsep.wasm",
+  "/thirdparty/pdf/pdf.js",
+  "/thirdparty/pdf/pdf.worker.js",
+  "/thirdparty/pdf/pdf-lib.js",
+  "/thirdparty/piper/piper-o91UDS6e.js",
+  "/thirdparty/piper/piper_phonemize.data",
+  "/thirdparty/piper/piper_phonemize.js",
+  "/thirdparty/piper/piper_phonemize.wasm",
+  "/thirdparty/transformers/transformers.js",
+];
+
+// External resources to cache (fonts, CDN dependencies)
+const externalResources = [
+  // Google Fonts CSS
+  "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap",
+  "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined",
+  
+  // Kinde Auth (optional - will fail gracefully if offline)
+  "https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.esm.js",
+];
+
+// Patterns for runtime caching
+const EXTERNAL_CACHE_PATTERNS = [
+  "https://fonts.googleapis.com",
+  "https://fonts.gstatic.com",
+  "https://cdn.jsdelivr.net/npm/@huggingface/transformers",
+  "https://huggingface.co/",
+];
+
+// Check if URL matches any cache pattern
+const shouldCacheExternally = (url) => {
+  return EXTERNAL_CACHE_PATTERNS.some((pattern) => url.startsWith(pattern));
+};
+
+const routes = ["/"];
+const resolvedStaticFiles = staticFiles.map(resolvePath);
+const filesToCache = [...routes, ...resolvedStaticFiles];
 const requestsToRetryWhenOffline = [];
+
+//╭─────────────────────────────────────╮
+//│              IDBConfig              │
+//╰─────────────────────────────────────╯
 const IDBConfig = {
     name: "web-app-db",
     version: APP_VERSION,
@@ -169,27 +293,65 @@ const retryRequests = async () => {
 };
 
 const installHandler = (e) => {
+    console.log('[SW] Installing service worker v' + APP_VERSION);
     e.waitUntil(
-        caches
-            .open(cacheName)
-            .then((cache) =>
-                Promise.all([
-                    cache.addAll(filesToCache.map((file) => new Request(file, { cache: "no-cache" }))),
-                    createIndexedDB(IDBConfig),
-                ]),
-            )
-            .catch((err) => console.error("install error", err)),
+        Promise.all([
+            // Cache local files
+            caches.open(cacheName).then((cache) =>
+                cache.addAll(filesToCache.map((file) => new Request(file, { cache: "reload" })))
+            ),
+            // Cache external resources with proper error handling
+            caches.open(cacheName).then((cache) =>
+                Promise.allSettled(
+                    externalResources.map((url) =>
+                        fetch(url, { mode: 'cors', cache: 'no-cache' })
+                            .then(response => {
+                                if (response.ok) {
+                                    return cache.put(url, response);
+                                }
+                                console.warn(`[SW] Failed to cache external: ${url}`);
+                            })
+                            .catch(err => {
+                                console.warn(`[SW] Error caching external ${url}:`, err);
+                            })
+                    )
+                )
+            ),
+            // Create IndexedDB
+            createIndexedDB(IDBConfig),
+            // Open runtime cache
+            caches.open(runtimeCache),
+        ])
+        .then(() => {
+            console.log('[SW] Installation complete');
+            return self.skipWaiting(); // Activate immediately
+        })
+        .catch((err) => console.error('[SW] Install error:', err))
     );
 };
 
 // delete any outdated caches when the Service Worker is activated
 const activateHandler = (e) => {
+    console.log('[SW] Activating service worker v' + APP_VERSION);
     e.waitUntil(
-        caches
-            .keys()
-            .then((names) =>
-                Promise.all(names.filter((name) => name !== cacheName).map((name) => caches.delete(name))),
+        Promise.all([
+            // Clean up old caches
+            caches.keys().then((names) =>
+                Promise.all(
+                    names
+                        .filter((name) => name !== cacheName && name !== runtimeCache)
+                        .map((name) => {
+                            console.log('[SW] Deleting old cache:', name);
+                            return caches.delete(name);
+                        })
+                )
             ),
+            // Take control of all clients immediately
+            self.clients.claim(),
+        ])
+        .then(() => {
+            console.log('[SW] Activation complete, controlling all clients');
+        })
     );
 };
 
@@ -206,27 +368,94 @@ const cleanRedirect = async (response) => {
 
 const fetchHandler = async (e) => {
     const { request } = e;
+    const url = request.url;
+
     e.respondWith(
         (async () => {
             try {
+                // Handle offline retry for important requests
                 if (isOffline() && isRequestEligibleForRetry(request)) {
                     await storeRequest(request);
-                    return await caches.match("/index.html");
-                }
-                const response = await caches.match(request, { ignoreVary: true, ignoreSearch: true });
-                if (response) {
-                    return response.redirected ? cleanRedirect(response) : response;
+                    const cachedResponse = await caches.match(resolvePath('/index.html'));
+                    return cachedResponse || new Response('Offline', { status: 503 });
                 }
 
-                // if not in the cache, try to fetch the response from the network
-                const fetchResponse = await fetch(e.request);
-                if (fetchResponse) {
+                // Strategy 1: Cache First for local assets
+                if (url.startsWith(self.location.origin)) {
+                    const cachedResponse = await caches.match(request, { ignoreVary: true, ignoreSearch: false });
+                    if (cachedResponse) {
+                        return cachedResponse.redirected ? cleanRedirect(cachedResponse) : cachedResponse;
+                    }
+                }
+
+                // Strategy 2: Stale-While-Revalidate for external resources
+                if (shouldCacheExternally(url)) {
+                    const cache = await caches.open(runtimeCache);
+                    const cachedResponse = await cache.match(request);
+
+                    // Return cached version immediately
+                    const fetchPromise = fetch(request, { mode: 'cors' })
+                        .then((response) => {
+                            if (response.ok) {
+                                cache.put(request, response.clone());
+                            }
+                            return response;
+                        })
+                        .catch((err) => {
+                            console.warn('[SW] Failed to fetch external:', url, err);
+                            return cachedResponse; // Return cached on network error
+                        });
+
+                    // Return cached immediately if available, otherwise wait for network
+                    return cachedResponse || fetchPromise;
+                }
+
+                // Strategy 3: Network First for everything else
+                try {
+                    const fetchResponse = await fetch(request);
+
+                    // Cache successful GET requests from external sources
+                    if (
+                        fetchResponse.status === 200 &&
+                        request.method === "GET" &&
+                        shouldCacheExternally(url)
+                    ) {
+                        const cache = await caches.open(runtimeCache);
+                        cache.put(request, fetchResponse.clone());
+                    }
+
                     return fetchResponse;
+                } catch (networkError) {
+                    // Network failed, try cache as fallback
+                    const cachedResponse = await caches.match(request);
+                    if (cachedResponse) {
+                        console.log('[SW] Serving from cache after network failure:', url);
+                        return cachedResponse;
+                    }
+
+                    // Last resort: return offline page for navigation requests
+                    if (request.mode === 'navigate') {
+                        const offlinePage = await caches.match(resolvePath('/index.html'));
+                        return offlinePage || new Response('Offline', { 
+                            status: 503,
+                            statusText: 'Service Unavailable',
+                            headers: { 'Content-Type': 'text/plain' }
+                        });
+                    }
+
+                    throw networkError;
                 }
             } catch (err) {
-                return await caches.match("/index.html");
+                console.error('[SW] Fetch error:', err);
+                // Final fallback
+                const fallback = await caches.match(resolvePath('/index.html'));
+                return fallback || new Response('Application Offline', { 
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    headers: { 'Content-Type': 'text/plain' }
+                });
             }
-        })(),
+        })()
     );
 };
 

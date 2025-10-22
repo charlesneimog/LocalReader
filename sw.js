@@ -4,122 +4,130 @@ const runtimeCache = `PDFCastia-runtime-v${APP_VERSION}`;
 
 // Determine the base path (works for both root and subpath deployments)
 const getBasePath = () => {
-  const path = self.location.pathname;
-  // If hosted in subdirectory like /pdf-tts-reader/
-  if (path.includes('/pdf-tts-reader/')) {
-    return '/pdf-tts-reader';
-  }
-  return '';
+    const path = self.location.pathname;
+    // If hosted in subdirectory like /pdf-tts-reader/
+    if (path.includes("/pdf-tts-reader/")) {
+        return "/pdf-tts-reader";
+    }
+    return "";
 };
 
 const BASE_PATH = getBasePath();
 
 // Helper to resolve paths
 const resolvePath = (path) => {
-  if (path.startsWith('http')) return path;
-  return BASE_PATH + path;
+    if (path.startsWith("http")) return path;
+    return BASE_PATH + path;
 };
 
 // routes to cache
 const staticFiles = [
-  "/",
-  "/index.html",
-  "/offline.html",
-  "/manifest.webmanifest",
-  "/threads.js",
+    "/",
+    "/index.html",
+    "/offline.html",
+    "/manifest.webmanifest",
+    "/threads.js",
 
-  // Assets
-  "/assets/icons/favicon-16x16.png",
-  "/assets/icons/favicon-32x32.png",
-  "/assets/icons/favicon.svg",
-  "/assets/icons/icon-192.png",
-  "/assets/icons/icon-512.png",
-  "/assets/icons/icon-1024.png",
-  "/assets/icons/logo.png",
-  "/assets/icons/logo.svg",
-  "/assets/icons/mask-512.png",
-  "/assets/icons/mask.svg",
-  "/assets/images/default-user.png",
-  "/assets/screenshots/screenshot1.png",
-  "/assets/screenshots/screenshot2.png",
+    // Assets
+    "/assets/icons/favicon-16x16.png",
+    "/assets/icons/favicon-32x32.png",
+    "/assets/icons/favicon.svg",
+    "/assets/icons/icon-192.png",
+    "/assets/icons/icon-512.png",
+    "/assets/icons/icon-1024.png",
+    "/assets/icons/logo.png",
+    "/assets/icons/logo.svg",
+    "/assets/icons/mask-512.png",
+    "/assets/icons/mask.svg",
+    "/assets/images/default-user.png",
+    "/assets/screenshots/screenshot1.png",
+    "/assets/screenshots/screenshot2.png",
 
-  // CSS
-  "/src/css/style.css",
-  "/src/css/input.css",
-  "/src/css/output.css",
+    // CSS
+    "/src/css/style.css",
+    "/src/css/input.css",
+    "/src/css/output.css",
 
-  // JS principais
-  "/src/app.js",
-  "/src/config.js",
-  "/src/constants/cacheManager.js",
-  "/src/constants/events.js",
-  "/src/core/cacheManager.js",
-  "/src/core/eventBus.js",
-  "/src/core/stateManager.js",
-  "/src/modules/index.js",
+    // JS principais
+    "/src/app.js",
+    "/src/config.js",
+    "/src/constants/cacheManager.js",
+    "/src/constants/events.js",
+    "/src/core/cacheManager.js",
+    "/src/core/eventBus.js",
+    "/src/core/stateManager.js",
+    "/src/modules/index.js",
 
-  // Módulos (principais)
-  "/src/modules/login/auth.js",
-  "/src/modules/pdf/pdfLoader.js",
-  "/src/modules/pdf/pdfRenderer.js",
-  "/src/modules/pdf/pdfHeaderFooterDetector.js",
-  "/src/modules/pdf/sentenceParser.js",
-  "/src/modules/pdf/ts.js",
-  "/src/modules/storage/exportManager.js",
-  "/src/modules/storage/highlightsStorage.js",
-  "/src/modules/storage/progressManager.js",
-  "/src/modules/tts/audioManager.js",
-  "/src/modules/tts/piper-client.js",
-  "/src/modules/tts/piper.worker.js",
-  "/src/modules/tts/synthesisQueue.js",
-  "/src/modules/tts/ttsEngine.js",
-  "/src/modules/tts/wordHighlighter.js",
-  "/src/modules/ui/controlsManager.js",
-  "/src/modules/ui/highlightManager.js",
-  "/src/modules/ui/interactionHandler.js",
-  "/src/modules/ui/uiService.js",
-  "/src/modules/utils/ariaManager.js",
-  "/src/modules/utils/coordinates.js",
-  "/src/modules/utils/helpers.js",
-  "/src/modules/utils/responsive.js",
-  "/src/modules/utils/viewport.js",
+    // Módulos (principais)
+    "/src/modules/login/auth.js",
+    "/src/modules/pdf/pdfLoader.js",
+    "/src/modules/pdf/pdfRenderer.js",
+    "/src/modules/pdf/pdfHeaderFooterDetector.js",
+    "/src/modules/pdf/sentenceParser.js",
+    "/src/modules/pdf/ts.js",
+    "/src/modules/storage/exportManager.js",
+    "/src/modules/storage/highlightsStorage.js",
+    "/src/modules/storage/progressManager.js",
+    "/src/modules/tts/audioManager.js",
+    "/src/modules/tts/piper-client.js",
+    "/src/modules/tts/piper.worker.js",
+    "/src/modules/tts/synthesisQueue.js",
+    "/src/modules/tts/ttsEngine.js",
+    "/src/modules/tts/wordHighlighter.js",
+    "/src/modules/ui/controlsManager.js",
+    "/src/modules/ui/highlightManager.js",
+    "/src/modules/ui/interactionHandler.js",
+    "/src/modules/ui/uiService.js",
+    "/src/modules/utils/ariaManager.js",
+    "/src/modules/utils/coordinates.js",
+    "/src/modules/utils/helpers.js",
+    "/src/modules/utils/responsive.js",
+    "/src/modules/utils/viewport.js",
 
-  // Third-party
-  "/thirdparty/ort.js",
-  "/thirdparty/ort-wasm-simd.wasm",
-  "/thirdparty/ort-wasm-simd-threaded.jsep.mjs",
-  "/thirdparty/ort-wasm-simd-threaded.jsep.wasm",
-  "/thirdparty/pdf/pdf.js",
-  "/thirdparty/pdf/pdf.worker.js",
-  "/thirdparty/pdf/pdf-lib.js",
-  "/thirdparty/piper/piper-o91UDS6e.js",
-  "/thirdparty/piper/piper_phonemize.data",
-  "/thirdparty/piper/piper_phonemize.js",
-  "/thirdparty/piper/piper_phonemize.wasm",
-  "/thirdparty/transformers/transformers.js",
+    // Third-party
+    "/thirdparty/ort.js",
+    "/thirdparty/ort-wasm-simd.wasm",
+    "/thirdparty/ort-wasm-simd-threaded.jsep.mjs",
+    "/thirdparty/ort-wasm-simd-threaded.jsep.wasm",
+    "/thirdparty/pdf/pdf.js",
+    "/thirdparty/pdf/pdf.worker.js",
+    "/thirdparty/pdf/pdf-lib.js",
+    "/thirdparty/piper/piper-o91UDS6e.js",
+    "/thirdparty/piper/piper_phonemize.data",
+    "/thirdparty/piper/piper_phonemize.js",
+    "/thirdparty/piper/piper_phonemize.wasm",
+    "/thirdparty/transformers/transformers.js",
+
+    // Fonts
+    "/thirdparty/fonts/Inter.css",
+    "/thirdparty/fonts/Material-symbols-outlined.css",
+    "/thirdparty/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2",
+    "/thirdparty/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+    "/thirdparty/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2",
+    "/thirdparty/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2",
+    "/thirdparty/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7SUc.woff2",
+    "/thirdparty/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2",
+    "/thirdparty/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2",
+    "/thirdparty/fonts/font.woff2",
 ];
 
 // External resources to cache (fonts, CDN dependencies)
 const externalResources = [
-  // Google Fonts CSS
-  "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap",
-  "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined",
-  
-  // Kinde Auth (optional - will fail gracefully if offline)
-  "https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.esm.js",
+    // Kinde Auth (optional - will fail gracefully if offline)
+    "https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.esm.js",
 ];
 
 // Patterns for runtime caching
 const EXTERNAL_CACHE_PATTERNS = [
-  "https://fonts.googleapis.com",
-  "https://fonts.gstatic.com",
-  "https://cdn.jsdelivr.net/npm/@huggingface/transformers",
-  "https://huggingface.co/",
+    "https://fonts.googleapis.com",
+    "https://fonts.gstatic.com",
+    "https://cdn.jsdelivr.net/npm/@huggingface/transformers",
+    "https://huggingface.co/",
 ];
 
 // Check if URL matches any cache pattern
 const shouldCacheExternally = (url) => {
-  return EXTERNAL_CACHE_PATTERNS.some((pattern) => url.startsWith(pattern));
+    return EXTERNAL_CACHE_PATTERNS.some((pattern) => url.startsWith(pattern));
 };
 
 const routes = ["/"];
@@ -293,46 +301,46 @@ const retryRequests = async () => {
 };
 
 const installHandler = (e) => {
-    console.log('[SW] Installing service worker v' + APP_VERSION);
+    console.log("[SW] Installing service worker v" + APP_VERSION);
     e.waitUntil(
         Promise.all([
             // Cache local files
-            caches.open(cacheName).then((cache) =>
-                cache.addAll(filesToCache.map((file) => new Request(file, { cache: "reload" })))
-            ),
+            caches
+                .open(cacheName)
+                .then((cache) => cache.addAll(filesToCache.map((file) => new Request(file, { cache: "reload" })))),
             // Cache external resources with proper error handling
             caches.open(cacheName).then((cache) =>
                 Promise.allSettled(
                     externalResources.map((url) =>
-                        fetch(url, { mode: 'cors', cache: 'no-cache' })
-                            .then(response => {
+                        fetch(url, { mode: "cors", cache: "no-cache" })
+                            .then((response) => {
                                 if (response.ok) {
                                     return cache.put(url, response);
                                 }
                                 console.warn(`[SW] Failed to cache external: ${url}`);
                             })
-                            .catch(err => {
+                            .catch((err) => {
                                 console.warn(`[SW] Error caching external ${url}:`, err);
-                            })
-                    )
-                )
+                            }),
+                    ),
+                ),
             ),
             // Create IndexedDB
             createIndexedDB(IDBConfig),
             // Open runtime cache
             caches.open(runtimeCache),
         ])
-        .then(() => {
-            console.log('[SW] Installation complete');
-            return self.skipWaiting(); // Activate immediately
-        })
-        .catch((err) => console.error('[SW] Install error:', err))
+            .then(() => {
+                console.log("[SW] Installation complete");
+                return self.skipWaiting(); // Activate immediately
+            })
+            .catch((err) => console.error("[SW] Install error:", err)),
     );
 };
 
 // delete any outdated caches when the Service Worker is activated
 const activateHandler = (e) => {
-    console.log('[SW] Activating service worker v' + APP_VERSION);
+    console.log("[SW] Activating service worker v" + APP_VERSION);
     e.waitUntil(
         Promise.all([
             // Clean up old caches
@@ -341,17 +349,16 @@ const activateHandler = (e) => {
                     names
                         .filter((name) => name !== cacheName && name !== runtimeCache)
                         .map((name) => {
-                            console.log('[SW] Deleting old cache:', name);
+                            console.log("[SW] Deleting old cache:", name);
                             return caches.delete(name);
-                        })
-                )
+                        }),
+                ),
             ),
             // Take control of all clients immediately
             self.clients.claim(),
-        ])
-        .then(() => {
-            console.log('[SW] Activation complete, controlling all clients');
-        })
+        ]).then(() => {
+            console.log("[SW] Activation complete, controlling all clients");
+        }),
     );
 };
 
@@ -376,8 +383,8 @@ const fetchHandler = async (e) => {
                 // Handle offline retry for important requests
                 if (isOffline() && isRequestEligibleForRetry(request)) {
                     await storeRequest(request);
-                    const cachedResponse = await caches.match(resolvePath('/index.html'));
-                    return cachedResponse || new Response('Offline', { status: 503 });
+                    const cachedResponse = await caches.match(resolvePath("/index.html"));
+                    return cachedResponse || new Response("Offline", { status: 503 });
                 }
 
                 // Strategy 1: Cache First for local assets
@@ -394,7 +401,7 @@ const fetchHandler = async (e) => {
                     const cachedResponse = await cache.match(request);
 
                     // Return cached version immediately
-                    const fetchPromise = fetch(request, { mode: 'cors' })
+                    const fetchPromise = fetch(request, { mode: "cors" })
                         .then((response) => {
                             if (response.ok) {
                                 cache.put(request, response.clone());
@@ -402,7 +409,7 @@ const fetchHandler = async (e) => {
                             return response;
                         })
                         .catch((err) => {
-                            console.warn('[SW] Failed to fetch external:', url, err);
+                            console.warn("[SW] Failed to fetch external:", url, err);
                             return cachedResponse; // Return cached on network error
                         });
 
@@ -415,11 +422,7 @@ const fetchHandler = async (e) => {
                     const fetchResponse = await fetch(request);
 
                     // Cache successful GET requests from external sources
-                    if (
-                        fetchResponse.status === 200 &&
-                        request.method === "GET" &&
-                        shouldCacheExternally(url)
-                    ) {
+                    if (fetchResponse.status === 200 && request.method === "GET" && shouldCacheExternally(url)) {
                         const cache = await caches.open(runtimeCache);
                         cache.put(request, fetchResponse.clone());
                     }
@@ -429,33 +432,39 @@ const fetchHandler = async (e) => {
                     // Network failed, try cache as fallback
                     const cachedResponse = await caches.match(request);
                     if (cachedResponse) {
-                        console.log('[SW] Serving from cache after network failure:', url);
+                        console.log("[SW] Serving from cache after network failure:", url);
                         return cachedResponse;
                     }
 
                     // Last resort: return offline page for navigation requests
-                    if (request.mode === 'navigate') {
-                        const offlinePage = await caches.match(resolvePath('/index.html'));
-                        return offlinePage || new Response('Offline', { 
-                            status: 503,
-                            statusText: 'Service Unavailable',
-                            headers: { 'Content-Type': 'text/plain' }
-                        });
+                    if (request.mode === "navigate") {
+                        const offlinePage = await caches.match(resolvePath("/index.html"));
+                        return (
+                            offlinePage ||
+                            new Response("Offline", {
+                                status: 503,
+                                statusText: "Service Unavailable",
+                                headers: { "Content-Type": "text/plain" },
+                            })
+                        );
                     }
 
                     throw networkError;
                 }
             } catch (err) {
-                console.error('[SW] Fetch error:', err);
+                console.error("[SW] Fetch error:", err);
                 // Final fallback
-                const fallback = await caches.match(resolvePath('/index.html'));
-                return fallback || new Response('Application Offline', { 
-                    status: 503,
-                    statusText: 'Service Unavailable',
-                    headers: { 'Content-Type': 'text/plain' }
-                });
+                const fallback = await caches.match(resolvePath("/index.html"));
+                return (
+                    fallback ||
+                    new Response("Application Offline", {
+                        status: 503,
+                        statusText: "Service Unavailable",
+                        headers: { "Content-Type": "text/plain" },
+                    })
+                );
             }
-        })()
+        })(),
     );
 };
 

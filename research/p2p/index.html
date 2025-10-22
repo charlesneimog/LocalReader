@@ -1,0 +1,237 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>WebRTC P2P (QR / copy-paste) — no server</title>
+<style>
+    body {
+        font-family:
+            system-ui,
+            Segoe UI,
+            Roboto,
+            Arial;
+        margin: 18px;
+    }
+    textarea {
+        width: 100%;
+        height: 120px;
+        font-family: monospace;
+    }
+    #controls {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+    .section {
+        border: 1px solid #ddd;
+        padding: 10px;
+        border-radius: 6px;
+        margin-bottom: 12px;
+    }
+</style>
+
+<h2>WebRTC P2P (sem servidor) — offer / answer via copy-paste ou QR</h2>
+<div class="section">
+    <div id="controls">
+        <div>
+            <h3>Host (gera offer)</h3>
+            <button id="createOffer">Gerar Offer</button>
+            <button id="genQROffer">Gerar QR (offer)</button>
+            <div><small>Offer (Base64 SDP) — copie ou converta em QR</small></div>
+            <textarea id="offerOut" readonly></textarea>
+            <div><img id="offerQR" alt="QR offer" style="max-width: 100%" /></div>
+        </div>
+
+        <div>
+            <h3>Client (cola offer e gera answer)</h3>
+            <div><small>Cole a Offer aqui</small></div>
+            <textarea id="offerIn"></textarea>
+            <button id="acceptOffer">Aceitar Offer → Gerar Answer</button>
+            <button id="genQRAnswer">Gerar QR (answer)</button>
+            <div><small>Answer (Base64 SDP) — copie ou converta em QR</small></div>
+            <textarea id="answerOut" readonly></textarea>
+            <div><img id="answerQR" alt="QR answer" style="max-width: 100%" /></div>
+        </div>
+    </div>
+</div>
+
+<div class="section">
+    <h3>Host cola a Answer</h3>
+    <textarea id="answerIn" placeholder="Cole a answer recebida aqui"></textarea>
+    <button id="setAnswer">Aplicar Answer</button>
+</div>
+
+<div class="section">
+    <h3>Chat / DataChannel</h3>
+    <div><input id="msg" placeholder="escreva mensagem" style="width: 80%" /><button id="send">Enviar</button></div>
+    <pre id="log" style="height: 200px; overflow: auto; background: #f7f7f7; padding: 8px"></pre>
+</div>
+
+<script>
+    /*
+  Simples implementação WebRTC DataChannel sem servidor.
+  - Gera offer com ICE gathering completo (aguarda 'null' candidate)
+  - Exporta SDP em Base64 (textarea) para copy/paste ou para QR
+  - O outro lado cola e cria answer (também espera ICE)
+  - Use os textareas / QR images para trocar os SDPs manualmente
+*/
+
+    // --- util
+    const log = (s) => {
+        const el = document.getElementById("log");
+        el.textContent += s + "\n";
+        el.scrollTop = el.scrollHeight;
+    };
+
+    function toB64(obj) {
+        return btoa(unescape(encodeURIComponent(obj)));
+    }
+    function fromB64(b) {
+        return decodeURIComponent(escape(atob(b)));
+    }
+
+    // create RTCPeerConnection (no STUN by default -> pure LAN candidates)
+    function makePC() {
+        // Retire iceServers para evitar STUN; se quiser melhores chances, adicione um STUN server aqui.
+        return new RTCPeerConnection({ iceServers: [] });
+    }
+
+    // global vars
+    let pcHost = null,
+        pcClient = null;
+    let dataChannel = null;
+
+    // --- Host: create offer and show Base64 SDP after ICE complete
+    document.getElementById("createOffer").onclick = async () => {
+        log("Criando peer (host) e datachannel...");
+        pcHost = makePC();
+
+        dataChannel = pcHost.createDataChannel("p2p");
+        setupDataChannel(dataChannel, "local");
+
+        pcHost.oniceconnectionstatechange = () => log("ICE state: " + pcHost.iceConnectionState);
+
+        // collect candidates until null
+        await new Promise(async (resolve) => {
+            let gatheringDone = false;
+            pcHost.onicecandidate = (evt) => {
+                if (!evt.candidate && !gatheringDone) {
+                    gatheringDone = true;
+                    resolve();
+                }
+            };
+            const offer = await pcHost.createOffer();
+            await pcHost.setLocalDescription(offer);
+        });
+
+        // now localDescription contains gathered ICE candidates (non-trickle)
+        const sdp = pcHost.localDescription.sdp;
+        const b64 = toB64(sdp);
+        document.getElementById("offerOut").value = b64;
+        log("Offer gerado. Cole/QR para o cliente.");
+    };
+
+    // Host: apply answer pasted by host
+    document.getElementById("setAnswer").onclick = async () => {
+        const b64 = document.getElementById("answerIn").value.trim();
+        if (!b64) {
+            alert("Cole a answer primeiro");
+            return;
+        }
+        const sdp = fromB64(b64);
+        const desc = { type: "answer", sdp };
+        if (!pcHost) {
+            alert("Crie a offer primeiro (Host)");
+            return;
+        }
+        await pcHost.setRemoteDescription(desc);
+        log("Answer aplicada no Host. Conexão em andamento...");
+    };
+
+    // Client: accept offer (paste), create answer and show answer
+    document.getElementById("acceptOffer").onclick = async () => {
+        const b64 = document.getElementById("offerIn").value.trim();
+        if (!b64) {
+            alert("Cole a offer aqui");
+            return;
+        }
+        const sdp = fromB64(b64);
+        pcClient = makePC();
+
+        // when client receives datachannel
+        pcClient.ondatachannel = (evt) => {
+            dataChannel = evt.channel;
+            setupDataChannel(dataChannel, "remote");
+        };
+
+        pcClient.oniceconnectionstatechange = () => log("Client ICE: " + pcClient.iceConnectionState);
+
+        // set remote desc (offer)
+        await pcClient.setRemoteDescription({ type: "offer", sdp });
+
+        // create answer, wait ICE gather complete
+        await new Promise(async (resolve) => {
+            let done = false;
+            pcClient.onicecandidate = (evt) => {
+                if (!evt.candidate && !done) {
+                    done = true;
+                    resolve();
+                }
+            };
+            const ans = await pcClient.createAnswer();
+            await pcClient.setLocalDescription(ans);
+        });
+
+        const b64ans = toB64(pcClient.localDescription.sdp);
+        document.getElementById("answerOut").value = b64ans;
+        log("Answer gerado. Cole/QR de volta no host.");
+    };
+
+    // DataChannel helpers
+    function setupDataChannel(ch, who) {
+        ch.onopen = () => {
+            log("DataChannel aberto (" + who + ")");
+        };
+        ch.onclose = () => {
+            log("DataChannel fechado (" + who + ")");
+        };
+        ch.onmessage = (e) => {
+            log("<< " + e.data);
+        };
+    }
+
+    // send message
+    document.getElementById("send").onclick = () => {
+        const t = document.getElementById("msg").value;
+        if (!dataChannel || dataChannel.readyState !== "open") {
+            alert("DataChannel não está aberto");
+            return;
+        }
+        dataChannel.send(t);
+        log(">> " + t);
+        document.getElementById("msg").value = "";
+    };
+
+    // QR generation using Google Chart API (converte base64 string em QR image URL)
+    function genQRImageFor(text) {
+        // encode for URL: may be long; Chart API has size limits but usually ok for local SDPs.
+        const url = "https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl=" + encodeURIComponent(text);
+        return url;
+    }
+
+    document.getElementById("genQROffer").onclick = () => {
+        const t = document.getElementById("offerOut").value.trim();
+        if (!t) {
+            alert("Gere a offer primeiro");
+            return;
+        }
+        document.getElementById("offerQR").src = genQRImageFor(t);
+    };
+
+    document.getElementById("genQRAnswer").onclick = () => {
+        const t = document.getElementById("answerOut").value.trim();
+        if (!t) {
+            alert("Gere a answer primeiro");
+            return;
+        }
+        document.getElementById("answerQR").src = genQRImageFor(t);
+    };
+</script>

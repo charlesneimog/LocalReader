@@ -122,11 +122,11 @@ export class TTSEngine {
             const modelBuffer = await getCachedModel(modelFile, MODEL_URL);
             const voiceConfig = await getCachedJSON(configFile, CONFIG_URL);
 
-            const ortJsUrl = "https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/ort.min.js";
-            const ortWasmRoot = "https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.23.0/";
-            const phonemizerJsUrl = "./piper/piper-o91UDS6e.js";
-            const phonemizerWasmUrl = "./piper/piper_phonemize.wasm";
-            const phonemizerDataUrl = "./piper/piper_phonemize.data";
+            const ortJsUrl = "./../../../thirdparty/ort.js";
+            const ortWasmRoot = "./../../../thirdparty/";
+            const phonemizerJsUrl = "./../../../thirdparty/piper/piper-o91UDS6e.js";
+            const phonemizerWasmUrl = "./../../../thirdparty/piper/piper_phonemize.wasm";
+            const phonemizerDataUrl = "./../../../thirdparty/piper/piper_phonemize.data";
 
             if (!this.initialized) {
                 await this.client.init({

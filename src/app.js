@@ -30,8 +30,8 @@ import { Login } from "./modules/login/auth.js";
 
 export class PDFTTSApp {
     constructor() {
-        this.auth = new Login(this);
-        this.auth.init();
+        // this.auth = new Login(this);
+        // this.auth.init();
 
         // UI
         this.ui = new UIService(this);

@@ -193,104 +193,96 @@ export class PDFRenderer {
         if (!container) return;
         container.innerHTML = "";
 
-        let lastVisiblePage = null;
-        let focusTimer = null;
-
-        const renderPageIfNeeded = async (pageNumber) => {
-            const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${pageNumber}"]`);
-            if (!wrapper) return;
-
-            // Skip if already rendered (either in DOM or in cache)
-            if (wrapper.querySelector("canvas.page-canvas") || state.fullPageRenderCache.has(pageNumber)) return;
-
-            const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
-            const scale = getPageDisplayScale(viewportDisplay, config);
-
-            // Fetch or render the full-resolution page canvas
-            const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
-
-            // Store reference in cache (so we can reuse)
-            state.fullPageRenderCache.set(pageNumber, fullPageCanvas);
-
-            const c = document.createElement("canvas");
-            c.className = "page-canvas";
-            c.width = Math.round(fullPageCanvas.width);
-            c.height = Math.round(fullPageCanvas.height);
-
-            const ctx = c.getContext("2d");
-            ctx.drawImage(fullPageCanvas, 0, 0, fullPageCanvas.width, fullPageCanvas.height, 0, 0, c.width, c.height);
-
-            c.style.width = "100%";
-            c.style.height = "100%";
-
-            wrapper.dataset.scale = scale.toString();
-            wrapper.style.width = viewportDisplay.width * scale + "px";
-            wrapper.style.height = viewportDisplay.height * scale + "px";
-            wrapper.insertBefore(c, wrapper.firstChild);
-        };
+        // IntersectionObserver para renderização virtual
+        const MAX_RENDERED_PAGES = 5;
 
         const observer = new IntersectionObserver(
             async (entries) => {
                 for (const entry of entries) {
                     const pageNumber = parseInt(entry.target.dataset.pageNumber, 10);
                     const wrapper = entry.target;
+                    const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+                    const scale = getPageDisplayScale(viewportDisplay, config);
 
                     if (entry.isIntersecting) {
-                        // User focused on a new page
-                        lastVisiblePage = pageNumber;
-
-                        // Cancel any previous timer
-                        if (focusTimer) clearTimeout(focusTimer);
-
-                        // Wait before rendering — only if focus stays
-                        focusTimer = setTimeout(async () => {
+                        if (wrapper._focusTimer) clearTimeout(wrapper._focusTimer);
+                        wrapper._focusTimer = setTimeout(async () => {
                             if (!wrapper.isConnected) return;
 
-                            const rect = wrapper.getBoundingClientRect();
-                            const rootRect = container.getBoundingClientRect();
-                            const stillVisible = rect.bottom > rootRect.top && rect.top < rootRect.bottom;
-                            if (!stillVisible) return;
+                            const cExisting = wrapper.querySelector("canvas.page-canvas");
+                            if (!cExisting) {
+                                const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
+                                const c = document.createElement("canvas");
+                                c.className = "page-canvas";
+                                c.width = Math.round(fullPageCanvas.width);
+                                c.height = Math.round(fullPageCanvas.height);
+                                const ctx = c.getContext("2d");
+                                ctx.drawImage(
+                                    fullPageCanvas,
+                                    0,
+                                    0,
+                                    fullPageCanvas.width,
+                                    fullPageCanvas.height,
+                                    0,
+                                    0,
+                                    c.width,
+                                    c.height,
+                                );
+                                c.style.width = "100%";
+                                c.style.height = "100%";
+                                wrapper.insertBefore(c, wrapper.firstChild);
 
-                            // Determine the range
-                            const minPage = Math.max(1, lastVisiblePage - 2);
-                            const maxPage = Math.min(state.pdf.numPages, lastVisiblePage + 2);
-                            await renderPageIfNeeded(lastVisiblePage);
-                            for (let p = lastVisiblePage + 1; p <= maxPage; p++) {
-                                await renderPageIfNeeded(p);
-                            }
-                            for (let p = lastVisiblePage - 1; p >= minPage; p--) {
-                                await renderPageIfNeeded(p);
-                            }
+                                // Adiciona ao cache
+                                state.fullPageRenderCache.set(pageNumber, fullPageCanvas);
 
-                            // Remove pages outside that range
-                            for (let p = 1; p <= state.pdf.numPages; p++) {
-                                if (p < minPage || p > maxPage) {
-                                    const w = container.querySelector(`.pdf-page-wrapper[data-page-number="${p}"]`);
-                                    if (w) {
-                                        const c = w.querySelector("canvas.page-canvas");
-                                        if (c) c.remove();
-                                        state.fullPageRenderCache.delete(p);
-                                    }
+                                // Limita cache a MAX_RENDERED_PAGES
+                                if (state.fullPageRenderCache.size > MAX_RENDERED_PAGES) {
+                                    const oldest = state.fullPageRenderCache.keys().next().value;
+                                    const wrapperOld = container.querySelector(
+                                        `.pdf-page-wrapper[data-page-number="${oldest}"]`,
+                                    );
+                                    if (wrapperOld) wrapperOld.querySelector("canvas.page-canvas")?.remove();
+                                    state.fullPageRenderCache.delete(oldest);
                                 }
                             }
                         }, this.app.config.MS_ON_FOCUS_TO_RENDER);
+                    } else {
+                        if (wrapper._focusTimer) {
+                            clearTimeout(wrapper._focusTimer);
+                            wrapper._focusTimer = null;
+                        }
+                        const c = wrapper.querySelector("canvas.page-canvas");
+                        if (c) c.remove();
+                        state.fullPageRenderCache.delete(pageNumber);
+                    }
+
+                    // aplica escala css correta no wrapper e no canvas
+                    wrapper.dataset.scale = scale.toString();
+                    wrapper.style.width = viewportDisplay.width * scale + "px";
+                    wrapper.style.height = viewportDisplay.height * scale + "px";
+
+                    const c = wrapper.querySelector("canvas.page-canvas");
+                    if (c) {
+                        c.style.width = "100%";
+                        c.style.height = "100%";
                     }
                 }
             },
             {
                 root: container,
-                rootMargin: "300px", // preload trigger zone
+                rootMargin: "300px",
                 threshold: 0.1,
             },
         );
 
-        // Create wrappers for all pages
+        // Cria wrappers para todas as páginas
         for (let p = 1; p <= state.pdf.numPages; p++) {
             const viewportDisplay = state.viewportDisplayByPage.get(p);
             const wrapper = document.createElement("div");
             wrapper.className = "pdf-page-wrapper";
             wrapper.dataset.pageNumber = p;
 
+            // Reserva altura mínima para scroll contínuo
             wrapper.style.position = "relative";
             wrapper.style.minHeight = viewportDisplay.height + "px";
             wrapper.style.width = viewportDisplay.width + "px";
@@ -829,16 +821,44 @@ export class PDFRenderer {
         state.currentSentenceIndex = idx;
         sentence = state.sentences[idx];
 
-        // Calibrate coordinate system when rendering a sentence
+        // Calibrar sistema de coordenadas
         if (!this.pageCoordinateSystems.has(sentence.pageNumber)) {
             this.calibratePageCoordinateSystem(sentence.pageNumber, sentence);
         }
 
         if (pdfCanvas) pdfCanvas.style.display = "none";
         if (pdfDocContainer) pdfDocContainer.style.display = "block";
+
+        // --- Renderização segura da página atual ---
+        const wrapper = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
+        if (wrapper && !wrapper.querySelector("canvas.page-canvas")) {
+            const fullPageCanvas = await this.ensureFullPageRendered(sentence.pageNumber);
+            const c = document.createElement("canvas");
+            c.className = "page-canvas";
+            c.width = fullPageCanvas.width;
+            c.height = fullPageCanvas.height;
+            const ctx = c.getContext("2d");
+            ctx.drawImage(fullPageCanvas, 0, 0);
+            c.style.width = "100%";
+            c.style.height = "100%";
+            wrapper.insertBefore(c, wrapper.firstChild);
+
+            // Limitar cache de páginas renderizadas
+            const MAX_RENDERED_PAGES = 5;
+            state.fullPageRenderCache.set(sentence.pageNumber, fullPageCanvas);
+            if (state.fullPageRenderCache.size > MAX_RENDERED_PAGES) {
+                const oldest = state.fullPageRenderCache.keys().next().value;
+                const wrapperOld = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${oldest}"]`);
+                if (wrapperOld) wrapperOld.querySelector("canvas.page-canvas")?.remove();
+                state.fullPageRenderCache.delete(oldest);
+            }
+        }
+
+        // Atualizar destaques e scroll
         this.updateHighlightFullDoc(sentence);
         this.scrollSentenceIntoView(sentence);
 
+        // Prefetch da próxima frase
         if (state.generationEnabled) {
             let nextReadableIdx = -1;
             try {

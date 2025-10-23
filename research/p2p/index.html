@@ -1,160 +1,124 @@
 <!doctype html>
-<meta charset="utf-8" />
-<title>WebRTC P2P LAN via Token</title>
-<script src="https://cdn.jsdelivr.net/npm/html5-qrcode"></script>
-<script>
-    const log = (s) => {
-        const el = document.getElementById("log");
-        el.textContent += s + "\n";
-        el.scrollTop = el.scrollHeight;
-    };
+<html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8" />
+        <title>P2P Local com QR e Scanner</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+            video {
+                width: 300px;
+                height: 225px;
+                background: black;
+                margin: 10px;
+            }
+            #qr {
+                margin: 20px;
+            }
+            #reader {
+                width: 300px;
+                margin: 10px;
+            }
+            button {
+                margin: 5px;
+                padding: 8px 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>P2P Local com QR e Scanner</h1>
 
-    let pc = null,
-        dc = null;
-    let isHost = false;
-    let token = "";
+        <div>
+            <h3>Peer A (Computador)</h3>
+            <video id="localVideo" autoplay muted></video>
+            <canvas id="qr"></canvas>
+        </div>
 
-    // --- Gerar token e QR
-    document.getElementById("hostStart").onclick = () => {
-        isHost = true;
-        token = Math.floor(10000000 + Math.random() * 90000000).toString();
-        document.getElementById("hostToken").textContent = token;
-        log("Token gerado: " + token);
-        document.getElementById("tokenQR").textContent = token;
-        startConnection();
-    };
+        <div>
+            <h3>Peer B (Smartphone)</h3>
+            <div id="reader"></div>
+            <video id="remoteVideo" autoplay></video>
+        </div>
 
-    // --- Cliente lê QR (simulação com input)
-    document.getElementById("clientConnect").onclick = () => {
-        isHost = false;
-        token = document.getElementById("clientToken").value.trim();
-        if (!token) {
-            alert("Insira token");
-            return;
-        }
-        log("Token lido: " + token);
-        startConnection();
-    };
+        <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+        <script
+            src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
+            integrity="sha512-r6rDA7W6ZeQhvl8S7yRVQUKVHdexq+GAlNkNNqVC7YyIV+NwqCTJe2hDWCiffTyRNOeGEzRRJ9ifvRm/HCzGYg=="
+            crossorigin="anonymous"
+            referrerpolicy="no-referrer"
+        ></script>
 
-    // --- Inicia PeerConnection
-    function startConnection() {
-        pc = new RTCPeerConnection({ iceServers: [] });
+        <script>
+            let localStream;
+            let pcA = new RTCPeerConnection();
+            let pcB = new RTCPeerConnection();
 
-        if (isHost) {
-            dc = pc.createDataChannel("p2p");
-            setupDC(dc);
-        } else {
-            pc.ondatachannel = (e) => {
-                dc = e.channel;
-                setupDC(dc);
+            // ===== Peer A (gera offer e QR) =====
+            const localVideo = document.getElementById("localVideo");
+            navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then((stream) => {
+                localStream = stream;
+                localVideo.srcObject = stream;
+                stream.getTracks().forEach((track) => pcA.addTrack(track, stream));
+            });
+
+            pcA.onicecandidate = (e) => {
+                if (e.candidate) console.log("A ICE candidate:", e.candidate);
             };
-        }
+            pcA.ontrack = (e) => console.log("A recebeu track", e.streams[0]);
 
-        pc.onicecandidate = (e) => {
-            if (e.candidate && dc && dc.readyState === "open") {
-                // envia candidato via DataChannel assim que abrir
-                dc.send(JSON.stringify({ type: "ice", candidate: e.candidate }));
+            async function generateOfferQR() {
+                const offer = await pcA.createOffer();
+                await pcA.setLocalDescription(offer);
+                const offerJSON = JSON.stringify(pcA.localDescription);
+                QRCode.toCanvas(document.getElementById("qr"), offerJSON, { width: 300 });
             }
-        };
+            generateOfferQR();
 
-        if (isHost) {
-            pc.createOffer()
-                .then((o) => pc.setLocalDescription(o))
-                .then(() => {
-                    log("Offer criada. Aguardando cliente abrir DataChannel...");
-                });
-        } else {
-            // Cliente aguarda oferta via LAN DataChannel (simulação: oferta é enviada manualmente)
-            log("Cliente pronto. Esperando host iniciar conexão...");
-        }
-    }
+            // ===== Peer B (scanner QR) =====
+            const remoteVideo = document.getElementById("remoteVideo");
 
-    // --- Setup DataChannel
-    function setupDC(ch) {
-        ch.onopen = () => {
-            log("DataChannel aberto");
-            if (isHost) ch.send(JSON.stringify({ type: "auth", token: token }));
-        };
-        ch.onmessage = (e) => {
-            try {
-                const msg = JSON.parse(e.data);
-                if (msg.type === "auth") {
-                    if (msg.token === token) {
-                        log("Token correto! Conexão autenticada.");
-                    } else {
-                        log("Token incorreto. Fechando...");
-                        ch.close();
-                    }
-                } else if (msg.type === "chat") {
-                    log("<< " + msg.text);
-                } else if (msg.type === "ice") {
-                    pc.addIceCandidate(msg.candidate);
-                }
-            } catch (err) {
-                log("<< " + e.data);
+            pcB.ontrack = (e) => {
+                remoteVideo.srcObject = e.streams[0];
+            };
+
+            async function connectToOffer(offerJSON) {
+                const offer = JSON.parse(offerJSON);
+                await pcB.setRemoteDescription(offer);
+                const answer = await pcB.createAnswer();
+                await pcB.setLocalDescription(answer);
+
+                // Adiciona track opcional de retorno
+                if (localStream) localStream.getTracks().forEach((t) => pcB.addTrack(t, localStream));
+
+                pcB.onicecandidate = (e) => {
+                    if (e.candidate) console.log("B ICE candidate:", e.candidate);
+                };
+
+                pcA.setRemoteDescription(answer);
+                console.log("Conexão estabelecida na rede local!");
             }
-        };
-    }
 
-    // --- Chat
-    document.getElementById("send").onclick = () => {
-        const t = document.getElementById("msg").value;
-        if (!dc || dc.readyState !== "open") {
-            alert("DataChannel não aberto");
-            return;
-        }
-        dc.send(JSON.stringify({ type: "chat", text: t }));
-        log(">> " + t);
-        document.getElementById("msg").value = "";
-    };
-</script>
+            // ===== HTML5 QR Code Scanner =====
+            const html5QrCode = new Html5Qrcode("reader");
 
-<style>
-    body {
-        font-family:
-            system-ui,
-            Segoe UI,
-            Roboto,
-            Arial;
-        margin: 18px;
-    }
-    button {
-        margin: 4px;
-    }
-    input {
-        margin: 4px;
-    }
-    pre {
-        height: 200px;
-        overflow: auto;
-        background: #f7f7f7;
-        padding: 8px;
-    }
-    #tokenQR {
-        font-size: 24px;
-        font-weight: bold;
-        margin: 6px 0;
-    }
-</style>
+            function startScanner() {
+                html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 300, height: 300 } },
+                    (decodedText) => {
+                        console.log("QR Lido:", decodedText);
+                        connectToOffer(decodedText);
+                        html5QrCode.stop();
+                    },
+                    (errorMessage) => {},
+                );
+            }
 
-<h2>WebRTC P2P LAN via Token</h2>
-
-<div>
-    <h3>Host</h3>
-    <button id="hostStart">Gerar Token e QR</button>
-    <div>Token: <span id="hostToken"></span></div>
-    <div id="tokenQR"></div>
-</div>
-
-<div>
-    <h3>Cliente</h3>
-    <input id="clientToken" placeholder="Insira token do Host" />
-    <button id="clientConnect">Conectar</button>
-</div>
-
-<div>
-    <h3>Chat</h3>
-    <input id="msg" placeholder="mensagem" style="width: 70%" />
-    <button id="send">Enviar</button>
-    <pre id="log"></pre>
-</div>
+            startScanner();
+        </script>
+    </body>
+</html>

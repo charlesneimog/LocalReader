@@ -50,7 +50,7 @@ export class PDFThumbnailCache {
         if (this.overlay) this.overlay.classList.remove("hidden");
         if (this.noPdfOverlay) this.noPdfOverlay.classList.add("hidden");
         if (this.container) {
-            this.container.className = "flex flex-row gap-2 overflow-x-auto p-2";
+            // this.container.className = "flex flex-row gap-2 overflow-x-auto p-2";
         }
 
         // Render PDF cards progressively using idle callbacks for better performance

@@ -23,8 +23,6 @@ export class StateManager {
         this.pageSentencesIndex = new Map();
         this.hoverRafScheduled = false;
         this.lastPointerEvent = null;
-        this.currentSingleViewOffsetY = 0;
-        this.currentSingleViewPageNumber = 1;
 
         // Multi-PDF identity
         this.currentPdfKey = null;

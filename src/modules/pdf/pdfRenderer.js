@@ -622,8 +622,8 @@ export class PDFRenderer {
         }
 
         if (highlightWords.length) {
-            wrapper.querySelectorAll(".pdf-word-highlight").forEach(n => n.remove());
-            
+            wrapper.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
+
             for (const w of highlightWords) {
                 const div = document.createElement("div");
                 div.className = "pdf-word-highlight";
@@ -658,121 +658,6 @@ export class PDFRenderer {
             // For baseline coordinate system
             return word.y - word.height - offsetYDisplay;
         }
-    }
-
-    highlightSentenceSingleCanvas(ctx, sentence, offsetYDisplay) {
-        const { state } = this.app;
-        if (!ctx || !sentence) return;
-        this.ensurePageWordsScaled(sentence.pageNumber);
-        ctx.save();
-        ctx.fillStyle = ACTIVE_SENTENCE_HIGHLIGHT_RGBA;
-        const highlightWords = this.getReadableWords(sentence);
-
-        // Calibrate coordinate system for this page if not already done
-        if (!this.pageCoordinateSystems.has(sentence.pageNumber) && highlightWords.length > 0) {
-            this.calibratePageCoordinateSystem(sentence.pageNumber, sentence);
-        }
-
-        for (const w of highlightWords) {
-            const xR = w.x * state.deviceScale;
-            const yTopDisplay = this.getCanvasVerticalPosition(w, offsetYDisplay, sentence.pageNumber);
-            const yR = yTopDisplay * state.deviceScale;
-            const widthR = w.width * state.deviceScale;
-            const heightR = w.height * state.deviceScale;
-            if (yR + heightR < 0 || yR > ctx.canvas.height) continue;
-            ctx.fillRect(xR, yR, widthR, heightR);
-        }
-        ctx.restore();
-    }
-
-    renderSavedHighlightsSingleCanvas(ctx, pageNumber, offsetYDisplay) {
-        const { state } = this.app;
-        if (!ctx) return;
-        this.ensurePageWordsScaled(pageNumber);
-        ctx.save();
-        for (const [sentenceIndex, highlightData] of state.savedHighlights.entries()) {
-            const sentence = state.sentences[sentenceIndex];
-            if (!sentence || sentence.pageNumber !== pageNumber) continue;
-            const rgb = hexToRgb(highlightData.color);
-            if (rgb) ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b},0.3)`;
-            else ctx.fillStyle = "rgba(255,235,59,0.3)";
-
-            const highlightWords = (() => {
-                const readableWords = this.getReadableWords(sentence);
-                return readableWords.length ? readableWords : sentence.words;
-            })();
-
-            // Calibrate coordinate system for this page if not already done
-            if (!this.pageCoordinateSystems.has(pageNumber) && highlightWords.length > 0) {
-                this.calibratePageCoordinateSystem(pageNumber, sentence);
-            }
-
-            for (const word of highlightWords) {
-                const xR = word.x * state.deviceScale;
-                const yTopDisplay = this.getCanvasVerticalPosition(word, offsetYDisplay, pageNumber);
-                const yR = yTopDisplay * state.deviceScale;
-                const widthR = word.width * state.deviceScale;
-                const heightR = word.height * state.deviceScale;
-                if (yR + heightR < 0 || yR > ctx.canvas.height) continue;
-                ctx.fillRect(xR, yR, widthR, heightR);
-            }
-
-            const currentIdx =
-                state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
-
-            if (sentenceIndex === currentIdx) {
-                for (const word of highlightWords) {
-                    const xR = word.x * state.deviceScale;
-                    const yTopDisplay = this.getCanvasVerticalPosition(word, offsetYDisplay, pageNumber);
-                    const yR = yTopDisplay * state.deviceScale;
-                    const widthR = word.width * state.deviceScale;
-                    const heightR = word.height * state.deviceScale;
-                    if (yR + heightR < 0 || yR > ctx.canvas.height) continue;
-                    ctx.strokeRect(xR, yR, widthR, heightR);
-                }
-            }
-        }
-        ctx.restore();
-    }
-
-    drawHoveredSentenceSingleCanvas(ctx, pageNumber, offsetYDisplay) {
-        const { state } = this.app;
-        if (!ctx) return;
-        this.ensurePageWordsScaled(pageNumber);
-        if (state.hoveredSentenceIndex < 0 || state.hoveredSentenceIndex >= state.sentences.length) return;
-        const currentIdx = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
-        if (state.hoveredSentenceIndex === currentIdx) return;
-        const sentence = state.sentences[state.hoveredSentenceIndex];
-        if (!sentence || sentence.pageNumber !== pageNumber) return;
-        ctx.save();
-
-        // TODO: update to use style.css
-        const cssVal =
-            getComputedStyle(document.documentElement).getPropertyValue("--hover-highlight-color") ||
-            "rgba(0,150,255,0.18)";
-        ctx.fillStyle = cssVal;
-        ctx.strokeStyle =
-            getComputedStyle(document.documentElement).getPropertyValue("--hover-highlight-stroke") ||
-            "rgba(0,150,255,0.9)";
-        ctx.lineWidth = 1.2;
-        const highlightWords = this.getReadableWords(sentence);
-
-        // Calibrate coordinate system for this page if not already done
-        if (!this.pageCoordinateSystems.has(pageNumber) && highlightWords.length > 0) {
-            this.calibratePageCoordinateSystem(pageNumber, sentence);
-        }
-
-        for (const w of highlightWords) {
-            const xR = w.x * state.deviceScale;
-            const yTopDisplay = this.getCanvasVerticalPosition(w, offsetYDisplay, pageNumber);
-            const yR = yTopDisplay * state.deviceScale;
-            const widthR = w.width * state.deviceScale;
-            const heightR = w.height * state.deviceScale;
-            if (yR + heightR < 0 || yR > ctx.canvas.height) continue;
-            ctx.fillRect(xR, yR, widthR, heightR);
-            ctx.strokeRect(xR, yR, widthR, heightR);
-        }
-        ctx.restore();
     }
 
     updateHighlightDisplay() {

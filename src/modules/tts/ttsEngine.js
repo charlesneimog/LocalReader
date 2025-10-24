@@ -39,19 +39,15 @@ export class TTSEngine {
     async ensureAudioContext() {
         const { state, config } = this.app;
         if (!state.audioCtx) {
-            try {
-                state.audioCtx = new window.AudioContext(config.AUDIO_CONTEXT_OPTIONS);
-            } catch {
-                state.audioCtx = new window.AudioContext();
-            }
+            state.audioCtx = new window.AudioContext(config.AUDIO_CONTEXT_OPTIONS);
         }
-        if (state.audioCtx.state === "suspended") {
-            try {
-                await state.audioCtx.resume();
-            } catch (e) {
-                console.warn("Resume fail:", e);
-            }
-        }
+        // if (state.audioCtx.state === "suspended") {
+        //     try {
+        //         await state.audioCtx.resume();
+        //     } catch (e) {
+        //         console.warn("Resume fail:", e);
+        //     }
+        // }
         return state.audioCtx;
     }
 

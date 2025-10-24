@@ -32,6 +32,7 @@ export class ProgressManager {
             sentenceIndex: state.currentSentenceIndex,
             totalSentences: state.sentences.length,
             updated: Date.now(),
+            voice: state.currentPiperVoice,
         };
         this.setProgressMap(map);
     }

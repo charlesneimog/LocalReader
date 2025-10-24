@@ -204,11 +204,21 @@ export class PDFLoader {
             await app.sentenceParser.buildSentences(1);
 
             let startIndex = 0;
+            let resumeVoiceId = null;
             if (state.currentPdfKey) {
                 const saved = app.progressManager.loadSavedPosition(state.currentPdfKey);
-                if (saved && typeof saved.sentenceIndex === "number") {
-                    startIndex = Math.min(Math.max(saved.sentenceIndex, 0), state.sentences.length - 1);
+                if (saved) {
+                    if (typeof saved.sentenceIndex === "number") {
+                        startIndex = Math.min(Math.max(saved.sentenceIndex, 0), state.sentences.length - 1);
+                    }
+                    if (resume && typeof saved.voice === "string" && saved.voice.trim()) {
+                        resumeVoiceId = saved.voice.trim();
+                    }
                 }
+            }
+
+            if (resume && resumeVoiceId) {
+                await this._applySavedVoice(resumeVoiceId);
             }
 
             if (state.viewMode === "full") {
@@ -367,6 +377,49 @@ export class PDFLoader {
             state.layoutFilteringReady = true;
             app.ui.showInfo("No readable sentences found after layout filtering.");
             app.audioManager.updatePlayButton();
+        }
+    }
+
+    async _applySavedVoice(voiceId) {
+        const { app } = this;
+        if (typeof voiceId !== "string") return;
+
+        const trimmedVoiceId = voiceId.trim();
+        if (!trimmedVoiceId) return;
+
+        const voiceSelect = document.getElementById("voice-select");
+        const selectOptions = voiceSelect ? Array.from(voiceSelect.options || []) : [];
+        const voiceAvailable =
+            selectOptions.some((opt) => opt.value === trimmedVoiceId) ||
+            app.config.PIPER_VOICES.includes(trimmedVoiceId);
+
+        if (!voiceAvailable) {
+            console.warn(`Saved voice ${trimmedVoiceId} not available, skipping restore.`);
+            return;
+        }
+
+        if (app.state.currentPiperVoice === trimmedVoiceId && app.state.piperInstance) {
+            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
+                voiceSelect.value = trimmedVoiceId;
+            }
+            return;
+        }
+
+        try {
+            await app.ttsEngine.ensurePiper(trimmedVoiceId);
+            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
+                voiceSelect.value = trimmedVoiceId;
+            }
+        } catch (err) {
+            console.warn(`Failed to restore saved voice ${trimmedVoiceId}:`, err);
+            app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
+            if (!app.state.currentPiperVoice) {
+                try {
+                    await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE);
+                } catch (fallbackErr) {
+                    console.warn("Fallback to default voice failed:", fallbackErr);
+                }
+            }
         }
     }
 

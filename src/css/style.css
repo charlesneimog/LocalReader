@@ -204,7 +204,7 @@ input[type="color"]:hover:not(:disabled) {
     position: relative;
     margin: 0 auto 32px auto;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-    background: #fff;
+    background: transparent;
     border-radius: 6px;
     overflow: hidden;
     transition: box-shadow 0.25s;

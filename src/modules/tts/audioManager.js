@@ -1,4 +1,4 @@
-import { delay, waitFor } from "../utils/helpers.js";
+import { delay, waitFor, hasUsableSpeechText } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
 
 export class AudioManager {
@@ -51,7 +51,7 @@ export class AudioManager {
             return;
         }
 
-        const s = state.currentSentence;
+        let s = state.currentSentence;
         if (!s) {
             this.app.ui.showInfo("No readable sentences available.");
             return;
@@ -61,6 +61,13 @@ export class AudioManager {
             this.app.ui.showInfo("Selected sentence is outside readable layout regions.");
             return;
         }
+
+        const ensuredSentence = await this._ensureSentenceHasSpeech(s);
+        if (!ensuredSentence) {
+            this.app.ui.showInfo("No readable sentences available.");
+            return;
+        }
+        s = ensuredSentence;
 
         await this.app.ttsEngine.ensureAudioContext();
 
@@ -245,6 +252,53 @@ export class AudioManager {
         } else {
             this.playCurrentSentence();
         }
+    }
+
+    async _ensureSentenceHasSpeech(sentence) {
+        const { state } = this.app;
+        if (!sentence) return null;
+
+        let current = sentence;
+        let attempts = 0;
+        const limit = state.sentences.length || 0;
+
+        while (current && attempts < limit) {
+            if (current.isTextToRead && hasUsableSpeechText(this._extractSpeechText(current))) {
+                return current;
+            }
+
+            if (current.isTextToRead) {
+                this._markSentenceAsSilent(current);
+            }
+
+            const nextIndex = state.currentSentenceIndex + 1;
+            if (nextIndex >= state.sentences.length) {
+                return null;
+            }
+
+            await this.app.pdfRenderer.renderSentence(nextIndex, { autoAdvance: true });
+            current = state.currentSentence;
+            attempts += 1;
+        }
+
+        return null;
+    }
+
+    _extractSpeechText(sentence) {
+        if (!sentence) return "";
+        if (sentence.readableText && sentence.readableText.trim()) return sentence.readableText;
+        if (sentence.text && sentence.text.trim()) return sentence.text;
+        return "";
+    }
+
+    _markSentenceAsSilent(sentence) {
+        if (!sentence) return;
+        sentence.isTextToRead = false;
+        sentence.audioReady = false;
+        sentence.audioBuffer = null;
+        sentence.audioError = null;
+        sentence.prefetchQueued = false;
+        sentence.wordBoundaries = [];
     }
 
     setupWordBoundaryTimers(s) {

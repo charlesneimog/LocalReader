@@ -1,4 +1,11 @@
-import { getWebsiteRoot, cooperativeYield, delay, normalizeText, formatTextToSpeech } from "../utils/helpers.js";
+import {
+    getWebsiteRoot,
+    cooperativeYield,
+    delay,
+    normalizeText,
+    formatTextToSpeech,
+    hasUsableSpeechText,
+} from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
 import { PiperWorkerClient } from "./piper-client.js";
 
@@ -303,6 +310,11 @@ export class TTSEngine {
             return;
         }
 
+        if (!hasUsableSpeechText(sourceText)) {
+            this._markSentenceAsSilent(s);
+            return;
+        }
+
         const norm = normalizeText(sourceText);
         s.normalizedText = norm;
         const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;
@@ -376,6 +388,16 @@ export class TTSEngine {
         for (let i = base + 1; i <= base + config.PREFETCH_AHEAD && i < state.sentences.length; i++) {
             this.app.ttsQueue.add(i);
         }
+    }
+
+    _markSentenceAsSilent(sentence) {
+        if (!sentence) return;
+        sentence.isTextToRead = false;
+        sentence.audioReady = false;
+        sentence.audioBuffer = null;
+        sentence.audioError = null;
+        sentence.prefetchQueued = false;
+        sentence.wordBoundaries = [];
     }
 
     async initVoices() {

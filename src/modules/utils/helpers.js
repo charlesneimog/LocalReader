@@ -76,6 +76,13 @@ export function formatTextToSpeech(text) {
     return text;
 }
 
+export function hasUsableSpeechText(text) {
+    if (!text) return false;
+    const cleaned = formatTextToSpeech(text).trim();
+    if (!cleaned) return false;
+    return /[^\s.,;:!?()[\]{}'"“”‘’…—–\-•]/.test(cleaned);
+}
+
 export function isMobile() {
     return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }

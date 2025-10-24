@@ -3,7 +3,7 @@ export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 3,
     VERSION_PATCH: 0,
-    VERSION_BUILD: 9,
+    VERSION_BUILD: 10,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,

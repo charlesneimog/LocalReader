@@ -2,6 +2,8 @@ import { isMobile, clamp, hexToRgb } from "../utils/helpers.js";
 import { getPageDisplayScale } from "../utils/responsive.js";
 import { EVENTS } from "../../constants/events.js";
 
+const ACTIVE_SENTENCE_HIGHLIGHT_RGBA = "rgba(12, 163, 223, 0.3)";
+
 export class PDFRenderer {
     constructor(app) {
         this.app = app;
@@ -624,6 +626,7 @@ export class PDFRenderer {
                 const div = document.createElement("div");
                 div.className = "pdf-word-highlight";
                 div.style.position = "absolute";
+                div.style.backgroundColor = ACTIVE_SENTENCE_HIGHLIGHT_RGBA;
                 div.style.left = offsetLeft + w.x * scaleX + "px";
 
                 // FIX: Use calibrated vertical positioning
@@ -660,7 +663,7 @@ export class PDFRenderer {
         if (!ctx || !sentence) return;
         this.ensurePageWordsScaled(sentence.pageNumber);
         ctx.save();
-        ctx.fillStyle = "rgba(255,255,0,0.28)";
+        ctx.fillStyle = ACTIVE_SENTENCE_HIGHLIGHT_RGBA;
         const highlightWords = this.getReadableWords(sentence);
 
         // Calibrate coordinate system for this page if not already done

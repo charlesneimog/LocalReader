@@ -214,7 +214,7 @@ input[type="color"]:hover:not(:disabled) {
 }
 .pdf-word-highlight {
     position: absolute;
-    background: rgba(12, 163, 223, 0.2);
+    background-color: rgba(12, 163, 223, 0.3);
     pointer-events: none;
     border-radius: 2px;
 }

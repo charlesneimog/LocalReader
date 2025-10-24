@@ -1,4 +1,4 @@
-const APP_VERSION = 2; // Incremented for new offline-first version
+const APP_VERSION = "0.3.0+3";
 const cacheName = `PDFCastia-v${APP_VERSION}`;
 const runtimeCache = `PDFCastia-runtime-v${APP_VERSION}`;
 

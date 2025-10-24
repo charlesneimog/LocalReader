@@ -74,6 +74,8 @@ export class PDFTTSApp {
         // app version
         document.getElementById("appversion").textContent =
             `v${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
+        document.getElementById("appversion-p").textContent =
+            `v${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
     }
 
     async _ensureAriaRegions() {

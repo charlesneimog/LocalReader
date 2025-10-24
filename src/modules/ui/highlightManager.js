@@ -12,17 +12,28 @@ export class HighlightManager {
         if (!color && selectedButton) {
             highlightColor = selectedButton.getAttribute("data-highlight-color");
         }
-        state.savedHighlights.set(state.currentSentenceIndex, {
-            color: highlightColor,
-            timestamp: Date.now(),
-            sentenceText: state.sentences[state.currentSentenceIndex].text,
-        });
+        const currentIndex = state.currentSentenceIndex;
+        const existingHighlight = state.savedHighlights.get(currentIndex);
 
         state.selectedHighlightColor = highlightColor;
 
+        if (existingHighlight?.color === highlightColor) {
+            state.savedHighlights.delete(currentIndex);
+            this.app.highlightsStorage.saveHighlightsForPdf();
+            this.app.pdfRenderer.updateHighlightDisplay();
+            this.app.controlsManager?.reflectSelectedHighlightColor?.();
+            return;
+        }
+
+        state.savedHighlights.set(currentIndex, {
+            color: highlightColor,
+            timestamp: Date.now(),
+            sentenceText: state.sentences[currentIndex].text,
+        });
+
         this.app.highlightsStorage.saveHighlightsForPdf();
         this.app.pdfRenderer.updateHighlightDisplay();
-        this.app.controlsManager.reflectSelectedHighlightColor();
+        this.app.controlsManager?.reflectSelectedHighlightColor?.();
     }
 
     setSelectedHighlightColor(color) {

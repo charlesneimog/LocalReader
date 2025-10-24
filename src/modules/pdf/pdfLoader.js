@@ -165,10 +165,8 @@ export class PDFLoader {
                 const existingPDF = await app.progressManager.loadPdfFromIndexedDB(state.currentPdfKey);
                 if (!existingPDF) {
                     await app.progressManager.savePdfToIndexedDB(file, state.currentPdfKey);
-                    this.app.ui.showInfo("PDF salvo no IndexedDB!");
-                } else {
-                    this.app.ui.showInfo("PDF já existe no IndexedDB, usando o existente.");
-                }
+                    this.app.ui.showInfo("PDF saved on IndexedDB!");
+                } 
             }
 
             app.cache.clearAll();

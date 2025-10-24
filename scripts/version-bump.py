@@ -37,5 +37,19 @@ content = re.sub(r"(VERSION_BUILD:\s*)\d+", rf"\g<1>{build}", content)
 
 FILE_PATH.write_text(content, encoding="utf-8")
 
-print(f"✅ Versão atualizada para {major}.{minor}.{patch}+{build}")
+# SW
+SW_PATH = (SCRIPT_DIR / "../sw.js").resolve()
+version_str = f"{major}.{minor}.{patch}+{build}"
+sw_content = SW_PATH.read_text(encoding="utf-8")
+if re.search(r'const APP_VERSION\s*=\s*["\'].*["\'];', sw_content):
+    sw_content = re.sub(
+        r'const APP_VERSION\s*=\s*["\'].*["\'];',
+        f'const APP_VERSION = "{version_str}";',
+        sw_content,
+    )
+else:
+    sw_content = f'const APP_VERSION = "{version_str}";\n' + sw_content
+SW_PATH.write_text(sw_content, encoding="utf-8")
 
+
+print(f"✅ Versão atualizada para {major}.{minor}.{patch}+{build}")

@@ -155,7 +155,6 @@ export class PDFTTSApp {
         if (!icon) return;
 
         this.audioManager.togglePlay();
-        icon.textContent = this.state.isPlaying ? "pause" : "play_arrow";
     }
 
     toggleViewMode() {

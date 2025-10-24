@@ -5,6 +5,8 @@ export class AudioManager {
     constructor(app) {
         this.app = app;
         this._playPromise = null;
+        this._playbackContext = null;
+        this._playbackContextId = 0;
     }
 
     updatePlayButton() {
@@ -24,18 +26,24 @@ export class AudioManager {
             return;
         }
 
-        if (this._playPromise) {
-            return this._playPromise;
-        }
+        const context = {
+            id: ++this._playbackContextId,
+            sentenceIndex: state.currentSentenceIndex,
+        };
+        this._playbackContext = context;
 
-        this._playPromise = this._playCurrentSentence(config).finally(() => {
-            this._playPromise = null;
+        const playPromise = this._playCurrentSentence(config, context);
+        this._playPromise = playPromise.finally(() => {
+            if (this._playPromise === playPromise) {
+                this._playPromise = null;
+            }
         });
         return this._playPromise;
     }
 
-    async _playCurrentSentence(config) {
+    async _playCurrentSentence(config, context) {
         const { state } = this.app;
+        if (!this._isContextActive(context)) return;
         if (state.isPlaying) return;
 
         if (!state.pdf) {
@@ -47,29 +55,36 @@ export class AudioManager {
             await this.app.pdfLoader.ensureLayoutFilteringReady();
         } catch (err) {
             console.error("Layout preparation failed:", err);
-            this.app.ui.showInfo("❌ Layout analysis failed. Cannot start playback.");
+            if (this._isContextActive(context)) {
+                this.app.ui.showInfo("❌ Layout analysis failed. Cannot start playback.");
+            }
             return;
         }
+        if (!this._isContextActive(context)) return;
 
-        let s = state.currentSentence;
-        if (!s) {
+        let sentence = state.currentSentence;
+        if (!sentence) {
             this.app.ui.showInfo("No readable sentences available.");
             return;
         }
 
-        if (!s.isTextToRead) {
+        if (!sentence.isTextToRead) {
             this.app.ui.showInfo("Selected sentence is outside readable layout regions.");
             return;
         }
 
-        const ensuredSentence = await this._ensureSentenceHasSpeech(s);
+        const ensuredSentence = await this._ensureSentenceHasSpeech(sentence);
+        if (!this._isContextActive(context)) return;
         if (!ensuredSentence) {
             this.app.ui.showInfo("No readable sentences available.");
             return;
         }
-        s = ensuredSentence;
+
+        sentence = ensuredSentence;
+        context.sentenceIndex = state.currentSentenceIndex;
 
         await this.app.ttsEngine.ensureAudioContext();
+        if (!this._isContextActive(context)) return;
 
         if (!state.generationEnabled) {
             state.generationEnabled = true;
@@ -77,7 +92,8 @@ export class AudioManager {
 
         const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
         let attempts = 0;
-        while ((!s.audioReady || !s.audioBuffer) && !s.audioError) {
+        while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
+            if (!this._isContextActive(context)) return;
             if (icon) {
                 icon.textContent = "hourglass_empty";
                 icon.classList.add("animate-spin");
@@ -88,28 +104,30 @@ export class AudioManager {
             }
             attempts += 1;
             try {
-                await waitFor(() => s.audioReady || s.audioError, 5000);
+                await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
             } catch {}
-            if (s.audioReady && s.audioBuffer) break;
-            if (s.audioError || state.stopRequested || attempts >= 3) {
+            if (!this._isContextActive(context)) return;
+            if (sentence.audioReady && sentence.audioBuffer) break;
+            if (sentence.audioError || state.stopRequested || attempts >= 3) {
                 break;
             }
         }
 
-        if (!s.audioReady || s.audioError || !s.audioBuffer) {
+        if (!sentence.audioReady || sentence.audioError || !sentence.audioBuffer) {
             if (icon) {
                 icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
                 icon.classList.remove("animate-spin");
             }
-            if (!s.audioError) {
-                setTimeout(() => {
-                    this._playCurrentSentence(config);
-                }, 300);
-
-                return;
+            if (!sentence.audioError && !state.stopRequested && this._isContextActive(context)) {
+                await delay(300);
+                if (this._isContextActive(context) && !state.stopRequested) {
+                    return this._playCurrentSentence(config, context);
+                }
             }
             return;
         }
+
+        if (!this._isContextActive(context)) return;
 
         if (icon) {
             icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
@@ -117,55 +135,47 @@ export class AudioManager {
         }
 
         this.app.ttsEngine.schedulePrefetch();
+        if (!this._isContextActive(context)) return;
 
-        this.stopPlayback(false);
+        await this.stopPlayback(false, { clearContext: false, emitEvent: false });
+        if (!this._isContextActive(context)) return;
+
         state.stopRequested = false;
 
         let shouldRetry = false;
         try {
-            if (state.currentSource)
-                try {
-                    state.currentSource.disconnect();
-                } catch {}
-            if (state.currentGain)
-                try {
-                    state.currentGain.disconnect();
-                } catch {}
+            const audioCtx = state.audioCtx;
+            if (!audioCtx) {
+                throw new Error("Audio context not ready");
+            }
 
-            state.currentSource = state.audioCtx.createBufferSource();
-            state.currentSource.buffer = s.audioBuffer;
-            state.currentGain = state.audioCtx.createGain();
-            state.currentGain.gain.setValueAtTime(config.MIN_GAIN, state.audioCtx.currentTime);
-            state.currentSource.connect(state.currentGain).connect(state.audioCtx.destination);
-            state.currentGain.gain.exponentialRampToValueAtTime(1.0, state.audioCtx.currentTime + config.FADE_IN_SEC);
+            const source = audioCtx.createBufferSource();
+            const gain = audioCtx.createGain();
 
-            this.setupWordBoundaryTimers(s);
+            source.buffer = sentence.audioBuffer;
+            gain.gain.setValueAtTime(config.MIN_GAIN, audioCtx.currentTime);
+            source.connect(gain).connect(audioCtx.destination);
+            gain.gain.exponentialRampToValueAtTime(1.0, audioCtx.currentTime + config.FADE_IN_SEC);
 
-            state.currentSource.onended = async () => {
-                this.clearWordBoundaryTimers(s);
-                if (state.stopRequested) return;
-                if (state.autoHighlightEnabled) {
-                    this.app.highlightManager.saveCurrentSentenceHighlight();
-                }
-                state.isPlaying = false;
-                state.playingSentenceIndex = -1;
-                this.updatePlayButton();
-                this.app.pdfRenderer.updateHighlightFullDoc();
-                if (!state.autoAdvanceActive) return;
-                if (state.currentSentenceIndex < state.sentences.length - 1) {
-                    await delay(120);
-                    if (state.stopRequested) return;
-                    await this.app.pdfRenderer.renderSentence(state.currentSentenceIndex + 1, { autoAdvance: true });
-                    const nextSentence = state.sentences[state.currentSentenceIndex];
-                    if (!state.generationEnabled || nextSentence?.isTextToRead) {
-                        await this.playCurrentSentence();
-                    }
-                }
-                this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
+            state.currentSource = source;
+            state.currentGain = gain;
+
+            this.setupWordBoundaryTimers(sentence);
+
+            source.onended = () => {
+                this._handleSourceEnded(context, sentence);
             };
 
             await delay(10);
-            state.currentSource.start();
+            if (!this._isContextActive(context) || state.stopRequested) {
+                source.onended = null;
+                try {
+                    source.stop();
+                } catch {}
+                return;
+            }
+
+            source.start();
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
@@ -174,74 +184,99 @@ export class AudioManager {
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
         } catch (err) {
             console.error("Playback error:", err);
-            this.app.ui.showInfo("Playback error; resetting context.");
+            if (this._isContextActive(context)) {
+                this.app.ui.showInfo("Playback error; resetting context.");
+            }
             try {
                 if (state.audioCtx) await state.audioCtx.close();
             } catch {}
             state.audioCtx = null;
-            shouldRetry = !state.stopRequested;
+            shouldRetry = !state.stopRequested && this._isContextActive(context);
         } finally {
             if (shouldRetry) {
                 await delay(200);
-                if (!state.stopRequested) {
-                    setTimeout(() => this.playCurrentSentence(), 0);
+                if (this._isContextActive(context) && !state.stopRequested) {
+                    return this._playCurrentSentence(config, context);
                 }
             }
         }
     }
 
-    async stopPlayback(fade = true) {
+    async stopPlayback(fade = true, options = {}) {
         const { state, config } = this.app;
+        const { clearContext = true, emitEvent = true } = options;
+
         state.stopRequested = true;
-        if (state.currentSource && state.audioCtx) {
+
+        const source = state.currentSource;
+        const gain = state.currentGain;
+        const audioCtx = state.audioCtx;
+
+        if (source) {
             try {
-                if (fade && state.currentGain && state.audioCtx.state === "running") {
-                    const now = state.audioCtx.currentTime;
-                    const val = state.currentGain.gain.value;
-                    if (val > config.MIN_GAIN) {
-                        state.currentGain.gain.cancelScheduledValues(now);
-                        state.currentGain.gain.setValueAtTime(val, now);
-                        state.currentGain.gain.linearRampToValueAtTime(config.MIN_GAIN, now + config.FADE_OUT_SEC);
-                    }
-                    setTimeout(
-                        () => {
+                source.onended = null;
+            } catch {}
+        }
+
+        if (source && audioCtx) {
+            try {
+                if (fade && gain && audioCtx.state === "running" && config.FADE_OUT_SEC > 0) {
+                    const fadeDuration = Math.max(config.FADE_OUT_SEC, 0.01);
+                    const now = audioCtx.currentTime;
+                    const currentValue = Math.max(config.MIN_GAIN, gain.gain.value || config.MIN_GAIN);
+                    gain.gain.cancelScheduledValues(now);
+                    gain.gain.setValueAtTime(currentValue, now);
+                    gain.gain.linearRampToValueAtTime(config.MIN_GAIN, now + fadeDuration);
+
+                    const stopDelay = fadeDuration * 1000 + 10;
+                    setTimeout(() => {
+                        try {
+                            source.stop();
+                        } catch {}
+                        try {
+                            source.disconnect();
+                        } catch {}
+                        if (gain) {
                             try {
-                                state.currentSource.stop();
+                                gain.disconnect();
                             } catch {}
-                            try {
-                                state.currentSource.disconnect();
-                            } catch {}
-                            try {
-                                if (state.currentGain) state.currentGain.disconnect();
-                            } catch {}
-                        },
-                        config.FADE_OUT_SEC * 1000 + 10,
-                    );
+                        }
+                    }, stopDelay);
                 } else {
                     try {
-                        state.currentSource.stop();
+                        source.stop();
                     } catch {}
                     try {
-                        state.currentSource.disconnect();
+                        source.disconnect();
                     } catch {}
-                    try {
-                        if (state.currentGain) state.currentGain.disconnect();
-                    } catch {}
+                    if (gain) {
+                        try {
+                            gain.disconnect();
+                        } catch {}
+                    }
                 }
             } catch (e) {
                 console.warn("Stop error:", e);
             }
         }
+
         state.currentSource = null;
         state.currentGain = null;
         state.isPlaying = false;
         state.autoAdvanceActive = false;
         state.playingSentenceIndex = -1;
         this.updatePlayButton();
-        const s = state.currentSentence;
-        if (s) this.clearWordBoundaryTimers(s);
+
+        const currentSentence = state.currentSentence;
+        if (currentSentence) this.clearWordBoundaryTimers(currentSentence);
         this.app.pdfRenderer.updateHighlightFullDoc();
-        this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_PAUSE, { index: state.currentSentenceIndex });
+        if (emitEvent) {
+            this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_PAUSE, { index: state.currentSentenceIndex });
+        }
+
+        if (clearContext) {
+            this._playbackContext = null;
+        }
     }
 
     togglePlay() {
@@ -301,11 +336,85 @@ export class AudioManager {
         sentence.wordBoundaries = [];
     }
 
+    _isContextActive(context) {
+        return !!(context && this._playbackContext && context.id === this._playbackContext.id);
+    }
+
+    _invalidateContext(context) {
+        if (context && this._playbackContext && context.id === this._playbackContext.id) {
+            this._playbackContext = null;
+        }
+    }
+
+    async _handleSourceEnded(context, sentence) {
+        const { state } = this.app;
+        const finishedIndex =
+            typeof context?.sentenceIndex === "number" ? context.sentenceIndex : state.currentSentenceIndex;
+
+        if (!this._isContextActive(context)) {
+            return;
+        }
+
+        this.clearWordBoundaryTimers(sentence);
+
+        if (state.stopRequested) {
+            this._invalidateContext(context);
+            return;
+        }
+
+        if (state.autoHighlightEnabled) {
+            this.app.highlightManager.saveCurrentSentenceHighlight();
+        }
+
+        state.isPlaying = false;
+        state.playingSentenceIndex = -1;
+        this.updatePlayButton();
+        this.app.pdfRenderer.updateHighlightFullDoc();
+
+        const hasNextSentence =
+            typeof finishedIndex === "number" && finishedIndex >= 0 && finishedIndex < state.sentences.length - 1;
+
+        if (!state.autoAdvanceActive || !hasNextSentence) {
+            state.autoAdvanceActive = false;
+            this._invalidateContext(context);
+            this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
+            return;
+        }
+
+        await delay(120);
+        if (!this._isContextActive(context) || state.stopRequested) {
+            state.autoAdvanceActive = false;
+            this._invalidateContext(context);
+            this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
+            return;
+        }
+
+        try {
+            await this.app.pdfRenderer.renderSentence(finishedIndex + 1, { autoAdvance: true });
+        } catch (err) {
+            console.warn("Auto-advance render failed", err);
+            state.autoAdvanceActive = false;
+            this._invalidateContext(context);
+            this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
+            return;
+        }
+
+        const nextSentence = state.sentences[state.currentSentenceIndex];
+        this._invalidateContext(context);
+        if (!state.generationEnabled || nextSentence?.isTextToRead) {
+            await this.playCurrentSentence();
+        }
+        this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
+    }
+
     setupWordBoundaryTimers(s) {
         const { state, config } = this.app;
         this.clearWordBoundaryTimers(s);
         if (!config.ENABLE_WORD_HIGHLIGHT || !s.wordBoundaries?.length) return;
         const liveWord = document.getElementById(config.LIVE_WORD_REGION_ID);
+        if (!Array.isArray(s.playbackWordTimers)) {
+            s.playbackWordTimers = [];
+        }
         for (const wb of s.wordBoundaries) {
             const id = setTimeout(() => {
                 if (liveWord) liveWord.textContent = wb.text;
@@ -314,7 +423,10 @@ export class AudioManager {
         }
     }
     clearWordBoundaryTimers(s) {
-        if (!s.playbackWordTimers) return;
+        if (!Array.isArray(s?.playbackWordTimers)) {
+            if (s) s.playbackWordTimers = [];
+            return;
+        }
         for (const t of s.playbackWordTimers) clearTimeout(t);
         s.playbackWordTimers = [];
     }

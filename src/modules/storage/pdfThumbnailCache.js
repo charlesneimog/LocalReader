@@ -278,7 +278,7 @@ export class PDFThumbnailCache {
                         ? pdfBlob
                         : new File([pdfBlob], pdfName, { type: pdfBlob.type || "application/pdf" });
 
-                await this.app.pdfLoader.loadPDF(pdfFile, { existingKey: pdfKey });
+                await this.app.pdfLoader.loadPDF(pdfFile, { resume: true });
 
                 // Hide overlay after successful load
 

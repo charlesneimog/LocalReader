@@ -622,6 +622,8 @@ export class PDFRenderer {
         }
 
         if (highlightWords.length) {
+            wrapper.querySelectorAll(".pdf-word-highlight").forEach(n => n.remove());
+            
             for (const w of highlightWords) {
                 const div = document.createElement("div");
                 div.className = "pdf-word-highlight";

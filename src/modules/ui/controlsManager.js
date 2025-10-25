@@ -6,6 +6,13 @@ export class ControlsManager {
 
         // internal
         this.isLocked = false;
+
+        // stopwatch
+        this.autoStopDuration = 30 * 60; // default 30 min in seconds
+        this.timeLeft = this.autoStopDuration;
+        this.timerInterval = null;
+
+        this._updateTimerDisplay();
     }
 
     // Cache all used DOM nodes once
@@ -41,6 +48,11 @@ export class ControlsManager {
 
         // cache
         this.btnClearCache = document.getElementById("clear-cache-btn");
+
+        // stopwatch
+        this.autoStopInput = document.getElementById("stopwatch-input");
+        this.btnPlayTimer = document.getElementById("btn-timer-play");
+        this.btnStopTimer = document.getElementById("btn-timer-stop");
     }
 
     _setupEventListeners() {
@@ -198,6 +210,18 @@ export class ControlsManager {
                 }
             }
         });
+
+        // Stop Watch
+        this.btnPlayTimer.addEventListener("click", () => this._toggleTimer());
+        this.btnStopTimer.addEventListener("click", () => this._stopTimer());
+        this.autoStopInput.addEventListener("change", (e) => {
+            const val = parseInt(e.target.value, 10);
+            if (!isNaN(val) && val >= 0) {
+                this.autoStopDuration = val * 60;
+                this.timeLeft = this.autoStopDuration;
+                this._updateTimerDisplay();
+            }
+        });
     }
 
     orientationChange() {
@@ -328,5 +352,41 @@ export class ControlsManager {
             btn.classList.toggle("is-active", isActive);
             btn.setAttribute("aria-pressed", isActive ? "true" : "false");
         });
+    }
+
+    _toggleTimer() {
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+            this.timerInterval = null;
+            this.btnPlayTimer.querySelector("span").textContent = "play_arrow";
+        } else {
+            this.btnPlayTimer.querySelector("span").textContent = "pause";
+            this.timerInterval = setInterval(() => {
+                if (this.timeLeft > 0) {
+                    this.timeLeft--;
+                    this._updateTimerDisplay();
+                } else {
+                    this._stopTimer();
+                    this.app.audioManager.stopPlayback(true);
+                }
+            }, 1000);
+        }
+    }
+
+    _stopTimer() {
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+            this.timerInterval = null;
+        }
+        this.timeLeft = this.autoStopDuration;
+        this._updateTimerDisplay();
+        if (this.btnPlayTimer) this.btnPlayTimer.querySelector("span").textContent = "play_arrow";
+    }
+
+    _updateTimerDisplay() {
+        if (!this.autoStopInput) return;
+        const minutes = Math.floor(this.timeLeft / 60);
+        const seconds = this.timeLeft % 60;
+        this.autoStopInput.value = `${minutes}:${seconds.toString().padStart(2, "0")}`;
     }
 }

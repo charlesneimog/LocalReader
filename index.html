@@ -124,7 +124,6 @@
 
                 <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">PDFCastia</h1>
                 <h3 class="text-6l font-bold text-gray-900 dark:text-white mb-2">Please open a PDF file.</h3>
-                <p class="text-gray-600 dark:text-gray-400">Select a file to start reading and listening.</p>
                 <div class="hidden sm:block space-y-4 text-left">
                     <div class="flex items-center p-3 bg-background-light dark:bg-background-dark rounded-lg">
                         <kbd class="font-mono text-sm font-semibold bg-primary/10 text-primary px-2 py-1 rounded"
@@ -233,6 +232,50 @@
                     </div>
                 </div>
 
+                <!--
+                 !  ╭───────────────────────────────────╮
+                 !  │            Cronometro             │
+                 !  ╰───────────────────────────────────╯
+                -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
+                        >Auto-stop Timer</label
+                    >
+                    <div
+                        class="flex items-center justify-between gap-4 bg-white/50 dark:bg-black/30 p-3 rounded-lg border border-slate-300 dark:border-slate-700"
+                    >
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-slate-600 dark:text-slate-400">timer</span>
+                            <input
+                                class="w-20 bg-transparent text-slate-800 dark:text-slate-200 text-2xl font-semibold p-0 border-0 focus:ring-0"
+                                inputmode="numeric"
+                                id="stopwatch-input"
+                                type="text"
+                                value="30:00"
+                            />
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button
+                                id="btn-timer-play"
+                                class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shadow-md"
+                            >
+                                <span class="material-symbols-outlined text-2xl">play_arrow</span>
+                            </button>
+                            <button
+                                id="btn-timer-stop"
+                                class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 flex items-center justify-center shadow-md"
+                            >
+                                <span class="material-symbols-outlined text-2xl">stop</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!--
+                 !  ╭───────────────────────────────────╮
+                 !  │              Buttons              │
+                 !  ╰───────────────────────────────────╯
+                -->
                 <div class="flex gap-2">
                     <button
                         id="toggle-fullscreen"

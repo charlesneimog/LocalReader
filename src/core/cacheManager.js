@@ -8,6 +8,8 @@ export class CacheManager {
         this.state.viewportDisplayByPage.clear();
         this.state.fullPageRenderCache.clear();
         this.state.audioCache.clear();
+        if (this.state.chapterCache?.clear) this.state.chapterCache.clear();
+        if (this.state.prefetchedChapters?.clear) this.state.prefetchedChapters.clear();
     }
     clearAllAudioCache() {
         this.state.audioCache.clear();

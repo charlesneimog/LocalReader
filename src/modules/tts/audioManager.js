@@ -21,7 +21,7 @@ export class AudioManager {
     }
 
     async playCurrentSentence() {
-        const { state, config } = this.app;
+        const { state } = this.app;
         if (state.isPlaying) {
             return;
         }
@@ -32,7 +32,7 @@ export class AudioManager {
         };
         this._playbackContext = context;
 
-        const playPromise = this._playCurrentSentence(config, context);
+        const playPromise = this._playCurrentSentence(context);
         this._playPromise = playPromise.finally(() => {
             if (this._playPromise === playPromise) {
                 this._playPromise = null;
@@ -41,16 +41,159 @@ export class AudioManager {
         return this._playPromise;
     }
 
-    async _playCurrentSentence(config, context) {
-        const { state } = this.app;
-        if (!this._isContextActive(context)) return;
-        if (state.isPlaying) return;
+    async _playEPUBSentence(context) {
+        const { config, state } = this.app;
 
-        if (!state.pdf) {
-            this.app.ui.showInfo("Load a document before playing.");
+        await this.app.epubLoader.ensureLayoutFilteringReady();
+        if (!this._isContextActive(context)) return;
+
+        if (!state.sentences.length) {
+            this.app.ui.showInfo("No readable sentences available in EPUB.");
             return;
         }
 
+        if (state.currentSentenceIndex < 0) {
+            await this.app.pdfRenderer.renderSentence(0, { suppressScroll: true });
+            if (!this._isContextActive(context)) return;
+        }
+
+        let sentence = state.currentSentence || state.sentences[state.currentSentenceIndex];
+        if (!sentence) {
+            this.app.ui.showInfo("No readable sentences available.");
+            return;
+        }
+
+        const ensuredSentence = await this._ensureSentenceHasSpeech(sentence);
+        if (!this._isContextActive(context)) return;
+        if (!ensuredSentence) {
+            this.app.ui.showInfo("No readable sentences available.");
+            return;
+        }
+
+        sentence = ensuredSentence;
+        context.sentenceIndex = state.currentSentenceIndex;
+
+        await this.app.ttsEngine.ensureAudioContext();
+        if (!this._isContextActive(context)) return;
+
+        if (!state.generationEnabled) {
+            state.generationEnabled = true;
+        }
+
+        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        let attempts = 0;
+        while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
+            if (!this._isContextActive(context)) return;
+            if (icon) {
+                icon.textContent = "hourglass_empty";
+                icon.classList.add("animate-spin");
+            }
+            if (attempts === 0) {
+                this.app.ttsQueue.add(state.currentSentenceIndex, true);
+                this.app.ttsQueue.run();
+            }
+            attempts += 1;
+            try {
+                await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
+            } catch {}
+            if (!this._isContextActive(context)) return;
+            if (sentence.audioReady && sentence.audioBuffer) break;
+            if (sentence.audioError || state.stopRequested || attempts >= 3) {
+                break;
+            }
+        }
+
+        if (!sentence.audioReady || sentence.audioError || !sentence.audioBuffer) {
+            if (icon) {
+                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
+                icon.classList.remove("animate-spin");
+            }
+            if (!sentence.audioError && !state.stopRequested && this._isContextActive(context)) {
+                await delay(300);
+                if (this._isContextActive(context) && !state.stopRequested) {
+                    return this._playCurrentSentence(context);
+                }
+            }
+            return;
+        }
+
+        if (!this._isContextActive(context)) return;
+
+        if (icon) {
+            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
+            icon.classList.remove("animate-spin");
+        }
+
+        this.app.ttsEngine.schedulePrefetch();
+        if (!this._isContextActive(context)) return;
+
+        await this.stopPlayback(false, { clearContext: false, emitEvent: false });
+        if (!this._isContextActive(context)) return;
+
+        state.stopRequested = false;
+
+        let shouldRetry = false;
+        try {
+            const audioCtx = state.audioCtx;
+            if (!audioCtx) {
+                throw new Error("Audio context not ready");
+            }
+
+            const source = audioCtx.createBufferSource();
+            const gain = audioCtx.createGain();
+
+            source.buffer = sentence.audioBuffer;
+            gain.gain.setValueAtTime(config.MIN_GAIN, audioCtx.currentTime);
+            source.connect(gain).connect(audioCtx.destination);
+            gain.gain.exponentialRampToValueAtTime(1.0, audioCtx.currentTime + config.FADE_IN_SEC);
+
+            state.currentSource = source;
+            state.currentGain = gain;
+
+            this.setupWordBoundaryTimers(sentence);
+
+            source.onended = () => {
+                this._handleSourceEnded(context, sentence);
+            };
+
+            await delay(10);
+            if (!this._isContextActive(context) || state.stopRequested) {
+                source.onended = null;
+                try {
+                    source.stop();
+                } catch {}
+                return;
+            }
+
+            source.start();
+            state.isPlaying = true;
+            state.autoAdvanceActive = true;
+            state.playingSentenceIndex = state.currentSentenceIndex;
+            this.updatePlayButton();
+            // this.app.pdfRenderer.updateHighlightFullDoc();
+            this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
+        } catch (err) {
+            console.error("Playback error:", err);
+            if (this._isContextActive(context)) {
+                this.app.ui.showInfo("Playback error; resetting context.");
+            }
+            try {
+                if (state.audioCtx) await state.audioCtx.close();
+            } catch {}
+            state.audioCtx = null;
+            shouldRetry = !state.stopRequested && this._isContextActive(context);
+        } finally {
+            if (shouldRetry) {
+                await delay(200);
+                if (this._isContextActive(context) && !state.stopRequested) {
+                    return this._playCurrentSentence(context);
+                }
+            }
+        }
+    }
+
+    async _playPDFSentence(context) {
+        const { config, state } = this.app;
         try {
             await this.app.pdfLoader.ensureLayoutFilteringReady();
         } catch (err) {
@@ -121,7 +264,7 @@ export class AudioManager {
             if (!sentence.audioError && !state.stopRequested && this._isContextActive(context)) {
                 await delay(300);
                 if (this._isContextActive(context) && !state.stopRequested) {
-                    return this._playCurrentSentence(config, context);
+                    return this._playCurrentSentence(context);
                 }
             }
             return;
@@ -196,9 +339,27 @@ export class AudioManager {
             if (shouldRetry) {
                 await delay(200);
                 if (this._isContextActive(context) && !state.stopRequested) {
-                    return this._playCurrentSentence(config, context);
+                    return this._playCurrentSentence(context);
                 }
             }
+        }
+    }
+
+    async _playCurrentSentence(context) {
+        const { config, state } = this.app;
+
+        if (!this._isContextActive(context)) return;
+        if (state.isPlaying) return;
+
+        if (!state.pdf && !state.epub) {
+            this.app.ui.showInfo("Load a document before playing.");
+            return;
+        }
+
+        if (state.currentDocumentType === "pdf") {
+            this._playPDFSentence(context);
+        } else if (state.currentDocumentType === "epub") {
+            this._playEPUBSentence(context);
         }
     }
 

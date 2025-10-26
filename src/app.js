@@ -12,6 +12,8 @@ import { PDFRenderer } from "./modules/pdf/pdfRenderer.js";
 import { PDFHeaderFooterDetector } from "./modules/pdf/pdfHeaderFooterDetector.js";
 import { SentenceParser } from "./modules/pdf/sentenceParser.js";
 
+import { EPUBLoader } from "./modules/epub/epubLoader.js";
+
 import { TTSEngine } from "./modules/tts/ttsEngine.js";
 import { AudioManager } from "./modules/tts/audioManager.js";
 import { TTSQueueManager } from "./modules/tts/synthesisQueue.js";
@@ -59,7 +61,9 @@ export class PDFTTSApp {
 
         // PDF / Text
         this.pdfLoader = new PDFLoader(this);
-        this.pdfRenderer = new PDFRenderer(this);
+        this.epubLoader = new EPUBLoader(this);
+        this._pdfRenderer = new PDFRenderer(this);
+        this.pdfRenderer = this._createRendererProxy();
         this.pdfHeaderFooterDetector = new PDFHeaderFooterDetector(this);
         this.sentenceParser = new SentenceParser(this);
 
@@ -76,6 +80,46 @@ export class PDFTTSApp {
             `v${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
         document.getElementById("appversion-p").textContent =
             `v${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
+    }
+
+    _createRendererProxy() {
+        const getRenderer = () =>
+            this.state.currentDocumentType === "epub" ? this.epubLoader : this._pdfRenderer;
+
+        return new Proxy(
+            {},
+            {
+                get: (_target, prop) => {
+                    if (prop === "getUnderlyingRenderer") return getRenderer;
+                    const renderer = getRenderer();
+                    const value = renderer[prop];
+                    return typeof value === "function" ? value.bind(renderer) : value;
+                },
+                set: (_target, prop, value) => {
+                    const renderer = getRenderer();
+                    renderer[prop] = value;
+                    return true;
+                },
+                has: (_target, prop) => {
+                    const renderer = getRenderer();
+                    return prop in renderer;
+                },
+            },
+        );
+    }
+
+    getActiveRenderer() {
+        return this.state.currentDocumentType === "epub" ? this.epubRenderer : this._pdfRenderer;
+    }
+
+    _getTotalPageCount() {
+        if (this.state.currentDocumentType === "epub") {
+            if (Number.isFinite(this.state.chapterCount) && this.state.chapterCount > 0) {
+                return this.state.chapterCount;
+            }
+            return this.state.pagesCache.size || 0;
+        }
+        return this.state.pdf?.numPages || 0;
     }
 
     async _ensureAriaRegions() {
@@ -116,12 +160,20 @@ export class PDFTTSApp {
         return this.pdfLoader.loadPDF(file, options);
     }
 
+    async loadEPUB(file = null, options = {}) {
+        if (file !== null) {
+            const overlay = document.getElementById("no-pdf-overlay");
+            if (overlay) overlay.style.display = "none";
+        }
+        return this.epubLoader.loadEPUB(file, options);
+    }
+
     nextSentence(manual = true) {
         const { state } = this;
         if (state.currentSentenceIndex < state.sentences.length - 1) {
             this.audioManager.stopPlayback(true);
             if (manual) state.autoAdvanceActive = false;
-            this.pdfRenderer.renderSentence(state.currentSentenceIndex + 1);
+            this.getActiveRenderer().renderSentence(state.currentSentenceIndex + 1);
         }
     }
 
@@ -130,24 +182,28 @@ export class PDFTTSApp {
         if (state.currentSentenceIndex > 0) {
             this.audioManager.stopPlayback(true);
             if (manual) state.autoAdvanceActive = false;
-            this.pdfRenderer.renderSentence(state.currentSentenceIndex - 1);
+            this.getActiveRenderer().renderSentence(state.currentSentenceIndex - 1);
         }
     }
 
     nextPageNav() {
         const { state } = this;
         const currentPage = state.currentSentence?.pageNumber || 1;
-        const target = Math.min(state.pdf.numPages, currentPage + 1);
+        const totalPages = this._getTotalPageCount();
+        if (!totalPages) return;
+        const target = Math.min(totalPages, currentPage + 1);
         const firstIdx = state.sentences.findIndex((s) => s.pageNumber === target);
-        if (firstIdx >= 0) this.pdfRenderer.renderSentence(firstIdx);
+        if (firstIdx >= 0) this.getActiveRenderer().renderSentence(firstIdx);
     }
 
     prevPageNav() {
         const { state } = this;
         const currentPage = state.currentSentence?.pageNumber || 1;
-        const target = Math.max(1, currentPage - 1);
+        const totalPages = this._getTotalPageCount();
+        if (!totalPages) return;
+        const target = Math.max(1, Math.min(totalPages, currentPage - 1));
         const firstIdx = state.sentences.findIndex((s) => s.pageNumber === target);
-        if (firstIdx >= 0) this.pdfRenderer.renderSentence(firstIdx);
+        if (firstIdx >= 0) this.getActiveRenderer().renderSentence(firstIdx);
     }
 
     togglePlay() {

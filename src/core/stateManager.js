@@ -11,6 +11,16 @@ export class StateManager {
         this.playingSentenceIndex = -1;
         this.deviceScale = window.devicePixelRatio || 1;
 
+        this.currentDocumentType = "pdf";
+        this.epubBook = null;
+        this.epubSpine = null;
+        this.epubNavigation = null;
+        this.epubMetadata = null;
+        this.chapterCache = new Map();
+        this.prefetchedChapters = new Set();
+        this.chapterTitles = [];
+        this.chapterCount = 0;
+
         this.currentSource = null;
         this.currentGain = null;
         this.isPlaying = false;
@@ -27,6 +37,8 @@ export class StateManager {
         // Multi-PDF identity
         this.currentPdfKey = null;
         this.currentPdfDescriptor = null;
+        this.currentEpubKey = null;
+        this.currentEpubDescriptor = null;
 
         // Caches
         this.audioCache = new Map();

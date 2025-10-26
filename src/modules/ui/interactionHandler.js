@@ -3,12 +3,18 @@ import { mapClientPointToPdf, hitTestSentence } from "../utils/coordinates.js";
 export class InteractionHandler {
     constructor(app) {
         this.app = app;
+        this._pdfListenersAttached = false;
+        this._pdfListeners = [];
     }
 
     setHoveredSentence(idx) {
         const { state } = this.app;
         if (idx === state.hoveredSentenceIndex) return;
         state.hoveredSentenceIndex = idx;
+        if (state.currentDocumentType === "epub") {
+            this.app.epubRenderer?.renderHoverHighlightFullDoc?.();
+            return;
+        }
         if (state.viewMode === "single") {
             this.app.pdfRenderer.renderSentence(state.currentSentenceIndex);
         } else {
@@ -55,103 +61,116 @@ export class InteractionHandler {
     }
 
     setupInteractionListeners() {
+        if (this.app.state.currentDocumentType === "epub") {
+            this._detachPdfListeners();
+            this.app.epubRenderer?.setupInteractionListeners?.();
+            return;
+        }
+
+        this._attachPdfListeners();
+    }
+
+    _attachPdfListeners() {
         const pdfCanvas = document.getElementById("pdf-canvas");
         const pdfDocContainer = document.getElementById("pdf-doc-container");
 
+        this._detachPdfListeners();
+        const listeners = [];
+
         if (pdfCanvas) {
-            pdfCanvas.addEventListener("mousemove", (e) => this.handlePointerMove(e));
-            pdfCanvas.addEventListener("mouseleave", () => this.setHoveredSentence(-1));
-            pdfCanvas.addEventListener("click", (e) => this.handlePointerClick(e));
+            const mouseMove = (e) => this.handlePointerMove(e);
+            const mouseLeave = () => this.setHoveredSentence(-1);
+            const click = (e) => this.handlePointerClick(e);
+            const touchStart = (e) => {
+                if (e.touches && e.touches[0]) {
+                    const touch = e.touches[0];
+                    const synthetic = {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        target: document.elementFromPoint(touch.clientX, touch.clientY),
+                    };
+                    this.handlePointerClick(synthetic);
+                }
+            };
+            const touchMove = (e) => {
+                if (e.touches && e.touches[0]) {
+                    const touch = e.touches[0];
+                    const synthetic = {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        target: document.elementFromPoint(touch.clientX, touch.clientY),
+                    };
+                    this.handlePointerMove(synthetic);
+                }
+            };
+            const touchEnd = () => {
+                this.setHoveredSentence(-1);
+            };
 
-            // Enhanced touch support for mobile
-            pdfCanvas.addEventListener(
-                "touchstart",
-                (e) => {
-                    if (e.touches && e.touches[0]) {
-                        const touch = e.touches[0];
-                        const synthetic = {
-                            clientX: touch.clientX,
-                            clientY: touch.clientY,
-                            target: document.elementFromPoint(touch.clientX, touch.clientY),
-                        };
-                        this.handlePointerClick(synthetic);
-                    }
-                },
-                { passive: true },
-            );
-
-            // Add touchmove for hover effect on mobile
-            pdfCanvas.addEventListener(
-                "touchmove",
-                (e) => {
-                    if (e.touches && e.touches[0]) {
-                        const touch = e.touches[0];
-                        const synthetic = {
-                            clientX: touch.clientX,
-                            clientY: touch.clientY,
-                            target: document.elementFromPoint(touch.clientX, touch.clientY),
-                        };
-                        this.handlePointerMove(synthetic);
-                    }
-                },
-                { passive: true },
-            );
-
-            pdfCanvas.addEventListener(
-                "touchend",
-                () => {
-                    this.setHoveredSentence(-1);
-                },
-                { passive: true },
-            );
+            listeners.push({ element: pdfCanvas, type: "mousemove", handler: mouseMove });
+            listeners.push({ element: pdfCanvas, type: "mouseleave", handler: mouseLeave });
+            listeners.push({ element: pdfCanvas, type: "click", handler: click });
+            listeners.push({ element: pdfCanvas, type: "touchstart", handler: touchStart, options: { passive: true } });
+            listeners.push({ element: pdfCanvas, type: "touchmove", handler: touchMove, options: { passive: true } });
+            listeners.push({ element: pdfCanvas, type: "touchend", handler: touchEnd, options: { passive: true } });
         }
 
         if (pdfDocContainer) {
-            pdfDocContainer.addEventListener("mousemove", (e) => this.handlePointerMove(e));
-            pdfDocContainer.addEventListener("mouseleave", () => this.setHoveredSentence(-1));
-            pdfDocContainer.addEventListener("click", (e) => this.handlePointerClick(e));
+            const mouseMove = (e) => this.handlePointerMove(e);
+            const mouseLeave = () => this.setHoveredSentence(-1);
+            const click = (e) => this.handlePointerClick(e);
+            const touchStart = (e) => {
+                if (e.touches && e.touches[0]) {
+                    const touch = e.touches[0];
+                    const synthetic = {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        target: document.elementFromPoint(touch.clientX, touch.clientY),
+                    };
+                    this.handlePointerClick(synthetic);
+                }
+            };
+            const touchMove = (e) => {
+                if (e.touches && e.touches[0]) {
+                    const touch = e.touches[0];
+                    const synthetic = {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        target: document.elementFromPoint(touch.clientX, touch.clientY),
+                    };
+                    this.handlePointerMove(synthetic);
+                }
+            };
+            const touchEnd = () => {
+                this.setHoveredSentence(-1);
+            };
 
-            // Enhanced touch support for mobile
-            pdfDocContainer.addEventListener(
-                "touchstart",
-                (e) => {
-                    if (e.touches && e.touches[0]) {
-                        const touch = e.touches[0];
-                        const synthetic = {
-                            clientX: touch.clientX,
-                            clientY: touch.clientY,
-                            target: document.elementFromPoint(touch.clientX, touch.clientY),
-                        };
-                        this.handlePointerClick(synthetic);
-                    }
-                },
-                { passive: true },
-            );
-
-            // Add touchmove for hover effect on mobile
-            pdfDocContainer.addEventListener(
-                "touchmove",
-                (e) => {
-                    if (e.touches && e.touches[0]) {
-                        const touch = e.touches[0];
-                        const synthetic = {
-                            clientX: touch.clientX,
-                            clientY: touch.clientY,
-                            target: document.elementFromPoint(touch.clientX, touch.clientY),
-                        };
-                        this.handlePointerMove(synthetic);
-                    }
-                },
-                { passive: true },
-            );
-
-            pdfDocContainer.addEventListener(
-                "touchend",
-                () => {
-                    this.setHoveredSentence(-1);
-                },
-                { passive: true },
-            );
+            listeners.push({ element: pdfDocContainer, type: "mousemove", handler: mouseMove });
+            listeners.push({ element: pdfDocContainer, type: "mouseleave", handler: mouseLeave });
+            listeners.push({ element: pdfDocContainer, type: "click", handler: click });
+            listeners.push({ element: pdfDocContainer, type: "touchstart", handler: touchStart, options: { passive: true } });
+            listeners.push({ element: pdfDocContainer, type: "touchmove", handler: touchMove, options: { passive: true } });
+            listeners.push({ element: pdfDocContainer, type: "touchend", handler: touchEnd, options: { passive: true } });
         }
+
+        for (const { element, type, handler, options } of listeners) {
+            if (element) {
+                element.addEventListener(type, handler, options);
+            }
+        }
+
+        this._pdfListeners = listeners;
+        this._pdfListenersAttached = listeners.length > 0;
+    }
+
+    _detachPdfListeners() {
+        if (!this._pdfListenersAttached) return;
+        for (const { element, type, handler, options } of this._pdfListeners) {
+            if (element) {
+                element.removeEventListener(type, handler, options);
+            }
+        }
+        this._pdfListeners = [];
+        this._pdfListenersAttached = false;
     }
 }

@@ -1,5 +1,6 @@
 export const EVENTS = {
     PDF_LOADED: 'pdf:loaded',
+    EPUB_LOADED: 'epub:loaded',
     PDF_RENDERED: 'pdf:rendered',
     SENTENCES_PARSED: 'sentences:parsed',
 

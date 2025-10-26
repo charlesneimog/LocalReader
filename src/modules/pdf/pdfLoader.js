@@ -166,7 +166,7 @@ export class PDFLoader {
                 if (!existingPDF) {
                     await app.progressManager.savePdfToIndexedDB(file, state.currentPdfKey);
                     this.app.ui.showInfo("PDF saved on IndexedDB!");
-                } 
+                }
             }
 
             app.cache.clearAll();
@@ -192,6 +192,7 @@ export class PDFLoader {
 
             const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
             state.pdf = await loadingTask.promise;
+            state.currentDocumentType = "pdf";
             if (!state.pdf.numPages) throw new Error("PDF has no pages.");
 
             for (let p = 1; p <= state.pdf.numPages; p++) {

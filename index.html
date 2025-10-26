@@ -78,6 +78,9 @@
                     .catch((err) => console.error("[PWA] Service Worker registration failed:", err));
             }
         </script>
+        <!-- Epub Display -->
+        <div id="epub-doc-container" style="width: 100%; height: 100%; position: relative"></div>
+
         <!-- PDF Display -->
         <div style="display: none" id="viewer-wrapper">
             <canvas id="pdf-canvas"></canvas>
@@ -123,7 +126,7 @@
                 </div>
 
                 <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">PDFCastia</h1>
-                <h3 class="text-6l font-bold text-gray-900 dark:text-white mb-2">Please open a PDF file.</h3>
+                <h3 class="text-6l font-bold text-gray-900 dark:text-white mb-2">Please open a PDF or EPUB file.</h3>
                 <div class="hidden sm:block space-y-4 text-left">
                     <div class="flex items-center p-3 bg-background-light dark:bg-background-dark rounded-lg">
                         <kbd class="font-mono text-sm font-semibold bg-primary/10 text-primary px-2 py-1 rounded"
@@ -148,7 +151,7 @@
                     class="mt-8 w-full bg-primary text-white font-bold py-3 px-6 rounded-lg hover:bg-primary/90 transition-all duration-300"
                     id="init-open-pdf"
                 >
-                    Open PDF
+                    Open Document
                 </button>
                 <span id="appversion" class="text-xs font-medium text-gray-300 dark:text-gray-300"></span>
             </div>
@@ -469,7 +472,7 @@
         ></div>
 
         <!-- File Input -->
-        <input type="file" id="file-input" accept="application/pdf" class="hidden" />
+        <input type="file" id="file-input" accept="application/pdf,.pdf,application/epub+zip,.epub" class="hidden" />
 
         <!-- Access Warning -->
         <div
@@ -482,36 +485,6 @@
             id="fatal-error"
             class="hidden fixed top-2 left-1/2 -translate-x-1/2 z-50 bg-red-100 dark:bg-red-900 text-red-900 dark:text-red-100 border border-red-400 dark:border-red-700 px-6 py-3 rounded-lg shadow-lg"
         ></div>
-
-        <div
-            class="fixed hidden left-1/2 -translate-x-1/2 bottom-18 w-64 bg-gray-100 dark:bg-gray-800 rounded-lg z-20 shadow-2xl"
-            id="rotate-screen-modal"
-        >
-            <div
-                class="w-full max-w-sm rounded-lg bg-background-light/90 dark:bg-background-dark/90 backdrop-blur-sm shadow-2xl ring-1 ring-black/5 p-6"
-            >
-                <div class="text-center">
-                    <h2 class="text-lg font-bold text-gray-900 dark:text-white">Rotate Screen?</h2>
-                    <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                        Orientation change detected, want to change?
-                    </p>
-                </div>
-                <div class="mt-6 grid grid-cols-2 gap-4">
-                    <button
-                        id="rotate-keep-btn"
-                        class="w-full rounded-full bg-primary/10 dark:bg-primary/20 text-primary py-2.5 text-sm font-semibold hover:bg-primary/20 dark:hover:bg-primary/30 transition-colors"
-                    >
-                        Keep
-                    </button>
-                    <button
-                        id="rotate-change-btn"
-                        class="w-full rounded-full bg-primary text-white py-2.5 text-sm font-semibold hover:bg-primary/90 transition-colors"
-                    >
-                        Change
-                    </button>
-                </div>
-            </div>
-        </div>
 
         <!-- Initialize App -->
         <script type="module">
@@ -541,9 +514,15 @@
 
                 fileInput.addEventListener("change", async (e) => {
                     const file = e.target.files[0];
-                    if (file && /\.pdf$/i.test(file.name)) {
-                        if (app.loadPDF) await app.loadPDF(file);
-                    } else alert("Not a valid PDF file!");
+                    if (!file) return;
+                    const name = file.name || "";
+                    if (/\.pdf$/i.test(name)) {
+                        await app.loadPDF?.(file);
+                    } else if (/\.epub$/i.test(name)) {
+                        await app.loadEPUB?.(file);
+                    } else {
+                        alert("Not a valid PDF or EPUB file!");
+                    }
                 });
 
                 // Toggle settings modal

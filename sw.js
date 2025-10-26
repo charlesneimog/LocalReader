@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.0+0";
+const APP_VERSION = "0.5.0+1";
 const cacheName = `PDFCastia-v${APP_VERSION}`;
 const runtimeCache = `PDFCastia-runtime-v${APP_VERSION}`;
 

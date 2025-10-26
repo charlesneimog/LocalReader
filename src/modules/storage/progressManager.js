@@ -338,65 +338,6 @@ export class ProgressManager {
         return null;
     }
 
-    _findZipEntry(entryMap, path) {
-        if (!path) return null;
-        const normalized = path.replace(/^\/+/, "").replace(/\\/g, "/");
-        const candidates = [normalized];
-
-        try {
-            const decoded = decodeURIComponent(normalized);
-            if (decoded && decoded !== normalized) {
-                candidates.push(decoded);
-            }
-        } catch (error) {
-            // Ignore decoding issues; fallback candidates will handle spaces
-        }
-
-        if (normalized.includes("%20")) {
-            candidates.push(normalized.replace(/%20/g, " "));
-        }
-
-        for (const candidate of candidates) {
-            if (entryMap.has(candidate)) {
-                return entryMap.get(candidate);
-            }
-        }
-
-        return null;
-    }
-
-    _inferMimeTypeFromFilename(filename) {
-        if (!filename) return "image/jpeg";
-        const ext = filename.split(".").pop()?.toLowerCase();
-        switch (ext) {
-            case "jpg":
-            case "jpeg":
-                return "image/jpeg";
-            case "png":
-                return "image/png";
-            case "gif":
-                return "image/gif";
-            case "webp":
-                return "image/webp";
-            case "svg":
-                return "image/svg+xml";
-            case "bmp":
-                return "image/bmp";
-            default:
-                return "image/jpeg";
-        }
-    }
-
-    _blobToDataURL(blob, fallbackType) {
-        const targetBlob = fallbackType && (!blob.type || blob.type === "") ? blob.slice(0, blob.size, fallbackType) : blob;
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(targetBlob);
-        });
-    }
-
     async listSavedEPUBs() {
         const db = await this._openDb();
         return new Promise((resolve, reject) => {

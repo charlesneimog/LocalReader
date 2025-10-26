@@ -18,6 +18,7 @@ export class TTSQueueManager {
             if (!sentence.layoutProcessingPromise) {
                 const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
                 if (icon) {
+                    console.log(icon);
                     icon.textContent = "autorenew";
                     icon.classList.add("animate-spin");
                 }

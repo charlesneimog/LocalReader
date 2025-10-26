@@ -103,7 +103,6 @@ export class EPUBRenderer {
 
         this._applyReaderStyles();
         this._resizeContainer();
-        this._configurePlaybarForEpub();
 
         return view;
     }
@@ -308,8 +307,6 @@ export class EPUBRenderer {
         if (current) this.scrollSentenceIntoView(current);
     }
 
-    // Internal helpers -----------------------------------------------------
-
     _ensureContainer() {
         if (!this._container || !document.body.contains(this._container)) {
             this._container = document.getElementById("epub-doc-container");
@@ -434,73 +431,6 @@ export class EPUBRenderer {
         if (typeof this.view.renderer.next === "function") {
             this.view.renderer.next();
         }
-    }
-
-    _configurePlaybarForEpub() {
-        if (!this._container) return;
-        const toggle = document.getElementById("play-toggle");
-        const root = toggle?.closest("div.fixed");
-        if (!root) return;
-
-        if (!this._playbarOriginalParent) {
-            this._playbarOriginalParent = root.parentElement;
-            this._playbarOriginalNextSibling = root.nextSibling;
-            this._playbarOriginalStyles = {
-                position: root.style.position,
-                top: root.style.top,
-                right: root.style.right,
-                bottom: root.style.bottom,
-                left: root.style.left,
-                inset: root.style.inset,
-                width: root.style.width,
-                transform: root.style.transform,
-                zIndex: root.style.zIndex,
-                pointerEvents: root.style.pointerEvents,
-            };
-        }
-
-        if (root.parentElement !== this._container) {
-            this._container.appendChild(root);
-        }
-
-        root.style.position = "absolute";
-        root.style.left = "50%";
-        root.style.right = "auto";
-        root.style.top = "";
-        root.style.bottom = "1rem";
-        root.style.transform = "translateX(-50%)";
-        root.style.width = "auto";
-        root.style.zIndex = "30";
-        root.style.pointerEvents = "auto";
-
-        this._playbarRoot = root;
-    }
-
-    _restorePlaybar() {
-        if (!this._playbarRoot) return;
-        const root = this._playbarRoot;
-        const parent = this._playbarOriginalParent;
-        const next = this._playbarOriginalNextSibling;
-        if (parent) {
-            if (next && next.parentNode === parent) parent.insertBefore(root, next);
-            else parent.appendChild(root);
-        } else if (root.parentNode !== document.body) {
-            document.body.appendChild(root);
-        }
-
-        const styles = this._playbarOriginalStyles || {};
-        root.style.position = styles.position ?? "";
-        root.style.top = styles.top ?? "";
-        root.style.right = styles.right ?? "";
-        root.style.bottom = styles.bottom ?? "";
-        root.style.left = styles.left ?? "";
-        root.style.inset = styles.inset ?? "";
-        root.style.width = styles.width ?? "";
-        root.style.transform = styles.transform ?? "";
-        root.style.zIndex = styles.zIndex ?? "";
-        root.style.pointerEvents = styles.pointerEvents ?? "";
-
-        this._playbarRoot = null;
     }
 
     _detachInteractionListeners() {

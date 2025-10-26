@@ -60,8 +60,9 @@ export class PDFTTSApp {
         this.pdfThumbnailCache = new PDFThumbnailCache(this);
 
         // PDF / Text
-        this.pdfLoader = new PDFLoader(this);
-        this.epubLoader = new EPUBLoader(this);
+    this.pdfLoader = new PDFLoader(this);
+    this.epubLoader = new EPUBLoader(this);
+    this.epubRenderer = this.epubLoader.renderer;
         this._pdfRenderer = new PDFRenderer(this);
         this.pdfRenderer = this._createRendererProxy();
         this.pdfHeaderFooterDetector = new PDFHeaderFooterDetector(this);
@@ -83,8 +84,12 @@ export class PDFTTSApp {
     }
 
     _createRendererProxy() {
-        const getRenderer = () =>
-            this.state.currentDocumentType === "epub" ? this.epubLoader : this._pdfRenderer;
+        const getRenderer = () => {
+            if (this.state.currentDocumentType === "epub") {
+                return this.epubRenderer ?? this.epubLoader?.renderer ?? this.epubLoader;
+            }
+            return this._pdfRenderer;
+        };
 
         return new Proxy(
             {},

@@ -2,6 +2,11 @@ export class ProgressManager {
     constructor(app) {
         this.app = app;
     }
+
+    _progressKey(docType, key) {
+        return `${docType}::${key}`;
+    }
+
     getProgressMap() {
         const { config } = this.app;
         try {
@@ -20,20 +25,40 @@ export class ProgressManager {
         }
     }
 
-    loadSavedPosition(pdfKey) {
-        return this.getProgressMap()[pdfKey] || null;
+    loadSavedPosition(key, docType = "pdf") {
+        if (!key) return null;
+        const map = this.getProgressMap();
+        const compoundKey = this._progressKey(docType, key);
+        if (compoundKey in map) {
+            return map[compoundKey];
+        }
+
+        if (docType === "pdf" && key in map) {
+            return map[key];
+        }
+        return null;
     }
 
     saveProgress() {
         const { state } = this.app;
-        if (!state.sentences.length || state.currentSentenceIndex < 0 || !state.currentPdfKey) return;
+        if (!state.sentences.length || state.currentSentenceIndex < 0) return;
+
+        const docType = state.currentDocumentType === "epub" ? "epub" : "pdf";
+        const storageKey = docType === "epub" ? state.currentEpubKey : state.currentPdfKey;
+        if (!storageKey) return;
+
         const map = this.getProgressMap();
-        map[state.currentPdfKey] = {
+        const compoundKey = this._progressKey(docType, storageKey);
+        map[compoundKey] = {
             sentenceIndex: state.currentSentenceIndex,
             totalSentences: state.sentences.length,
             updated: Date.now(),
             voice: state.currentPiperVoice,
+            docType,
         };
+        if (docType === "pdf" && storageKey in map) {
+            delete map[storageKey];
+        }
         this.setProgressMap(map);
     }
 
@@ -42,44 +67,97 @@ export class ProgressManager {
     }
 
     clearPdfProgress(key) {
+        this.clearDocumentProgress("pdf", key);
+    }
+
+    clearEpubProgress(key) {
+        this.clearDocumentProgress("epub", key);
+    }
+
+    clearDocumentProgress(docType, key) {
+        if (!key) return;
         const map = this.getProgressMap();
-        if (map[key]) {
+        const compoundKey = this._progressKey(docType, key);
+        let modified = false;
+        if (compoundKey in map) {
+            delete map[compoundKey];
+            modified = true;
+        }
+        if (docType === "pdf" && key in map) {
             delete map[key];
+            modified = true;
+        }
+        if (modified) {
             this.setProgressMap(map);
         }
     }
 
-    async savePdfToIndexedDB(file, key) {
+    async _openDb() {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open("PDFStorage", 1);
+            const request = indexedDB.open("PDFStorage", 2);
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
-                if (!db.objectStoreNames.contains("pdfs")) db.createObjectStore("pdfs");
+                if (!db.objectStoreNames.contains("pdfs")) {
+                    db.createObjectStore("pdfs");
+                }
+                if (!db.objectStoreNames.contains("epubs")) {
+                    db.createObjectStore("epubs");
+                }
             };
-            request.onsuccess = (event) => {
-                const db = event.target.result;
-                const tx = db.transaction("pdfs", "readwrite");
-                const store = tx.objectStore("pdfs");
-                store.put({ blob: file, name: file.name }, key);
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => reject(tx.error);
-            };
+            request.onsuccess = (event) => resolve(event.target.result);
             request.onerror = () => reject(request.error);
         });
     }
 
-    async loadPdfFromIndexedDB(key) {
+    async savePdfToIndexedDB(file, key) {
+        const db = await this._openDb();
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open("PDFStorage", 1);
-            request.onsuccess = (event) => {
-                const db = event.target.result;
-                const tx = db.transaction("pdfs", "readonly");
-                const store = tx.objectStore("pdfs");
-                const getRequest = store.get(key);
-                getRequest.onsuccess = () => resolve(getRequest.result);
-                getRequest.onerror = () => reject(getRequest.error);
+            const tx = db.transaction("pdfs", "readwrite");
+            const store = tx.objectStore("pdfs");
+            store.put({ blob: file, name: file.name }, key);
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
             };
-            request.onerror = () => reject(request.error);
+            tx.onerror = () => {
+                const { error } = tx;
+                db.close();
+                reject(error);
+            };
+        });
+    }
+
+    async loadPdfFromIndexedDB(key) {
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("pdfs", "readonly");
+            const store = tx.objectStore("pdfs");
+            const getRequest = store.get(key);
+            getRequest.onsuccess = () => {
+                db.close();
+                resolve(getRequest.result);
+            };
+            getRequest.onerror = () => {
+                db.close();
+                reject(getRequest.error);
+            };
+        });
+    }
+
+    async removePdfFromIndexedDB(key) {
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("pdfs", "readwrite");
+            const store = tx.objectStore("pdfs");
+            const deleteRequest = store.delete(key);
+            deleteRequest.onsuccess = () => {
+                db.close();
+                resolve();
+            };
+            deleteRequest.onerror = () => {
+                db.close();
+                reject(deleteRequest.error);
+            };
         });
     }
 
@@ -98,52 +176,258 @@ export class ProgressManager {
     }
 
     async listSavedPDFs() {
+        const db = await this._openDb();
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open("PDFStorage", 1);
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains("pdfs")) {
-                    db.createObjectStore("pdfs");
-                }
+            const tx = db.transaction("pdfs", "readonly");
+            const store = tx.objectStore("pdfs");
+            const keysRequest = store.getAllKeys();
+            keysRequest.onsuccess = () => {
+                db.close();
+                resolve(keysRequest.result);
             };
-            request.onsuccess = (event) => {
-                const db = event.target.result;
-                const tx = db.transaction("pdfs", "readonly");
-                const store = tx.objectStore("pdfs");
-                const keysRequest = store.getAllKeys();
-                keysRequest.onsuccess = () => resolve(keysRequest.result);
-                keysRequest.onerror = () => reject(keysRequest.error);
+            keysRequest.onerror = () => {
+                db.close();
+                reject(keysRequest.error);
             };
-            request.onerror = () => reject(request.error);
         });
     }
 
     async clearPDFCache() {
+        const db = await this._openDb();
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open("PDFStorage", 1);
+            const tx = db.transaction("pdfs", "readwrite");
+            const store = tx.objectStore("pdfs");
+            const clearRequest = store.clear();
+            clearRequest.onsuccess = () => {
+                db.close();
+                resolve();
+            };
+            clearRequest.onerror = () => {
+                db.close();
+                reject(clearRequest.error);
+            };
+        });
+    }
 
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains("pdfs")) {
-                    db.createObjectStore("pdfs");
+    async saveEpubToIndexedDB(file, key) {
+        let coverDataUrl = null;
+        if (file instanceof Blob) {
+            try {
+                coverDataUrl = await this._extractEpubCoverDataUrl(file);
+            } catch (error) {
+                console.debug("[ProgressManager] Unable to extract EPUB cover", error);
+            }
+        }
+
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("epubs", "readwrite");
+            const store = tx.objectStore("epubs");
+            const payload = {
+                blob: file,
+                name: file?.name || key,
+                size: file?.size ?? null,
+                lastModified: file?.lastModified ?? Date.now(),
+                cover: coverDataUrl,
+            };
+            store.put(payload, key);
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
+            };
+            tx.onerror = () => {
+                const { error } = tx;
+                db.close();
+                reject(error);
+            };
+        });
+    }
+
+    async loadEpubFromIndexedDB(key) {
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("epubs", "readonly");
+            const store = tx.objectStore("epubs");
+            const getRequest = store.get(key);
+            getRequest.onsuccess = () => {
+                const record = getRequest.result;
+                db.close();
+                this._postProcessEpubRecord(key, record)
+                    .then(resolve)
+                    .catch(reject);
+            };
+            getRequest.onerror = () => {
+                db.close();
+                reject(getRequest.error);
+            };
+        });
+    }
+
+    async removeEpubFromIndexedDB(key) {
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("epubs", "readwrite");
+            const store = tx.objectStore("epubs");
+            const deleteRequest = store.delete(key);
+            deleteRequest.onsuccess = () => {
+                db.close();
+                resolve();
+            };
+            deleteRequest.onerror = () => {
+                db.close();
+                reject(deleteRequest.error);
+            };
+        });
+    }
+
+    async updateEpubCover(key, coverDataUrl) {
+        if (!key || !coverDataUrl) return;
+
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("epubs", "readwrite");
+            const store = tx.objectStore("epubs");
+            const getRequest = store.get(key);
+
+            getRequest.onsuccess = () => {
+                const record = getRequest.result;
+                if (!record) {
+                    return;
                 }
+                if (record.cover === coverDataUrl) {
+                    return;
+                }
+                record.cover = coverDataUrl;
+                store.put(record, key);
             };
 
-            request.onsuccess = (event) => {
-                const db = event.target.result;
-                const tx = db.transaction("pdfs", "readwrite");
-                const store = tx.objectStore("pdfs");
-
-                const clearRequest = store.clear();
-                clearRequest.onsuccess = () => {
-                    resolve();
-                };
-                clearRequest.onerror = () => {
-                    reject(clearRequest.error);
-                };
+            getRequest.onerror = () => {
+                db.close();
+                reject(getRequest.error);
             };
 
-            request.onerror = () => reject(request.error);
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
+            };
+
+            tx.onerror = () => {
+                db.close();
+                reject(tx.error);
+            };
+        });
+    }
+
+    async _postProcessEpubRecord(key, record) {
+        if (!record) return null;
+        if (!record.cover && record.blob instanceof Blob) {
+            try {
+                const coverDataUrl = await this._extractEpubCoverDataUrl(record.blob);
+                if (coverDataUrl) {
+                    record.cover = coverDataUrl;
+                    await this.updateEpubCover(key, coverDataUrl);
+                }
+            } catch (error) {
+                console.debug("[ProgressManager] Unable to derive cover for stored EPUB", error);
+            }
+        }
+        return record;
+    }
+
+    async _extractEpubCoverDataUrl(file) {
+        return null;
+    }
+
+    _findZipEntry(entryMap, path) {
+        if (!path) return null;
+        const normalized = path.replace(/^\/+/, "").replace(/\\/g, "/");
+        const candidates = [normalized];
+
+        try {
+            const decoded = decodeURIComponent(normalized);
+            if (decoded && decoded !== normalized) {
+                candidates.push(decoded);
+            }
+        } catch (error) {
+            // Ignore decoding issues; fallback candidates will handle spaces
+        }
+
+        if (normalized.includes("%20")) {
+            candidates.push(normalized.replace(/%20/g, " "));
+        }
+
+        for (const candidate of candidates) {
+            if (entryMap.has(candidate)) {
+                return entryMap.get(candidate);
+            }
+        }
+
+        return null;
+    }
+
+    _inferMimeTypeFromFilename(filename) {
+        if (!filename) return "image/jpeg";
+        const ext = filename.split(".").pop()?.toLowerCase();
+        switch (ext) {
+            case "jpg":
+            case "jpeg":
+                return "image/jpeg";
+            case "png":
+                return "image/png";
+            case "gif":
+                return "image/gif";
+            case "webp":
+                return "image/webp";
+            case "svg":
+                return "image/svg+xml";
+            case "bmp":
+                return "image/bmp";
+            default:
+                return "image/jpeg";
+        }
+    }
+
+    _blobToDataURL(blob, fallbackType) {
+        const targetBlob = fallbackType && (!blob.type || blob.type === "") ? blob.slice(0, blob.size, fallbackType) : blob;
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(targetBlob);
+        });
+    }
+
+    async listSavedEPUBs() {
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("epubs", "readonly");
+            const store = tx.objectStore("epubs");
+            const keysRequest = store.getAllKeys();
+            keysRequest.onsuccess = () => {
+                db.close();
+                resolve(keysRequest.result);
+            };
+            keysRequest.onerror = () => {
+                db.close();
+                reject(keysRequest.error);
+            };
+        });
+    }
+
+    async clearEPUBCache() {
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("epubs", "readwrite");
+            const store = tx.objectStore("epubs");
+            const clearRequest = store.clear();
+            clearRequest.onsuccess = () => {
+                db.close();
+                resolve();
+            };
+            clearRequest.onerror = () => {
+                db.close();
+                reject(clearRequest.error);
+            };
         });
     }
 }

@@ -39,8 +39,17 @@ export class PDFThumbnailCache {
 
         if (this.container) this.container.innerHTML = ""; // Clear previous content
 
-        const savedPDFs = await this.app.progressManager.listSavedPDFs();
-        if (!savedPDFs.length) {
+        const [savedPDFs, savedEPUBs] = await Promise.all([
+            this.app.progressManager.listSavedPDFs(),
+            this.app.progressManager.listSavedEPUBs(),
+        ]);
+
+        const documents = [
+            ...savedPDFs.map((key) => ({ key, docType: "pdf" })),
+            ...savedEPUBs.map((key) => ({ key, docType: "epub" })),
+        ];
+
+        if (!documents.length) {
             if (this.overlay) this.overlay.classList.add("hidden");
             if (this.header) this.header.classList.add("hidden");
             if (this.noPdfOverlay) this.noPdfOverlay.classList.remove("hidden");
@@ -49,20 +58,14 @@ export class PDFThumbnailCache {
 
         if (this.overlay) this.overlay.classList.remove("hidden");
         if (this.noPdfOverlay) this.noPdfOverlay.classList.add("hidden");
-        if (this.container) {
-            // this.container.className = "flex flex-row gap-2 overflow-x-auto p-2";
-        }
 
-        // Render PDF cards progressively using idle callbacks for better performance
-        this.renderQueue = savedPDFs.map((pdfKey, index) => ({ pdfKey, index }));
+        this.renderQueue = documents.map((entry, index) => ({ ...entry, index }));
 
-        // Create placeholder cards immediately for better perceived performance
-        for (const pdfKey of savedPDFs) {
-            const card = this.createPlaceholderCard(pdfKey);
+        for (const entry of documents) {
+            const card = this.createPlaceholderCard(entry);
             if (this.container) this.container.appendChild(card);
         }
 
-        // Start progressive rendering
         this.startProgressiveRendering(this.container);
     }
 
@@ -76,15 +79,19 @@ export class PDFThumbnailCache {
 
         const renderBatch = async (deadline) => {
             while (this.renderQueue.length > 0 && deadline.timeRemaining() > 0) {
-                const { pdfKey, index } = this.renderQueue.shift();
+                const { key, docType, index } = this.renderQueue.shift();
                 try {
                     if (container && container.children[index]) {
-                        await this.renderCard(pdfKey, container.children[index]);
+                        if (docType === "pdf") {
+                            await this.renderPdfCard(key, container.children[index]);
+                        } else if (docType === "epub") {
+                            await this.renderEpubCard(key, container.children[index]);
+                        }
                     }
                 } catch (error) {
-                    console.warn(`[PDFThumbnailCache] Failed to render card for ${pdfKey}:`, error);
+                    console.warn(`[PDFThumbnailCache] Failed to render card for ${docType}:${key}:`, error);
                     if (this.container && this.container.children[index]) {
-                        this.markCardAsError(this.container.children[index], pdfKey);
+                        this.markCardAsError(this.container.children[index], key, docType);
                     }
                 }
             }
@@ -103,20 +110,23 @@ export class PDFThumbnailCache {
     /**
      * Create placeholder card for immediate UI feedback
      */
-    createPlaceholderCard(pdfKey) {
+    createPlaceholderCard({ key, docType }) {
         const card = document.createElement("div");
         card.className =
             "flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm border border-slate-200 dark:border-slate-700 relative cursor-pointer flex-shrink-0";
         card.style.width = this.config.placeholderWidth + "px";
-        card.dataset.pdfKey = pdfKey;
+        card.dataset.docKey = key;
+        card.dataset.docType = docType;
 
         // Thumbnail placeholder with loading animation
         const thumbDiv = document.createElement("div");
         thumbDiv.className = "w-full rounded-md flex items-center justify-center bg-slate-100 dark:bg-slate-700";
         thumbDiv.style.width = this.config.placeholderWidth + "px";
         thumbDiv.style.height = this.config.placeholderHeight + "px";
-        thumbDiv.innerHTML =
-            '<span class="material-symbols-outlined text-4xl text-slate-400 animate-pulse">description</span>';
+        const iconName = docType === "epub" ? "menu_book" : "description";
+        thumbDiv.innerHTML = `
+            <span class="material-symbols-outlined text-4xl text-slate-400 animate-pulse">${iconName}</span>
+        `;
         card.appendChild(thumbDiv);
 
         // Title placeholder
@@ -137,7 +147,7 @@ export class PDFThumbnailCache {
     /**
      * Render actual PDF card with high-resolution thumbnail
      */
-    async renderCard(pdfKey, cardElement) {
+    async renderPdfCard(pdfKey, cardElement) {
         const pdfData = await this.app.progressManager.loadPdfFromIndexedDB(pdfKey);
         if (!pdfData) {
             throw new Error(`No PDF data found for key: ${pdfKey}`);
@@ -179,17 +189,13 @@ export class PDFThumbnailCache {
 
         await page.render({ canvasContext: context, viewport }).promise;
 
-        // Update card with actual content
-        this.populateCard(cardElement, canvas, pdfBlob, pdfName, pdfKey);
+        this.populatePdfCard(cardElement, canvas, pdfBlob, pdfName, pdfKey);
 
         // Setup cleanup observer
         this.setupCanvasCleanup(cardElement, canvas);
     }
 
-    /**
-     * Populate card element with rendered content
-     */
-    populateCard(cardElement, canvas, pdfBlob, pdfName, pdfKey) {
+    populatePdfCard(cardElement, canvas, pdfBlob, pdfName, pdfKey) {
         // Update card styling
         cardElement.className =
             "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer flex-shrink-0 transition-shadow duration-200";
@@ -217,16 +223,70 @@ export class PDFThumbnailCache {
         size.className = "text-[9px] text-text-secondary dark:text-slate-400 text-center";
 
         // Add close button (visible on hover)
-        this.addCloseButton(cardElement, pdfKey, pdfName, canvas);
+        this.addCloseButton(cardElement, pdfKey, pdfName, canvas, "pdf");
 
         // Add click handler to open PDF
-        this.addOpenHandler(cardElement, pdfBlob, pdfName, canvas);
+        this.addOpenHandler(cardElement, pdfBlob, pdfName, canvas, "pdf");
+    }
+
+    async renderEpubCard(epubKey, cardElement) {
+        const epubData = await this.app.progressManager.loadEpubFromIndexedDB(epubKey);
+        if (!epubData) {
+            throw new Error(`No EPUB data found for key: ${epubKey}`);
+        }
+
+        const epubBlob = epubData.blob;
+        const epubName = epubData.name || epubKey;
+
+        this.populateEpubCard(cardElement, epubBlob, epubName, epubKey);
+    }
+
+    populateEpubCard(cardElement, epubBlob, epubName, epubKey) {
+        cardElement.className =
+            "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer flex-shrink-0 transition-shadow duration-200";
+        cardElement.style.width = this.config.cardWidth + "px";
+
+        const thumbDiv = cardElement.querySelector("div");
+        thumbDiv.className =
+            "w-full rounded-md flex flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 dark:from-slate-900 dark:via-slate-800 dark:to-slate-700";
+        thumbDiv.style.width = this.config.displayWidth + "px";
+        thumbDiv.style.height = this.config.displayHeight + "px";
+        thumbDiv.innerHTML = `
+            <span class="material-symbols-outlined text-5xl text-slate-400 dark:text-slate-500">menu_book</span>
+        `;
+
+        const title = cardElement.querySelector("p:nth-of-type(1)");
+        title.textContent = epubName;
+        title.className = "text-xs font-medium truncate text-center max-w-full px-1 text-slate-800 dark:text-slate-200";
+        title.title = epubName;
+
+        const size = cardElement.querySelector("p:nth-of-type(2)");
+        const sizeMB = epubBlob?.size ? (epubBlob.size / (1024 * 1024)).toFixed(1) : "--";
+        size.textContent = `${sizeMB} MB`;
+        size.className = "text-[9px] text-text-secondary dark:text-slate-400 text-center";
+
+        const saved = this.app.progressManager.loadSavedPosition(epubKey, "epub");
+        if (saved && typeof saved.sentenceIndex === "number" && typeof saved.totalSentences === "number") {
+            const progressRatio = saved.totalSentences > 0 ? saved.sentenceIndex / saved.totalSentences : 0;
+            const progressPercent = Math.max(0, Math.min(100, Math.round(progressRatio * 100)));
+            let progressLabel = cardElement.querySelector("p[data-progress]");
+            if (!progressLabel) {
+                progressLabel = document.createElement("p");
+                progressLabel.dataset.progress = "true";
+                progressLabel.className = "text-[9px] text-primary dark:text-primary text-center";
+                cardElement.appendChild(progressLabel);
+            }
+            progressLabel.textContent = `Progress: ${progressPercent}%`;
+        }
+
+        this.addCloseButton(cardElement, epubKey, epubName, null, "epub");
+        this.addOpenHandler(cardElement, epubBlob, epubName, null, "epub");
     }
 
     /**
      * Add close button to card
      */
-    addCloseButton(cardElement, pdfKey, pdfName, canvas) {
+    addCloseButton(cardElement, pdfKey, pdfName, canvas, docType = "pdf") {
         const closeBtn = document.createElement("button");
         closeBtn.className =
             "absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-slate-200/80 dark:bg-slate-900/80 hover:bg-slate-300 dark:hover:bg-slate-700";
@@ -238,7 +298,13 @@ export class PDFThumbnailCache {
 
             // Confirm deletion
             if (confirm(`Delete "${pdfName}" from history?`)) {
-                await this.app.progressManager.clearPdfProgress(pdfKey);
+                if (docType === "epub") {
+                    await this.app.progressManager.clearEpubProgress(pdfKey);
+                    await this.app.progressManager.removeEpubFromIndexedDB(pdfKey);
+                } else {
+                    await this.app.progressManager.clearPdfProgress(pdfKey);
+                    await this.app.progressManager.removePdfFromIndexedDB(pdfKey);
+                }
 
                 // Animate removal
                 cardElement.style.transition = "opacity 200ms, transform 200ms";
@@ -249,7 +315,7 @@ export class PDFThumbnailCache {
                     cardElement.remove();
 
                     // Return canvas to pool
-                    if (this.app.pdfRenderer?.releaseCanvas) {
+                    if (canvas && this.app.pdfRenderer?.releaseCanvas) {
                         this.app.pdfRenderer.releaseCanvas(canvas);
                     }
 
@@ -265,7 +331,7 @@ export class PDFThumbnailCache {
     /**
      * Add click handler to open PDF
      */
-    addOpenHandler(cardElement, pdfBlob, pdfName, canvas) {
+    addOpenHandler(cardElement, pdfBlob, pdfName, canvas, docType = "pdf") {
         cardElement.addEventListener("click", async () => {
             try {
                 const overlay = this.overlay;
@@ -273,24 +339,34 @@ export class PDFThumbnailCache {
                 if (overlay) overlay.classList.add("hidden");
                 if (header) header.classList.add("hidden");
 
-                const pdfFile =
-                    pdfBlob instanceof File
-                        ? pdfBlob
-                        : new File([pdfBlob], pdfName, { type: pdfBlob.type || "application/pdf" });
+                if (docType === "epub") {
+                    const epubFile =
+                        pdfBlob instanceof File
+                            ? pdfBlob
+                            : new File([pdfBlob], pdfName, { type: pdfBlob.type || "application/epub+zip" });
 
-                await this.app.pdfLoader.loadPDF(pdfFile, { resume: true });
+                    await this.app.epubLoader.loadEPUB(epubFile, { resume: true });
+                } else {
+                    const pdfFile =
+                        pdfBlob instanceof File
+                            ? pdfBlob
+                            : new File([pdfBlob], pdfName, { type: pdfBlob.type || "application/pdf" });
+
+                    await this.app.pdfLoader.loadPDF(pdfFile, { resume: true });
+                }
 
                 // Hide overlay after successful load
 
                 if (this.noPdfOverlay) this.noPdfOverlay.classList.add("hidden");
 
                 // Return canvas to pool
-                if (this.app.pdfRenderer?.releaseCanvas) {
+                if (canvas && this.app.pdfRenderer?.releaseCanvas) {
                     this.app.pdfRenderer.releaseCanvas(canvas);
                 }
             } catch (error) {
-                console.error(`[PDFThumbnailCache] Failed to load PDF ${pdfName}:`, error);
-                this.app.ui?.showInfo?.(`Failed to load PDF: ${error.message}`);
+                const docLabel = docType === "epub" ? "EPUB" : "PDF";
+                console.error(`[PDFThumbnailCache] Failed to load ${docLabel} ${pdfName}:`, error);
+                this.app.ui?.showInfo?.(`Failed to load ${docLabel}: ${error.message}`);
             }
         });
     }

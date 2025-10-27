@@ -49,11 +49,26 @@ export class ProgressManager {
 
         const map = this.getProgressMap();
         const compoundKey = this._progressKey(docType, storageKey);
+        const existingEntry = map[compoundKey] || {};
+
+        let coverData = null;
+        if (docType === "epub") {
+            if (typeof state.bookCoverDataUrl === "string" && state.bookCoverDataUrl.startsWith("data:")) {
+                coverData = state.bookCoverDataUrl;
+            } else if (typeof state.bookCover === "string" && state.bookCover.startsWith("data:")) {
+                coverData = state.bookCover;
+            } else if (typeof existingEntry.cover === "string" && existingEntry.cover.startsWith("data:")) {
+                coverData = existingEntry.cover;
+            }
+        }
+
         map[compoundKey] = {
             sentenceIndex: state.currentSentenceIndex,
             totalSentences: state.sentences.length,
             updated: Date.now(),
             voice: state.currentPiperVoice,
+            title: state.bookTitle || existingEntry.title || null,
+            cover: coverData,
             docType,
         };
         if (docType === "pdf" && storageKey in map) {
@@ -252,9 +267,7 @@ export class ProgressManager {
             getRequest.onsuccess = () => {
                 const record = getRequest.result;
                 db.close();
-                this._postProcessEpubRecord(key, record)
-                    .then(resolve)
-                    .catch(reject);
+                this._postProcessEpubRecord(key, record).then(resolve).catch(reject);
             };
             getRequest.onerror = () => {
                 db.close();
@@ -318,6 +331,30 @@ export class ProgressManager {
         });
     }
 
+    _blobToDataURL(blob, fallbackType) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                resolve(reader.result);
+            };
+            reader.onerror = () => {
+                reject(reader.error);
+            };
+            if (fallbackType) {
+                const newBlob = blob.slice(0, blob.size, fallbackType);
+                reader.readAsDataURL(newBlob);
+            }
+            else {
+                reader.readAsDataURL(blob);
+            }
+        });
+    }
+
+    async convertBlobToDataURL(blob, fallbackType) {
+        if (!(blob instanceof Blob)) return null;
+        return this._blobToDataURL(blob, fallbackType);
+    }
+
     async _postProcessEpubRecord(key, record) {
         if (!record) return null;
         if (!record.cover && record.blob instanceof Blob) {
@@ -372,4 +409,3 @@ export class ProgressManager {
         });
     }
 }
-

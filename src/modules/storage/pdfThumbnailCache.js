@@ -237,35 +237,57 @@ export class PDFThumbnailCache {
 
         const epubBlob = epubData.blob;
         const epubName = epubData.name || epubKey;
+        const coverDataUrl = epubData.cover || null;
 
-        this.populateEpubCard(cardElement, epubBlob, epubName, epubKey);
+        this.populateEpubCard(cardElement, epubBlob, epubName, epubKey, coverDataUrl);
     }
 
-    populateEpubCard(cardElement, epubBlob, epubName, epubKey) {
+    populateEpubCard(cardElement, epubBlob, epubName, epubKey, coverDataUrl) {
+        const saved = this.app.progressManager.loadSavedPosition(epubKey, "epub");
+        const coverFromProgress =
+            typeof saved?.cover === "string" && saved.cover.startsWith("data:") ? saved.cover : null;
+        const effectiveCover = coverDataUrl || coverFromProgress;
+
         cardElement.className =
             "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer flex-shrink-0 transition-shadow duration-200";
         cardElement.style.width = this.config.cardWidth + "px";
 
         const thumbDiv = cardElement.querySelector("div");
         thumbDiv.className =
-            "w-full rounded-md flex flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 dark:from-slate-900 dark:via-slate-800 dark:to-slate-700";
+            "w-full rounded-md flex items-center justify-center overflow-hidden bg-slate-100 dark:bg-slate-900";
         thumbDiv.style.width = this.config.displayWidth + "px";
         thumbDiv.style.height = this.config.displayHeight + "px";
-        thumbDiv.innerHTML = `
-            <span class="material-symbols-outlined text-5xl text-slate-400 dark:text-slate-500">menu_book</span>
-        `;
+
+        const applyFallbackIcon = () => {
+            thumbDiv.innerHTML = `
+                <span class="material-symbols-outlined text-5xl text-slate-400 dark:text-slate-500">menu_book</span>
+            `;
+        };
+
+        if (effectiveCover) {
+            thumbDiv.innerHTML = "";
+            const img = document.createElement("img");
+            img.src = effectiveCover;
+            img.alt = `${epubName} cover`;
+            img.loading = "lazy";
+            img.className = "w-full h-full object-cover";
+            img.onerror = applyFallbackIcon;
+            thumbDiv.appendChild(img);
+        } else {
+            applyFallbackIcon();
+        }
 
         const title = cardElement.querySelector("p:nth-of-type(1)");
-        title.textContent = epubName;
+        const displayTitle = typeof saved?.title === "string" && saved.title.trim() ? saved.title.trim() : epubName;
+        title.textContent = displayTitle;
         title.className = "text-xs font-medium truncate text-center max-w-full px-1 text-slate-800 dark:text-slate-200";
-        title.title = epubName;
+        title.title = displayTitle;
 
         const size = cardElement.querySelector("p:nth-of-type(2)");
         const sizeMB = epubBlob?.size ? (epubBlob.size / (1024 * 1024)).toFixed(1) : "--";
         size.textContent = `${sizeMB} MB`;
         size.className = "text-[9px] text-text-secondary dark:text-slate-400 text-center";
 
-        const saved = this.app.progressManager.loadSavedPosition(epubKey, "epub");
         if (saved && typeof saved.sentenceIndex === "number" && typeof saved.totalSentences === "number") {
             const progressRatio = saved.totalSentences > 0 ? saved.sentenceIndex / saved.totalSentences : 0;
             const progressPercent = Math.max(0, Math.min(100, Math.round(progressRatio * 100)));
@@ -356,7 +378,6 @@ export class PDFThumbnailCache {
                 }
 
                 // Hide overlay after successful load
-
                 if (this.noPdfOverlay) this.noPdfOverlay.classList.add("hidden");
 
                 // Return canvas to pool

@@ -181,6 +181,7 @@ export class PDFLoader {
             state.hoveredSentenceIndex = -1;
             state.pageSentencesIndex.clear();
             state.prefetchedPages.clear();
+            state.bookTitle = file.name;
             app.ttsQueue.reset();
 
             let arrayBuffer;

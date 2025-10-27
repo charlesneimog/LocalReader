@@ -12,7 +12,6 @@ export class StateManager {
         this.deviceScale = window.devicePixelRatio || 1;
 
         this.currentDocumentType = "pdf";
-        this.epubBook = null;
         this.epubSpine = null;
         this.epubNavigation = null;
         this.epubMetadata = null;

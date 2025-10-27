@@ -166,7 +166,6 @@ export class EPUBRenderer {
         }
 
         if (this._container) {
-            this._restorePlaybar();
             this._container.innerHTML = "";
             this._container.style.display = "none";
             this._container.style.height = "";
@@ -210,7 +209,12 @@ export class EPUBRenderer {
                 handler: mouseLeaveHandler,
                 options: { passive: true },
             });
-            this._docListeners.push({ doc, type: "touchstart", handler: touchStartHandler, options: { passive: true } });
+            this._docListeners.push({
+                doc,
+                type: "touchstart",
+                handler: touchStartHandler,
+                options: { passive: true },
+            });
             this._docListeners.push({ doc, type: "touchmove", handler: touchMoveHandler, options: { passive: true } });
             this._docListeners.push({ doc, type: "touchend", handler: touchEndHandler, options: { passive: true } });
             this._docListeners.push({ doc, type: "touchcancel", handler: touchEndHandler, options: { passive: true } });
@@ -254,8 +258,8 @@ export class EPUBRenderer {
         if (!state?.sentences?.length) return null;
         if (idx == null || idx < 0 || idx >= state.sentences.length) return null;
 
-    const sentence = state.sentences[idx];
-    state.currentSentenceIndex = idx;
+        const sentence = state.sentences[idx];
+        state.currentSentenceIndex = idx;
 
         if (sentence?.cfi && this.view) {
             try {
@@ -423,7 +427,7 @@ export class EPUBRenderer {
     _applyReaderStyles() {
         if (!this.view?.renderer) return;
         if (typeof this.view.renderer.setStyles === "function") {
-           // this.view.renderer.setStyles(buildReaderCSS(this._readerSettings));
+            // this.view.renderer.setStyles(buildReaderCSS(this._readerSettings));
         }
         if (!this.view.renderer.hasAttribute("flow")) {
             this.view.renderer.setAttribute("flow", "paginated");

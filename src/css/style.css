@@ -16,6 +16,7 @@
     --hover-highlight-stroke: rgba(0, 150, 255, 0.9);
     --vh: 1vh;
 }
+
 @media (prefers-color-scheme: light) {
     :root {
         --bg: var(--bg-light);
@@ -493,7 +494,11 @@ html {
     }
 }
 
-/* EPUB document rendering */
+/*
+ *╭─────────────────────────────────────╮
+ *│       EPUB document rendering       │
+ *╰─────────────────────────────────────╯
+*/
 .epub-container {
     max-width: 900px;
     margin: 0 auto;

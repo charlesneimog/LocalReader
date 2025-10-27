@@ -36,6 +36,12 @@ export class EPUBLoader {
         return null;
     }
 
+    async applyCSS(view, url) {
+        const response = await fetch(url);
+        const css = await response.text();
+        view.setStyles(css);
+    }
+
     async loadEPUB(input, options = {}) {
         const { resume = true, existingKey = null } = options ?? {};
         const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
@@ -81,26 +87,41 @@ export class EPUBLoader {
 
             const source = await this._resolveSource(input);
             const view = await this.renderer.open(source);
+            this.applyCSS(view.renderer, "src/css/epub.css");
+
             document.getElementById("previous-pdf-header")?.classList.add("hidden");
 
             if (state) {
                 state.currentDocumentType = "epub";
                 state.pdf = null;
-                state.pagesCache?.clear?.();
-                state.viewportDisplayByPage?.clear?.();
-                state.fullPageRenderCache?.clear?.();
+                state.pagesCache.clear();
+                state.viewportDisplayByPage.clear();
+                state.fullPageRenderCache.clear();
                 state.currentPdfKey = null;
                 state.currentPdfDescriptor = null;
-                state.prefetchedPages?.clear?.();
                 state.generationEnabled = false;
                 state.layoutFilteringReady = false;
-                state.epub = view.book ?? null;
-                state.epubBook = view.book ?? null;
-                state.epubMetadata = view.book?.metadata ?? null;
-                state.epubSpine = view.book?.spine ?? null;
-                state.epubNavigation = view.book?.toc ?? null;
-                state.chapterCount = Array.isArray(view.book?.sections) ? view.book.sections.length : 0;
-                state.chapterTitles = Array.isArray(view.book?.toc)
+                state.epub = view.book;
+                state.epubMetadata = view.book.metadata ?? null;
+                state.bookTitle = view.book.metadata.title ?? null;
+                state.bookCover = await view.book.getCover();
+                state.bookCoverDataUrl = null;
+                if (state.bookCover instanceof Blob) {
+                    try {
+                        state.bookCoverDataUrl = await this.app.progressManager.convertBlobToDataURL(
+                            state.bookCover,
+                            state.bookCover.type,
+                        );
+                    } catch (coverError) {
+                        console.debug("[EPUBLoader] Unable to convert cover blob to data URL", coverError);
+                    }
+                } else if (typeof state.bookCover === "string" && state.bookCover.startsWith("data:")) {
+                    state.bookCoverDataUrl = state.bookCover;
+                }
+                state.epubSpine = view.book.spine ?? null;
+                state.epubNavigation = view.book.toc ?? null;
+                state.chapterCount = Array.isArray(view.book.sections) ? view.book.sections.length : 0;
+                state.chapterTitles = Array.isArray(view.book.toc)
                     ? view.book.toc.map((item) => item?.label).filter(Boolean)
                     : [];
 
@@ -123,6 +144,12 @@ export class EPUBLoader {
 
                 const computedKey = existingKey || this.computeEpubKeyFromDescriptor(state.currentEpubDescriptor);
                 state.currentEpubKey = computedKey;
+                if (computedKey && !state.bookCoverDataUrl) {
+                    const savedProgress = this.app.progressManager.loadSavedPosition(computedKey, "epub");
+                    if (typeof savedProgress?.cover === "string") {
+                        state.bookCoverDataUrl = savedProgress.cover;
+                    }
+                }
                 if (input instanceof File && computedKey) {
                     try {
                         const stored = await this.app.progressManager.loadEpubFromIndexedDB(computedKey);
@@ -133,6 +160,14 @@ export class EPUBLoader {
                     } catch (dbError) {
                         console.debug("[EPUBLoader] Unable to persist EPUB in IndexedDB", dbError);
                     }
+                }
+
+                if (computedKey && typeof state.bookCoverDataUrl === "string") {
+                    this.app.progressManager
+                        .updateEpubCover(computedKey, state.bookCoverDataUrl)
+                        .catch((coverStoreError) => {
+                            console.debug("[EPUBLoader] Failed to persist EPUB cover", coverStoreError);
+                        });
                 }
             }
 
@@ -150,10 +185,7 @@ export class EPUBLoader {
                     const saved = this.app.progressManager.loadSavedPosition(state.currentEpubKey, "epub");
                     if (saved) {
                         if (typeof saved.sentenceIndex === "number") {
-                            startIndex = Math.min(
-                                Math.max(saved.sentenceIndex, 0),
-                                state.sentences.length - 1,
-                            );
+                            startIndex = Math.min(Math.max(saved.sentenceIndex, 0), state.sentences.length - 1);
                         }
                         if (typeof saved.voice === "string" && saved.voice.trim()) {
                             resumeVoiceId = saved.voice.trim();
@@ -196,8 +228,7 @@ export class EPUBLoader {
         const voiceSelect = document.getElementById("voice-select");
         const options = voiceSelect ? Array.from(voiceSelect.options || []) : [];
         const voiceAvailable =
-            options.some((opt) => opt.value === trimmedVoiceId) ||
-            app.config.PIPER_VOICES.includes(trimmedVoiceId);
+            options.some((opt) => opt.value === trimmedVoiceId) || app.config.PIPER_VOICES.includes(trimmedVoiceId);
 
         if (!voiceAvailable) {
             console.warn(`Saved voice ${trimmedVoiceId} not available, skipping restore.`);
@@ -349,7 +380,7 @@ export class EPUBLoader {
         }
 
         state.sentences = sentences;
-    state.currentSentenceIndex = sentences.length ? 0 : -1;
+        state.currentSentenceIndex = sentences.length ? 0 : -1;
         state.hoveredSentenceIndex = -1;
         this._sentencesReady = sentences.length > 0;
 

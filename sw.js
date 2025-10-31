@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.0+2";
+const APP_VERSION = "0.5.0+4";
 const cacheName = `PDFCastia-v${APP_VERSION}`;
 const runtimeCache = `PDFCastia-runtime-v${APP_VERSION}`;
 
@@ -438,14 +438,7 @@ const fetchHandler = async (e) => {
                     // Last resort: return offline page for navigation requests
                     if (request.mode === "navigate") {
                         const offlinePage = await caches.match(resolvePath("/index.html"));
-                        return (
-                            offlinePage ||
-                            new Response("Offline", {
-                                status: 503,
-                                statusText: "Service Unavailable",
-                                headers: { "Content-Type": "text/plain" },
-                            })
-                        );
+                        return offlinePage;
                     }
 
                     throw networkError;

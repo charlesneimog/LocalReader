@@ -6,11 +6,22 @@
     "categories": ["education", "productivity"],
     "start_url": "/pdf-tts-reader/index.html",
     "scope": "/pdf-tts-reader/",
+    "scope_extensions": [
+        {
+            "origin": "https://charlesneimog.github.io/pdf-tts-reader/"
+        }
+    ],
+    "launch_handler": {
+        "client_mode": "auto"
+    },
+    "protocol_handlers": [],
     "lang": "en",
     "dir": "ltr",
     "display": "fullscreen",
     "background_color": "#ffffff",
     "theme_color": "#654ef0",
+    "prefer_related_applications": "false",
+    "display_override": ["fullscreen", "standalone"],
     "orientation": "any",
     "icons": [
         {
@@ -62,4 +73,3 @@
         }
     ]
 }
-

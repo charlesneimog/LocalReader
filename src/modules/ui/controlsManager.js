@@ -377,6 +377,7 @@ export class ControlsManager {
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
             this.timerInterval = null;
+            this.disableWakeLock();
         }
         this.timeLeft = this.autoStopDuration;
         this._updateTimerDisplay();

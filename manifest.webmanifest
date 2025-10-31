@@ -7,10 +7,9 @@
     "start_url": "/pdf-tts-reader/index.html",
     "scope": "/pdf-tts-reader/",
     "scope_extensions": [
-        {
-            "origin": "https://charlesneimog.github.io/pdf-tts-reader/"
-        }
+        { "type": "origin", "origin": "https://charlesneimog.github.io/pdf-tts-reader/" }
     ],
+      "edge_side_panel": {},
     "launch_handler": {
         "client_mode": "auto"
     },
@@ -20,7 +19,7 @@
     "display": "fullscreen",
     "background_color": "#ffffff",
     "theme_color": "#654ef0",
-    "prefer_related_applications": "false",
+    "prefer_related_applications": true,
     "display_override": ["fullscreen", "standalone"],
     "orientation": "any",
     "icons": [

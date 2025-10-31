@@ -18,6 +18,7 @@ export class TTSEngine {
         this.voices = null;
         this.pendingVoiceId = null;
         this.initializingPromise = null;
+        this._renderAheadPages = new Set();
 
         const scriptSrc = (document.currentScript && document.currentScript.src) || window.location.href;
         const scriptDir = scriptSrc.substring(0, scriptSrc.lastIndexOf("/"));
@@ -379,10 +380,21 @@ export class TTSEngine {
     schedulePrefetch() {
         const { state, config } = this.app;
         if (!state.generationEnabled) return;
-        if (state.currentSentenceIndex >= 0) this.app.ttsQueue.add(state.currentSentenceIndex, true);
+        const indices = [];
+        if (state.currentSentenceIndex >= 0) {
+            this.app.ttsQueue.add(state.currentSentenceIndex, true);
+            indices.push(state.currentSentenceIndex);
+        }
         const base = state.currentSentenceIndex;
         for (let i = base + 1; i <= base + config.PREFETCH_AHEAD && i < state.sentences.length; i++) {
             this.app.ttsQueue.add(i);
+            indices.push(i);
+        }
+
+        if (indices.length) {
+            Promise.resolve()
+                .then(() => this._renderSentencesAhead(indices))
+                .catch((err) => console.warn("[TTSEngine] Prefetch render failed", err));
         }
     }
 
@@ -506,6 +518,48 @@ export class TTSEngine {
                 sentence.prefetchQueued = false;
                 sentence.wordBoundaries = [];
                 delete sentence._restartAttempted;
+            }
+        }
+    }
+
+    async _renderSentencesAhead(indices) {
+        const app = this.app;
+        const { state } = app;
+
+        if (!Array.isArray(indices) || !indices.length) return;
+        if (!app.pdfRenderer || !app.pdfHeaderFooterDetector) return;
+        if (state.currentDocumentType && state.currentDocumentType !== "pdf") return;
+
+        const pagesToPrefetch = [];
+        const seenPages = new Set();
+
+        for (const idx of indices) {
+            const sentence = state.sentences[idx];
+            if (!sentence || sentence.layoutProcessed) continue;
+            const pageNumber = sentence.pageNumber;
+            if (!pageNumber || seenPages.has(pageNumber)) continue;
+            if (state.prefetchedPages.has(pageNumber) || this._renderAheadPages.has(pageNumber)) continue;
+            seenPages.add(pageNumber);
+            this._renderAheadPages.add(pageNumber);
+            pagesToPrefetch.push(pageNumber);
+        }
+
+        for (const pageNumber of pagesToPrefetch) {
+            let addedToGlobalPrefetch = false;
+            if (!state.prefetchedPages.has(pageNumber)) {
+                state.prefetchedPages.add(pageNumber);
+                addedToGlobalPrefetch = true;
+            }
+
+            try {
+                await app.pdfRenderer.ensureFullPageRendered(pageNumber);
+                await app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber);
+            } catch (err) {
+                console.warn("[TTSEngine] Failed to pre-render page", pageNumber, err);
+                if (addedToGlobalPrefetch) state.prefetchedPages.delete(pageNumber);
+            } finally {
+                this._renderAheadPages.delete(pageNumber);
+                await cooperativeYield();
             }
         }
     }

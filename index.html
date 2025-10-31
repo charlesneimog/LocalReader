@@ -13,7 +13,7 @@
         <!-- Favicon -->
         <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32x32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="./assets/icons/favicon-16x16.png" />
-        <!-- <link rel="apple-touch-icon" href="/apple-touch-icon.png" /> -->
+        <link rel="apple-touch-icon" href="/assets/icons/mask-512.png" />
 
         <!-- PWA -->
         <link rel="manifest" href="manifest.webmanifest" />
@@ -55,8 +55,6 @@
                     .register("sw.js", { updateViaCache: "none" })
                     .then((reg) => {
                         console.log("[PWA] Service Worker registered:", reg.scope);
-
-                        // Check for updates every 60 seconds
                         setInterval(() => {
                             reg.update().catch((err) => console.warn("[PWA] Update check failed:", err));
                         }, 60000);
@@ -69,8 +67,6 @@
                             newWorker.addEventListener("statechange", () => {
                                 if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
                                     console.log("[PWA] New service worker installed, will activate on next reload");
-                                    // Optionally show update notification to user
-                                    // You can add a UI prompt here asking user to reload
                                 }
                             });
                         });

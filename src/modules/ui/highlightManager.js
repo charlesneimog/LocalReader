@@ -20,7 +20,11 @@ export class HighlightManager {
         if (existingHighlight?.color === highlightColor) {
             state.savedHighlights.delete(currentIndex);
             this.app.highlightsStorage.saveHighlightsForPdf({ allowEmpty: true });
-            this.app.pdfRenderer.updateHighlightDisplay();
+            if (state.currentDocumentType === "epub") {
+                this.app.epubRenderer.updateHighlightDisplay();
+            } else {
+                this.app.pdfRenderer.updateHighlightDisplay();
+            }
             this.app.controlsManager?.reflectSelectedHighlightColor?.();
             return;
         }
@@ -32,7 +36,11 @@ export class HighlightManager {
         });
 
         this.app.highlightsStorage.saveHighlightsForPdf();
-        this.app.pdfRenderer.updateHighlightDisplay();
+        if (state.currentDocumentType === "epub") {
+            this.app.epubRenderer.updateHighlightDisplay();
+        } else {
+            this.app.pdfRenderer.updateHighlightDisplay();
+        }
         this.app.controlsManager?.reflectSelectedHighlightColor?.();
     }
 

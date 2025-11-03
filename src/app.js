@@ -29,13 +29,8 @@ import { HighlightsStorage } from "./modules/storage/highlightsStorage.js";
 import { ExportManager } from "./modules/storage/exportManager.js";
 import { PDFThumbnailCache } from "./modules/storage/pdfThumbnailCache.js";
 
-import { Login } from "./modules/login/auth.js";
-
 export class PDFTTSApp {
     constructor() {
-        this.auth = new Login(this);
-        this.auth.init();
-
         // UI
         this.ui = new UIService(this);
         this.interactionHandler = new InteractionHandler(this);
@@ -60,9 +55,9 @@ export class PDFTTSApp {
         this.pdfThumbnailCache = new PDFThumbnailCache(this);
 
         // PDF / Text
-    this.pdfLoader = new PDFLoader(this);
-    this.epubLoader = new EPUBLoader(this);
-    this.epubRenderer = this.epubLoader.renderer;
+        this.pdfLoader = new PDFLoader(this);
+        this.epubLoader = new EPUBLoader(this);
+        this.epubRenderer = this.epubLoader.renderer;
         this._pdfRenderer = new PDFRenderer(this);
         this.pdfRenderer = this._createRendererProxy();
         this.pdfHeaderFooterDetector = new PDFHeaderFooterDetector(this);
@@ -253,6 +248,114 @@ export class PDFTTSApp {
     }
     async subscribe() {
         this.auth.subscribe();
+    }
+
+    /**
+     * Close the currently open document (PDF or EPUB).
+     * Stops playback, resets renderers/loaders where possible and clears state
+     * so the app can show the saved PDFs view cleanly.
+     */
+    async closeCurrentDocument() {
+        const { state } = this;
+
+        try {
+            // Stop audio playback (best-effort)
+            if (this.audioManager && typeof this.audioManager.stopPlayback === "function") {
+                // pass true to fade out and clear playback
+                await this.audioManager.stopPlayback(true).catch(() => {});
+            }
+        } catch (err) {
+            console.debug("closeCurrentDocument: audio stop failed", err);
+        }
+
+        try {
+            // Reset TTS queue
+            this.ttsQueue?.reset?.();
+        } catch (err) {
+            console.debug("closeCurrentDocument: ttsQueue.reset failed", err);
+        }
+
+        try {
+            // Clear caches
+            this.cache?.clearAll?.();
+        } catch (err) {
+            console.debug("closeCurrentDocument: cache.clearAll failed", err);
+        }
+
+        try {
+            // Hide/clear PDF and EPUB containers
+            const pdfDocContainer = document.getElementById("pdf-doc-container");
+            const viewerWrapper = document.getElementById("viewer-wrapper");
+            const pdfCanvas = document.getElementById("pdf-canvas");
+            if (pdfDocContainer) {
+                pdfDocContainer.style.display = "none";
+                // remove heavy DOM to free memory
+                try {
+                    pdfDocContainer.innerHTML = "";
+                } catch (e) {
+                    /* ignore */
+                }
+            }
+            if (viewerWrapper) viewerWrapper.style.display = "none";
+            if (pdfCanvas) pdfCanvas.style.display = "none";
+        } catch (err) {
+            console.debug("closeCurrentDocument: hide containers failed", err);
+        }
+
+        try {
+            // EPUB cleanup
+            if (this.epubLoader && typeof this.epubLoader.reset === "function") {
+                try {
+                    this.epubLoader.reset();
+                } catch (e) {
+                    console.debug("closeCurrentDocument: epubLoader.reset failed", e);
+                }
+            }
+        } catch (err) {
+            console.debug("closeCurrentDocument: epub reset failed", err);
+        }
+
+        try {
+            // PDF cleanup: clear renderer highlights and free caches
+            if (this._pdfRenderer && typeof this._pdfRenderer.clearFullDocHighlights === "function") {
+                try {
+                    this._pdfRenderer.clearFullDocHighlights();
+                } catch (e) {
+                    console.debug("closeCurrentDocument: pdfRenderer.clearFullDocHighlights failed", e);
+                }
+            }
+        } catch (err) {
+            console.debug("closeCurrentDocument: pdf cleanup failed", err);
+        }
+
+        // Reset shared state fields
+        if (state) {
+            try {
+                state.pdf = null;
+                state.epub = null;
+                state.pagesCache?.clear?.();
+                state.viewportDisplayByPage?.clear?.();
+                state.fullPageRenderCache?.clear?.();
+                state.pageSentencesIndex?.clear?.();
+                state.prefetchedPages?.clear?.();
+                state.sentences = [];
+                state.currentSentenceIndex = -1;
+                state.hoveredSentenceIndex = -1;
+                state.currentSentence = null;
+                state.currentDocumentType = null;
+                state.currentPdfKey = null;
+                state.currentPdfDescriptor = null;
+                state.currentEpubKey = null;
+                state.currentEpubDescriptor = null;
+                state.bookTitle = null;
+                state.bookCover = null;
+                state.bookCoverDataUrl = null;
+                state.layoutFilteringReady = false;
+                state.generationEnabled = false;
+            } catch (e) {
+                console.debug("closeCurrentDocument: clearing state failed", e);
+            }
+        }
     }
 
     _handleViewportHeightChange(height) {

@@ -42,9 +42,75 @@ export class EPUBRenderer {
         this._playbarOriginalNextSibling = null;
         this._playbarOriginalStyles = null;
 
+    // Track persistent annotation values we created for saved highlights
+    this._persistentAnnotationValues = new Set();
+
         window.addEventListener("resize", this._boundResize, { passive: true });
     }
 
+    /**
+     * Update persistent and hover highlights for EPUB view.
+     * This mirrors PDFRenderer.updateHighlightDisplay by rendering saved highlights
+     * and hover highlights. Also keep a backward-compatible alias `pdateHighlightDisplay`.
+     */
+    async updateHighlightDisplay() {
+        const { state } = this.app;
+        if (!this.view || !state) return;
+
+        // Remove any previously created persistent annotations
+        if (this._persistentAnnotationValues && this._persistentAnnotationValues.size) {
+            for (const val of Array.from(this._persistentAnnotationValues)) {
+                try {
+                    // view.deleteAnnotation may reject; ignore errors
+                    this.view.deleteAnnotation({ value: val }).catch(() => {});
+                } catch (e) {
+                    /* ignore */
+                }
+            }
+            this._persistentAnnotationValues.clear();
+        }
+
+        // Render saved highlights from application state
+        try {
+            const saved = state.savedHighlights ?? new Map();
+            for (const [sentenceIndex, highlightData] of saved.entries()) {
+                try {
+                    const sentence = state.sentences?.[sentenceIndex];
+                    const cfi = sentence?.cfi;
+                    if (!cfi) continue;
+                    const color = highlightData?.color || null;
+                    // Add annotation for saved highlight; don't await to keep UI responsive
+                    this.view.addAnnotation({ value: cfi, color }).catch(() => {});
+                    // Track it so we can remove later
+                    this._persistentAnnotationValues.add(cfi);
+                } catch (e) {
+                    console.debug("[EPUBRenderer] Failed to apply saved highlight", e);
+                }
+            }
+        } catch (e) {
+            console.debug("[EPUBRenderer] updateHighlightDisplay failed to render saved highlights", e);
+        }
+
+        // Re-apply hover/active highlights
+        try {
+            // Prefer to update active sentence highlight first
+            const active = state.currentSentence ?? null;
+            if (active && active.cfi) await this.updateHighlightFullDoc(active);
+        } catch (e) {
+            // non-fatal
+        }
+
+        try {
+            this.renderHoverHighlightFullDoc();
+        } catch (e) {
+            // non-fatal
+        }
+    }
+
+    // Alias requested: pdateHighlightDisplay
+    pdateHighlightDisplay() {
+        return this.updateHighlightDisplay();
+    }
     setReaderSettings(settings = {}) {
         this._readerSettings = { ...DEFAULT_READER_SETTINGS, ...settings };
     }

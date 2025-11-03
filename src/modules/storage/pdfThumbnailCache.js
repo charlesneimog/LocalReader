@@ -10,14 +10,17 @@
 export class PDFThumbnailCache {
     constructor(app) {
         this.app = app;
+        this.width = 200;
+        this.height = 250;
+        this.proportionWidthHeight = this.width / this.height;
 
         // Thumbnail configuration
         this.config = {
-            cardWidth: 350,
-            displayWidth: 200 * 1.5,
-            displayHeight: 280 * 1.5,
-            placeholderWidth: 200,
-            placeholderHeight: 280,
+            cardWidth: 250,
+            displayWidth: this.width,
+            displayHeight: this.height,
+            placeholderWidth: this.width,
+            placeholderHeight: this.height,
             qualityMultiplier: 2, // Extra sharpness multiplier
         };
 

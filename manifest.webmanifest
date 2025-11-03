@@ -1,13 +1,13 @@
 {
-    "id": "/pdf-tts-reader/index.html",
+    "id": "/LocalReader/index.html",
     "name": "LocalReader",
     "description": "Local AI PDF Reader",
     "short_name": "LocalReader",
     "categories": ["education", "productivity"],
-    "start_url": "/pdf-tts-reader/index.html",
-    "scope": "/pdf-tts-reader/",
+    "start_url": "/LocalReader/index.html",
+    "scope": "/LocalReader/",
     "scope_extensions": [
-        { "type": "origin", "origin": "https://charlesneimog.github.io/pdf-tts-reader/" }
+        { "type": "origin", "origin": "https://charlesneimog.github.io/LocalReader/" }
     ],
       "edge_side_panel": {},
     "launch_handler": {

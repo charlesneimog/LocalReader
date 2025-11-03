@@ -5,9 +5,9 @@ const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
 // Determine the base path (works for both root and subpath deployments)
 const getBasePath = () => {
     const path = self.location.pathname;
-    // If hosted in subdirectory like /pdf-tts-reader/
-    if (path.includes("/pdf-tts-reader/")) {
-        return "/pdf-tts-reader";
+    // If hosted in subdirectory like /LocalReader/
+    if (path.includes("/LocalReader/")) {
+        return "/LocalReader";
     }
     return "";
 };

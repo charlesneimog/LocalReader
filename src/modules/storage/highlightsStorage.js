@@ -29,15 +29,33 @@ export class HighlightsStorage {
         }
         return highlightsMap;
     }
-    saveHighlightsForPdf() {
+    saveHighlightsForPdf({ allowEmpty = false } = {}) {
         const { state } = this.app;
-        if (!state.currentPdfKey) return;
+        const key = state.currentPdfKey;
+        if (!key) return;
+
         const all = this.getHighlightsMap();
+        const existing = all[key] || {};
+        const hasExisting = Object.keys(existing).length > 0;
+
+        if (!allowEmpty && state.savedHighlights.size === 0 && hasExisting) {
+            for (const [sentenceIndex, data] of Object.entries(existing)) {
+                state.savedHighlights.set(parseInt(sentenceIndex, 10), data);
+            }
+            this.app.pdfRenderer?.updateHighlightDisplay?.();
+            return;
+        }
+
         const pdfHighlights = {};
         for (const [sentenceIndex, data] of state.savedHighlights.entries()) {
             pdfHighlights[sentenceIndex] = data;
         }
-        all[state.currentPdfKey] = pdfHighlights;
+
+        if (!allowEmpty && hasExisting && Object.keys(pdfHighlights).length === 0) {
+            return;
+        }
+
+        all[key] = pdfHighlights;
         this.setHighlightsMap(all);
     }
     listSavedHighlights() {

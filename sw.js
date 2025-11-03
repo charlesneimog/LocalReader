@@ -1,6 +1,6 @@
 const APP_VERSION = "0.5.0+5";
-const cacheName = `PDFCastia-v${APP_VERSION}`;
-const runtimeCache = `PDFCastia-runtime-v${APP_VERSION}`;
+const cacheName = `LocalReader-v${APP_VERSION}`;
+const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
 
 // Determine the base path (works for both root and subpath deployments)
 const getBasePath = () => {

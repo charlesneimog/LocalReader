@@ -19,7 +19,7 @@ export class HighlightManager {
 
         if (existingHighlight?.color === highlightColor) {
             state.savedHighlights.delete(currentIndex);
-            this.app.highlightsStorage.saveHighlightsForPdf();
+            this.app.highlightsStorage.saveHighlightsForPdf({ allowEmpty: true });
             this.app.pdfRenderer.updateHighlightDisplay();
             this.app.controlsManager?.reflectSelectedHighlightColor?.();
             return;
@@ -51,7 +51,7 @@ export class HighlightManager {
             return;
         }
         state.savedHighlights.delete(sentenceIndex);
-        this.app.highlightsStorage.saveHighlightsForPdf();
+        this.app.highlightsStorage.saveHighlightsForPdf({ allowEmpty: true });
         this.app.pdfRenderer.updateHighlightDisplay();
         this.app.ui.showInfo("Highlight Saved");
     }

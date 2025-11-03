@@ -1,8 +1,8 @@
 {
     "id": "/pdf-tts-reader/index.html",
-    "name": "PDFCastia",
+    "name": "LocalReader",
     "description": "Local AI PDF Reader",
-    "short_name": "PDFCastia",
+    "short_name": "LocalReader",
     "categories": ["education", "productivity"],
     "start_url": "/pdf-tts-reader/index.html",
     "scope": "/pdf-tts-reader/",

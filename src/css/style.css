@@ -76,7 +76,22 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    height: 100%;
+    margin: 0;
+    padding: 0;
 }
+
+#app {
+    height: 100dvh; /* usa unidade dinâmica que ignora barras do sistema */
+    width: 100vw;
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
 
 #controls.toolbar {
     display: flex;
@@ -542,4 +557,27 @@ html {
     display: block;
     width: 100%;
     height: 100%;
+}
+#previous-pdf-container {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    gap: 1rem; /* espaço entre os cards */
+    padding: 1rem; /* evita que o primeiro/último fiquem colados */
+    scroll-padding-right: 1rem; /* garante espaço visual no final */
+    box-sizing: border-box;
+}
+
+#previous-pdf-container > * {
+    flex-shrink: 0; /* impede encolhimento */
+}
+
+/* cria espaço final invisível após o último card */
+#previous-pdf-container::after {
+    content: "";
+    flex: 0 0 1rem; /* controla o espaço final: aumente se ainda cortar */
 }

@@ -7,6 +7,7 @@
  * - High-resolution rendering for crisp thumbnails
  * - Error handling and retry mechanisms
  */
+
 export class PDFThumbnailCache {
     constructor(app) {
         this.app = app;
@@ -67,6 +68,9 @@ export class PDFThumbnailCache {
         for (const entry of documents) {
             const card = this.createPlaceholderCard(entry);
             if (this.container) this.container.appendChild(card);
+            requestAnimationFrame(() => {
+                this.container.scrollLeft = this.container.scrollWidth;
+            });
         }
 
         this.startProgressiveRendering(this.container);

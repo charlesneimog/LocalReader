@@ -16,11 +16,11 @@
     "protocol_handlers": [],
     "lang": "en",
     "dir": "ltr",
-    "display": "standalone",
-    "background_color": "#484848",
+    "display": "fullscreen",
+    "background_color": "#000000",
     "theme_color": "#654ef0",
     "prefer_related_applications": true,
-    "display_override": ["standalone", "fullscreen"],
+    "display_override": ["fullscreen"],
     "orientation": "any",
     "icons": [
         {

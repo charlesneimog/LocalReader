@@ -17,7 +17,7 @@
     "lang": "en",
     "dir": "ltr",
     "display": "standalone",
-    "background_color": "#ff0000",
+    "background_color": "#484848",
     "theme_color": "#654ef0",
     "prefer_related_applications": true,
     "display_override": ["standalone", "fullscreen"],

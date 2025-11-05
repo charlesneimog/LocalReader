@@ -23,3 +23,10 @@
 .hidden-class {
     @apply ring-2 ring-offset-2 ring-slate-400;
 }
+
+@layer utilities {
+    .force-include {
+        @apply w-6 h-6 round-lg;
+    }
+}
+

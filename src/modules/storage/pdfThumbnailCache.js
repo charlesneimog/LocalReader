@@ -72,13 +72,9 @@ export class PDFThumbnailCache {
                 this.container.scrollLeft = this.container.scrollWidth;
             });
         }
-
         this.startProgressiveRendering(this.container);
     }
 
-    /**
-     * Start progressive thumbnail rendering using idle callbacks
-     */
     startProgressiveRendering(container) {
         if (this.isProcessingQueue) return;
 
@@ -114,9 +110,6 @@ export class PDFThumbnailCache {
         requestIdleCallback(renderBatch, { timeout: 2000 });
     }
 
-    /**
-     * Create placeholder card for immediate UI feedback
-     */
     createPlaceholderCard({ key, docType }) {
         const card = document.createElement("div");
         card.className =
@@ -151,9 +144,6 @@ export class PDFThumbnailCache {
         return card;
     }
 
-    /**
-     * Render actual PDF card with high-resolution thumbnail
-     */
     async renderPdfCard(pdfKey, cardElement) {
         const pdfData = await this.app.progressManager.loadPdfFromIndexedDB(pdfKey);
         if (!pdfData) {
@@ -317,8 +307,11 @@ export class PDFThumbnailCache {
      */
     addCloseButton(cardElement, pdfKey, pdfName, canvas, docType = "pdf") {
         const closeBtn = document.createElement("button");
+        // closeBtn.className =
+        //     "absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-slate-200/80 dark:bg-slate-900/80 hover:bg-slate-300 dark:hover:bg-slate-700";
         closeBtn.className =
-            "absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-slate-200/80 dark:bg-slate-900/80 hover:bg-slate-300 dark:hover:bg-slate-700";
+            "absolute top-1 right-1 flex items-center justify-center w-6 h-6 rounded-lg bg-slate-200/80 dark:bg-slate-900/80 hover:bg-slate-300 dark:hover:bg-slate-700 transition-opacity opacity-0 group-hover:opacity-100";
+
         closeBtn.innerHTML = `<span class="material-symbols-outlined text-text-secondary dark:text-slate-400 !text-sm">close</span>`;
         closeBtn.setAttribute("aria-label", `Delete ${pdfName}`);
 

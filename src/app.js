@@ -131,24 +131,12 @@ export class PDFTTSApp {
     }
 
     async initialize() {
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-        if (icon) {
-            icon.textContent = "hourglass_empty";
-            icon.classList.add("animate-spin");
-        }
-
         this.viewportManager.addListener(this._handleViewportHeightChange);
         this.viewportManager.start();
         this._handleViewportHeightChange(this.viewportManager.getCurrentHeight());
-
         await this._ensureAriaRegions();
         await this._loadInitialPDF();
         await this.ttsEngine.ensurePiper(this.config.DEFAULT_PIPER_VOICE);
-
-        if (icon) {
-            icon.textContent = this.state.isPlaying ? "pause" : "play_arrow";
-            icon.classList.remove("animate-spin");
-        }
     }
 
     // Public API methods preserving original signatures:
@@ -207,9 +195,6 @@ export class PDFTTSApp {
     }
 
     togglePlay() {
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-        if (!icon) return;
-
         this.audioManager.togglePlay();
     }
 

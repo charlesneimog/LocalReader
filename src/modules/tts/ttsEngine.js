@@ -42,13 +42,6 @@ export class TTSEngine {
         if (!state.audioCtx) {
             state.audioCtx = new window.AudioContext(config.AUDIO_CONTEXT_OPTIONS);
         }
-        // if (state.audioCtx.state === "suspended") {
-        //     try {
-        //         await state.audioCtx.resume();
-        //     } catch (e) {
-        //         console.warn("Resume fail:", e);
-        //     }
-        // }
         return state.audioCtx;
     }
 
@@ -60,6 +53,7 @@ export class TTSEngine {
             return state.piperInstance;
         }
 
+        this.app.ui.showInfo("Loading AI Natural Voices...");
         if (this.initializingPromise) {
             if (this.pendingVoiceId && this.pendingVoiceId !== targetVoiceId) {
                 await this.initializingPromise.catch(() => {});
@@ -82,19 +76,14 @@ export class TTSEngine {
         try {
             return await this.initializingPromise;
         } finally {
+            this.app.ui.showInfo("AI Natural Voices Loaded!");
             this.initializingPromise = null;
         }
     }
 
     async _initializeVoice(voiceId) {
-        const { state } = this.app;
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-
-        if (icon) {
-            icon.textContent = "hourglass_empty";
-            icon.classList.add("animate-spin");
-        }
-
+        const { ui, state } = this.app;
+        ui.updatePlayButton(state.playerState.LOADING);
         document.body.style.cursor = "wait";
 
         try {
@@ -109,6 +98,7 @@ export class TTSEngine {
 
             const voice = this.voices[voiceId];
             if (!voice) {
+                ui.updatePlayButton(state.playerState.DONE);
                 throw new Error(`Unknown voice: ${voiceId}. Available voices: ${Object.keys(this.voices).join(", ")}`);
             }
 
@@ -117,6 +107,7 @@ export class TTSEngine {
             const configFile = filePaths.find((f) => f.endsWith(".onnx.json"));
 
             if (!modelFile || !configFile) {
+                ui.updatePlayButton(state.playerState.DONE);
                 throw new Error(`Voice ${voiceId} is missing required model or config files.`);
             }
 
@@ -176,10 +167,7 @@ export class TTSEngine {
             throw err;
         } finally {
             document.body.style.cursor = "default";
-            if (icon) {
-                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-                icon.classList.remove("animate-spin");
-            }
+            ui.updatePlayButton(state.playerState.DONE);
         }
     }
 
@@ -336,12 +324,6 @@ export class TTSEngine {
         s.audioInProgress = true;
         s.audioError = null;
 
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-        if (icon) {
-            icon.textContent = "hourglass_empty";
-            icon.classList.add("animate-spin");
-        }
-
         this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_START, { index: idx });
 
         try {
@@ -370,10 +352,6 @@ export class TTSEngine {
             }
         } finally {
             s.audioInProgress = false;
-            if (icon) {
-                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-                icon.classList.remove("animate-spin");
-            }
         }
     }
 
@@ -388,7 +366,6 @@ export class TTSEngine {
         const base = state.currentSentenceIndex;
         for (let i = base + 1; i <= base + config.PREFETCH_AHEAD && i < state.sentences.length; i++) {
             this.app.ttsQueue.add(i);
-            indices.push(i);
         }
 
         if (indices.length) {

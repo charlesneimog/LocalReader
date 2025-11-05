@@ -6,9 +6,11 @@ export class PDFHeaderFooterDetector {
         this._pendingOverlayData = new Map();
         this.debug = false;
 
+        this.app.ui.showInfo("Loading AI layout model...");
         this.worker = new Worker("./src/modules/pdf/ts.js", { type: "module" });
-        this._pendingWorkerRequests = new Map(); // requestId -> { resolve, reject, pageNumber }
-        this._pendingDetectionsByPage = new Map(); // pageNumber -> Promise
+
+        this._pendingWorkerRequests = new Map();
+        this._pendingDetectionsByPage = new Map();
         this._requestIdCounter = 0;
 
         const threads = navigator.hardwareConcurrency;
@@ -157,6 +159,13 @@ export class PDFHeaderFooterDetector {
             return this._pendingDetectionsByPage.get(pageNumber);
         }
 
+        const ttsQueue = this.app.ttsQueue;
+        const queueIdle = !ttsQueue || (ttsQueue.active === 0 && ttsQueue.queue.length === 0);
+        const shouldShowSpinner = !state.isPlaying && queueIdle;
+        if (shouldShowSpinner) {
+            this.app.ui.updatePlayButton(state.playerState.LOADING);
+        }
+
         const detectionPromise = this._ensureModelReady()
             .then(() => this._performDetection(pageNumber, scaleFactor))
             .then((detections) => {
@@ -169,8 +178,17 @@ export class PDFHeaderFooterDetector {
                 return [];
             });
 
-        this._pendingDetectionsByPage.set(pageNumber, detectionPromise);
-        return detectionPromise;
+        const wrappedPromise = shouldShowSpinner
+            ? detectionPromise.finally(() => {
+                  const queueStillIdle = !ttsQueue || (ttsQueue.active === 0 && ttsQueue.queue.length === 0);
+                  if (!state.isPlaying && queueStillIdle) {
+                      this.app.ui.updatePlayButton(state.playerState.DONE);
+                  }
+              })
+            : detectionPromise;
+
+        this._pendingDetectionsByPage.set(pageNumber, wrappedPromise);
+        return wrappedPromise;
     }
 
     _performDetection(pageNumber, scaleFactor) {

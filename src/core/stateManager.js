@@ -71,6 +71,14 @@ export class StateManager {
         this.audioCtx = null;
         this.viewportHeight = window.visualViewport ? Math.round(window.visualViewport.height) : window.innerHeight;
         this.awaitingOrientationDecision = false;
+
+        this.playerState = Object.freeze({
+            PLAY: "play",
+            PAUSE: "pause",
+            STOP: "stop",
+            LOADING: "loading",
+            DONE: "done",
+        });
     }
 
     get currentSentence() {

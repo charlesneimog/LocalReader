@@ -15,40 +15,22 @@ export class SentenceParser {
 
     async buildSentences(startPageNumber = 1) {
         const { app } = this;
-        const { config, state } = app;
+        const { state } = app;
 
         state.sentences = [];
         state.pageSentencesIndex.clear();
-
-        // console.log(`[SentenceParser] Building sentences starting from page ${startPageNumber}...`);
-
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-        if (icon) {
-            icon.textContent = "hourglass_empty";
-            icon.classList.add("animate-spin");
-            await new Promise(requestAnimationFrame);
-        }
-
         for (let pageNum = 1; pageNum <= state.pdf.numPages; pageNum++) {
             const page = state.pagesCache.get(pageNum);
             if (!page?.pageWords) {
                 console.warn(`[SentenceParser] No words found for page ${pageNum}`);
                 continue;
             }
-
             if (state.generationEnabled) {
                 await app.pdfHeaderFooterDetector.detectHeadersAndFooters(pageNum);
             }
 
             await this.parsePageWords(pageNum, page);
         }
-
-        if (icon) {
-            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-            icon.classList.remove("animate-spin");
-        }
-
-        // console.log(`[SentenceParser] Created ${state.sentences.length} sentences from ${state.pdf.numPages} pages`);
     }
 
     async parsePageWords(pageNumber, page) {

@@ -9,17 +9,6 @@ export class AudioManager {
         this._playbackContextId = 0;
     }
 
-    updatePlayButton() {
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-        if (!icon) return;
-
-        if (this.app.state.autoAdvanceActive) {
-            icon.textContent = "pause";
-        } else {
-            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-        }
-    }
-
     async playCurrentSentence() {
         const { state } = this.app;
         if (state.isPlaying) {
@@ -27,7 +16,7 @@ export class AudioManager {
         }
 
         const context = {
-            id: ++this._playbackContextId,
+            id: this._playbackContextId++,
             sentenceIndex: state.currentSentenceIndex,
         };
         this._playbackContext = context;
@@ -80,14 +69,9 @@ export class AudioManager {
             state.generationEnabled = true;
         }
 
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
         let attempts = 0;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
-            if (icon) {
-                icon.textContent = "hourglass_empty";
-                icon.classList.add("animate-spin");
-            }
             if (attempts === 0) {
                 this.app.ttsQueue.add(state.currentSentenceIndex, true);
                 this.app.ttsQueue.run();
@@ -104,10 +88,6 @@ export class AudioManager {
         }
 
         if (!sentence.audioReady || sentence.audioError || !sentence.audioBuffer) {
-            if (icon) {
-                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-                icon.classList.remove("animate-spin");
-            }
             if (!sentence.audioError && !state.stopRequested && this._isContextActive(context)) {
                 await delay(300);
                 if (this._isContextActive(context) && !state.stopRequested) {
@@ -117,14 +97,6 @@ export class AudioManager {
             return;
         }
 
-        if (!this._isContextActive(context)) return;
-
-        if (icon) {
-            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-            icon.classList.remove("animate-spin");
-        }
-
-        this.app.ttsEngine.schedulePrefetch();
         if (!this._isContextActive(context)) return;
 
         await this.stopPlayback(false, { clearContext: false, emitEvent: false });
@@ -169,9 +141,11 @@ export class AudioManager {
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
-            this.updatePlayButton();
-            // this.app.pdfRenderer.updateHighlightFullDoc();
+            this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
+            if (!state.stopRequested && this._isContextActive(context)) {
+                this.app.ttsEngine.schedulePrefetch();
+            }
         } catch (err) {
             console.error("Playback error:", err);
             if (this._isContextActive(context)) {
@@ -233,14 +207,9 @@ export class AudioManager {
             state.generationEnabled = true;
         }
 
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
         let attempts = 0;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
-            if (icon) {
-                icon.textContent = "hourglass_empty";
-                icon.classList.add("animate-spin");
-            }
             if (attempts === 0) {
                 this.app.ttsQueue.add(state.currentSentenceIndex, true);
                 this.app.ttsQueue.run();
@@ -257,10 +226,6 @@ export class AudioManager {
         }
 
         if (!sentence.audioReady || sentence.audioError || !sentence.audioBuffer) {
-            if (icon) {
-                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-                icon.classList.remove("animate-spin");
-            }
             if (!sentence.audioError && !state.stopRequested && this._isContextActive(context)) {
                 await delay(300);
                 if (this._isContextActive(context) && !state.stopRequested) {
@@ -270,14 +235,6 @@ export class AudioManager {
             return;
         }
 
-        if (!this._isContextActive(context)) return;
-
-        if (icon) {
-            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-            icon.classList.remove("animate-spin");
-        }
-
-        this.app.ttsEngine.schedulePrefetch();
         if (!this._isContextActive(context)) return;
 
         await this.stopPlayback(false, { clearContext: false, emitEvent: false });
@@ -322,9 +279,12 @@ export class AudioManager {
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
-            this.updatePlayButton();
             this.app.pdfRenderer.updateHighlightFullDoc();
+            this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
+            if (!state.stopRequested && this._isContextActive(context)) {
+                this.app.ttsEngine.schedulePrefetch();
+            }
         } catch (err) {
             console.error("Playback error:", err);
             if (this._isContextActive(context)) {
@@ -346,21 +306,32 @@ export class AudioManager {
     }
 
     async _playCurrentSentence(context) {
-        const { config, state } = this.app;
+        const { ui, state } = this.app;
 
         if (!this._isContextActive(context)) return;
-        if (state.isPlaying) return;
 
         if (!state.pdf && !state.epub) {
-            this.app.ui.showInfo("Load a document before playing.");
+            ui.showInfo("Load a document before playing.");
             return;
         }
 
-        if (state.currentDocumentType === "pdf") {
-            this._playPDFSentence(context);
-        } else if (state.currentDocumentType === "epub") {
-            this._playEPUBSentence(context);
+        try {
+            if (state.currentDocumentType === "pdf") {
+                await this._playPDFSentence(context);
+            } else if (state.currentDocumentType === "epub") {
+                await this._playEPUBSentence(context);
+            }
+        } catch (err) {
+            console.error("Playback error:", err);
+            if (this._isContextActive(context)) {
+                ui.showInfo("Playback error; resetting context.");
+            }
+            try {
+                if (state.audioCtx) await state.audioCtx.close();
+            } catch {}
+            state.audioCtx = null;
         }
+
     }
 
     async stopPlayback(fade = true, options = {}) {
@@ -426,7 +397,6 @@ export class AudioManager {
         state.isPlaying = false;
         state.autoAdvanceActive = false;
         state.playingSentenceIndex = -1;
-        this.updatePlayButton();
 
         const currentSentence = state.currentSentence;
         if (currentSentence) this.clearWordBoundaryTimers(currentSentence);
@@ -445,8 +415,10 @@ export class AudioManager {
         if (state.isPlaying) {
             this.stopPlayback(true);
             state.autoAdvanceActive = false;
+            this.app.ui.updatePlayButton(state.playerState.PAUSE);
         } else {
             this.playCurrentSentence();
+            this.app.ui.updatePlayButton(state.playerState.PLAY);
         }
     }
 
@@ -529,7 +501,6 @@ export class AudioManager {
 
         state.isPlaying = false;
         state.playingSentenceIndex = -1;
-        this.updatePlayButton();
         this.app.pdfRenderer.updateHighlightFullDoc();
 
         const hasNextSentence =

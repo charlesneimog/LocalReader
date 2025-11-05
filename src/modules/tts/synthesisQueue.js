@@ -16,12 +16,6 @@ export class TTSQueueManager {
 
         if (!sentence.layoutProcessed) {
             if (!sentence.layoutProcessingPromise) {
-                const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-                if (icon) {
-                    console.log(icon);
-                    icon.textContent = "autorenew";
-                    icon.classList.add("animate-spin");
-                }
                 sentence.layoutProcessingPromise = this.app.pdfHeaderFooterDetector
                     .ensureReadabilityForPage(sentence.pageNumber)
                     .catch((err) => {
@@ -29,11 +23,6 @@ export class TTSQueueManager {
                     })
                     .finally(() => {
                         sentence.layoutProcessingPromise = null;
-                        const iconFinal = document.querySelector("#play-toggle span.material-symbols-outlined");
-                        if (iconFinal) {
-                            iconFinal.textContent = state.isPlaying ? "pause" : "play_arrow";
-                            iconFinal.classList.remove("animate-spin");
-                        }
                         this.add(idx, priority);
                     });
             }
@@ -45,8 +34,12 @@ export class TTSQueueManager {
         }
 
         if (this.queue.includes(idx) || this.inFlight.has(idx)) return;
+        const idle = this.active === 0 && this.queue.length === 0;
         sentence.prefetchQueued = true;
         priority ? this.queue.unshift(idx) : this.queue.push(idx);
+        if (idle && !state.isPlaying) {
+            this.app.ui.updatePlayButton(state.playerState.LOADING);
+        }
         this.run();
     }
 
@@ -78,6 +71,13 @@ export class TTSQueueManager {
         this.inFlight.add(idx);
         try {
             await this.app.ttsEngine.synthesizeSequential(idx);
+            // if sentence is same as current sentence, then begin playback immediately
+            if (idx === state.currentSentenceIndex && !state.isPlaying) {
+                this.app.ui.updatePlayButton(state.playerState.DONE);
+                this.app.audioManager.playCurrentSentence();
+            }
+            this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
+
         } catch (e) {
             console.warn("Synthesis failure:", e);
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: e });
@@ -85,6 +85,9 @@ export class TTSQueueManager {
             this.active--;
             this.inFlight.delete(idx);
             this.run();
+            if (this.active === 0 && this.queue.length === 0 && !state.isPlaying) {
+                this.app.ui.updatePlayButton(state.playerState.DONE);
+            }
         }
     }
 

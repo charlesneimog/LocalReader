@@ -116,13 +116,7 @@ export class PDFLoader {
     async loadPDF(file = null, { resume = true, existingKey = null } = {}) {
         const { app } = this;
         const { state, config } = app;
-
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-        if (icon) {
-            icon.textContent = "hourglass_empty";
-            icon.classList.add("animate-spin");
-        }
-
+        app.ui.updatePlayButton(state.playerState.LOADING);
         document.body.style.cursor = "wait";
         try {
             if (file instanceof File) {
@@ -142,10 +136,7 @@ export class PDFLoader {
                         console.error("Error ensuring Piper instance:", err);
                         app.ui.showInfo("Error: " + err.message);
                         document.body.style.cursor = "default";
-                        if (icon) {
-                            icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-                            icon.classList.remove("animate-spin");
-                        }
+                        this.app.ui.updatePlayButton(state.playerState.DONE);
                         return;
                     }
                 }
@@ -232,7 +223,6 @@ export class PDFLoader {
             }
             await app.pdfRenderer.renderSentence(startIndex);
             app.ui.showInfo(`Total sentences: ${state.sentences.length}`);
-            app.audioManager.updatePlayButton();
             app.interactionHandler.setupInteractionListeners();
             app.controlsManager.reflectSelectedHighlightColor();
 
@@ -245,10 +235,7 @@ export class PDFLoader {
             app.ui.showInfo("Error: " + e.message);
         } finally {
             document.body.style.cursor = "default";
-            if (icon) {
-                icon.textContent = this.app.state.isPlaying ? "pause" : "play_arrow";
-                icon.classList.remove("animate-spin");
-            }
+            this.app.ui.updatePlayButton(state.playerState.DONE);
         }
     }
 
@@ -315,11 +302,7 @@ export class PDFLoader {
         const prevSentence = state.currentSentence || null;
         const prevIndex = state.currentSentenceIndex;
 
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
-        if (icon) {
-            icon.textContent = "hourglass_empty";
-            icon.classList.add("animate-spin");
-        }
+        app.ui.updatePlayButton(state.playerState.LOADING);
         app.ui.showInfo("Preparing current page for playback...");
 
         const targetPages = new Set();
@@ -340,7 +323,6 @@ export class PDFLoader {
             state.currentSentenceIndex = -1;
             state.hoveredSentenceIndex = -1;
             state.layoutFilteringReady = true;
-            app.audioManager.updatePlayButton();
             return;
         }
 
@@ -376,8 +358,8 @@ export class PDFLoader {
             state.hoveredSentenceIndex = -1;
             state.layoutFilteringReady = true;
             app.ui.showInfo("No readable sentences found after layout filtering.");
-            app.audioManager.updatePlayButton();
         }
+        // app.ui.updatePlayButton(state.playerState.DONE);
     }
 
     async _applySavedVoice(voiceId) {

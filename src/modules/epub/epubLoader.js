@@ -44,13 +44,11 @@ export class EPUBLoader {
 
     async loadEPUB(input, options = {}) {
         const { resume = true, existingKey = null } = options ?? {};
-        const icon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        const state = this.app.state;
+
         try {
-            this.app?.ui?.showInfo?.("Loading EPUB...");
-            if (icon) {
-                icon.textContent = "hourglass_empty";
-                icon.classList.add("animate-spin");
-            }
+            this.app.ui.showInfo("Loading EPUB...");
+            this.app.ui.updatePlayButton(state.playerState.LOADING);
 
             const pdfDocContainer = document.getElementById("pdf-doc-container");
             if (pdfDocContainer) {
@@ -61,17 +59,16 @@ export class EPUBLoader {
                 viewerWrapper.style.display = "none";
             }
 
-            const state = this.app?.state;
-            if (this.app?.audioManager?.stopPlayback) {
+            if (this.app.audioManager.stopPlayback) {
                 try {
                     await this.app.audioManager.stopPlayback(true);
                 } catch (error) {
                     console.debug("[EPUBLoader] Unable to stop playback prior to load", error);
                 }
             }
-            this.app?.ttsQueue?.reset?.();
+            this.app.ttsQueue.reset();
             if (state) {
-                state.audioCache?.clear?.();
+                state.audioCache.clear();
                 state.currentSource = null;
                 state.currentGain = null;
                 state.isPlaying = false;
@@ -85,7 +82,7 @@ export class EPUBLoader {
 
             this.reset();
 
-            const source = await this._resolveSource(input);
+            const source = this._resolveSource(input);
             const view = await this.renderer.open(source);
             this.applyCSS(view.renderer, "src/css/epub.css");
 
@@ -155,7 +152,7 @@ export class EPUBLoader {
                         const stored = await this.app.progressManager.loadEpubFromIndexedDB(computedKey);
                         if (!stored) {
                             await this.app.progressManager.saveEpubToIndexedDB(input, computedKey);
-                            this.app.ui?.showInfo?.("EPUB saved on IndexedDB!");
+                            this.app.ui.showInfo("EPUB saved on IndexedDB!");
                         }
                     } catch (dbError) {
                         console.debug("[EPUBLoader] Unable to persist EPUB in IndexedDB", dbError);
@@ -171,14 +168,14 @@ export class EPUBLoader {
                 }
             }
 
-            this.app?.eventBus?.emit?.(EVENTS.EPUB_LOADED, {
-                metadata: state?.epubMetadata ?? null,
-                chapters: state?.chapterCount ?? 0,
+            this.app.eventBus.emit(EVENTS.EPUB_LOADED, {
+                metadata: state.epubMetadata ?? null,
+                chapters: state.chapterCount ?? 0,
             });
 
             await this._buildSentences();
 
-            if (state?.sentences?.length) {
+            if (state.sentences?.length) {
                 let startIndex = Math.max(0, state.currentSentenceIndex ?? 0);
                 let resumeVoiceId = null;
                 if (resume && state.currentEpubKey) {
@@ -199,23 +196,20 @@ export class EPUBLoader {
 
                 await this.renderer.renderSentence(startIndex, { suppressScroll: true });
             } else {
-                this.app?.ui?.showInfo?.("No readable text detected in EPUB.");
+                this.app.ui.showInfo("No readable text detected in EPUB.");
             }
 
             this.renderer.setupInteractionListeners();
-            this.app?.interactionHandler?.setupInteractionListeners?.();
+            this.app.interactionHandler.setupInteractionListeners();
 
-            this.app?.audioManager?.updatePlayButton?.();
-            this.app?.ui?.showInfo?.("EPUB loaded successfully.");
+            this.app.ui.updatePlayButton(state.playerState.DONE);
+            this.app.ui.showInfo("EPUB loaded successfully.");
         } catch (error) {
             console.error("EPUB load error", error);
-            this.app?.ui?.showInfo?.(`Error loading EPUB: ${error.message}`);
+            this.app.ui.showInfo(`Error loading EPUB: ${error.message}`);
             this.reset();
         } finally {
-            if (icon) {
-                icon.textContent = this.app?.state?.isPlaying ? "pause" : "play_arrow";
-                icon.classList.remove("animate-spin");
-            }
+            this.app.ui.updatePlayButton(state.playerState.DONE);
         }
     }
 
@@ -369,7 +363,7 @@ export class EPUBLoader {
                 }
             }
 
-            section?.unload?.();
+            section.unload();
             if (typeof cooperativeYield === "function") {
                 try {
                     await cooperativeYield();
@@ -384,7 +378,7 @@ export class EPUBLoader {
         state.hoveredSentenceIndex = -1;
         this._sentencesReady = sentences.length > 0;
 
-        this.app?.eventBus?.emit?.(EVENTS.SENTENCES_PARSED, sentences);
+        this.app.eventBus.emit(EVENTS.SENTENCES_PARSED, sentences);
     }
 
     _extractSentencesFromDocument(doc, sectionIndex, locale) {

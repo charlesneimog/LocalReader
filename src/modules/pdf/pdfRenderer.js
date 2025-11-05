@@ -7,10 +7,9 @@ const ACTIVE_SENTENCE_HIGHLIGHT_RGBA = "rgba(12, 163, 223, 0.3)";
 export class PDFRenderer {
     constructor(app) {
         this.app = app;
-        this.pageCoordinateSystems = new Map(); // Track coordinate system per page
+        this.pageCoordinateSystems = new Map();
     }
 
-    // Ensure pageWords are scaled to currentDisplayScale for the given page
     ensurePageWordsScaled(pageNumber) {
         const { state } = this.app;
         const page = state.pagesCache.get(pageNumber);
@@ -66,52 +65,33 @@ export class PDFRenderer {
         return sentence.bbox || null;
     }
 
-    // NEW: Detect coordinate system for each page
     detectPageCoordinateSystem(pageNumber, words) {
-        if (!words || words.length === 0) return "baseline"; // Default assumption
-
-        // Sample a few words to detect coordinate system
+        if (!words || words.length === 0) return "baseline";
         const sampleWords = words.slice(0, Math.min(5, words.length));
-
-        // Check if words have transform matrices (more reliable)
         const hasTransforms = sampleWords.some((w) => w.transform && Array.isArray(w.transform));
-
         if (hasTransforms) {
-            // PDF.js uses different coordinate systems - we need to check the actual rendering
             return "top-based";
         }
-
-        // Check if y coordinates seem reasonable for top-based system
-        // In top-based systems, y typically starts from top and increases downward
-        // In baseline systems, y represents the baseline
         const avgHeight = sampleWords.reduce((sum, w) => sum + w.height, 0) / sampleWords.length;
         const minY = Math.min(...sampleWords.map((w) => w.y));
-
-        // If the minimum y is very small, it's likely top-based
         if (minY < avgHeight * 2) {
             return "top-based";
         }
-
         return "baseline";
     }
 
-    // NEW: Get corrected vertical position based on detected coordinate system
     getCorrectedVerticalPosition(word, scale = 1, pageNumber) {
         const coordSystem = this.pageCoordinateSystems.get(pageNumber) || "baseline";
-
         if (coordSystem === "top-based") {
-            // For top-based coordinate system, use y directly
             return word.y * scale;
         } else {
-            // For baseline coordinate system, subtract height
             return (word.y - word.height) * scale;
         }
     }
 
     getViewportHeight() {
         return (
-            this.app?.state?.viewportHeight ||
-            (window.visualViewport ? window.visualViewport.height : window.innerHeight)
+            this.app.state.viewportHeight || (window.visualViewport ? window.visualViewport.height : window.innerHeight)
         );
     }
 
@@ -137,13 +117,11 @@ export class PDFRenderer {
         };
     }
 
-    // NEW: Test and calibrate coordinate system for a page
     calibratePageCoordinateSystem(pageNumber, sentence) {
         const words = this.getReadableWords(sentence);
         if (words.length > 0) {
             const detectedSystem = this.detectPageCoordinateSystem(pageNumber, words);
             this.pageCoordinateSystems.set(pageNumber, detectedSystem);
-            // console.log(`[PDFRenderer] Page ${pageNumber} coordinate system: ${detectedSystem}`);
         }
     }
 
@@ -194,8 +172,6 @@ export class PDFRenderer {
         const container = document.getElementById("pdf-doc-container");
         if (!container) return;
         container.innerHTML = "";
-
-        // IntersectionObserver para renderização virtual
         const MAX_RENDERED_PAGES = 5;
 
         const observer = new IntersectionObserver(
@@ -210,7 +186,6 @@ export class PDFRenderer {
                         if (wrapper._focusTimer) clearTimeout(wrapper._focusTimer);
                         wrapper._focusTimer = setTimeout(async () => {
                             if (!wrapper.isConnected) return;
-
                             const cExisting = wrapper.querySelector("canvas.page-canvas");
                             if (!cExisting) {
                                 const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
@@ -258,7 +233,6 @@ export class PDFRenderer {
                         state.fullPageRenderCache.delete(pageNumber);
                     }
 
-                    // aplica escala css correta no wrapper e no canvas
                     wrapper.dataset.scale = scale.toString();
                     wrapper.style.width = viewportDisplay.width * scale + "px";
                     wrapper.style.height = viewportDisplay.height * scale + "px";
@@ -301,23 +275,20 @@ export class PDFRenderer {
         }
     }
 
-    // Efficiently refresh layout after viewport change without rebuilding all wrappers
     async refreshLayoutAfterViewportChange() {
+        // TODO: Needs update (do not work on smarpthones orientation change)
         const { state, config } = this.app;
         if (state.viewMode !== "full") return;
         const container = document.getElementById("pdf-doc-container");
         if (!container) return;
-
-        // If container is empty (first render), fall back to full build
         if (!container.querySelector(".pdf-page-wrapper")) {
             return this.renderFullDocumentIfNeeded();
         }
-
         const wrappers = Array.from(container.querySelectorAll(".pdf-page-wrapper"));
         const viewport = container.getBoundingClientRect();
 
         // Determine visible and near-visible pages
-        const nearMargin = 600; // px around viewport
+        const nearMargin = 600;
         const tasks = [];
         for (const wrapper of wrappers) {
             const p = parseInt(wrapper.dataset.pageNumber, 10);
@@ -361,7 +332,6 @@ export class PDFRenderer {
         // Throttle concurrent page draws
         const BATCH = 3;
         for (let i = 0; i < tasks.length; i += BATCH) {
-            // eslint-disable-next-line no-await-in-loop
             await Promise.allSettled(tasks.slice(i, i + BATCH));
         }
 
@@ -396,14 +366,14 @@ export class PDFRenderer {
     }
 
     scrollSentenceIntoView(sentence) {
-        const { state, config } = this.app;
+        const { state } = this.app;
         if (state.viewMode !== "full") return;
         const container = document.getElementById("pdf-doc-container");
         if (!container) return;
         this.ensurePageWordsScaled(sentence.pageNumber);
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
         if (!wrapper) return;
-        // Ensure sentence bbox matches current scaling for accurate scroll
+
         const bbox = this.recomputeSentenceBBoxIfNeeded(sentence);
         if (!bbox) {
             wrapper.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -422,8 +392,6 @@ export class PDFRenderer {
         if (!sentence) return null;
         const words = this.getReadableWords(sentence);
         if (!Array.isArray(words) || words.length === 0) return this.getSentenceBoundingBox(sentence);
-
-        // Calibrate coordinate system when needed
         if (!this.pageCoordinateSystems.has(sentence.pageNumber)) {
             this.calibratePageCoordinateSystem(sentence.pageNumber, sentence);
         }
@@ -461,7 +429,6 @@ export class PDFRenderer {
             centerY: (minY + maxY) / 2,
         };
 
-        // Prefer to cache in bboxReadable to preserve original bbox
         sentence.bboxReadable = bbox;
         return bbox;
     }
@@ -796,7 +763,6 @@ export class PDFRenderer {
             this.app.ttsQueue.run();
         }
 
-        this.app.audioManager.updatePlayButton();
         this.app.ttsEngine.schedulePrefetch();
         this.app.progressManager.saveProgress();
         this.app.eventBus.emit(EVENTS.SENTENCE_CHANGED, { index: idx, sentence });

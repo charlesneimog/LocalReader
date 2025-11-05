@@ -3,7 +3,7 @@ export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 7,
     VERSION_PATCH: 0,
-    VERSION_BUILD: 1,
+    VERSION_BUILD: 33,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -24,11 +24,11 @@ export const CONFIG = {
     BREAK_ON_LINE: false,
     SPLIT_ON_LINE_GAP: true,
     LINE_GAP_THRESHOLD: 2,
-    SENTENCE_END: [".", "?", "!", ":"],
+    SENTENCE_END: [".", "?", "!", ":", ".\""],
 
     // TTS
     PREFETCH_AHEAD: 10,
-    MAX_CONCURRENT_SYNTH: 4,
+    MAX_CONCURRENT_SYNTH: navigator.hardwareConcurrency - 1 || 1,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,
     PIPER_VOICES: [
@@ -58,7 +58,7 @@ export const CONFIG = {
     VIEWPORT_HEIGHT_CSS: () => Math.max(260, window.innerHeight * 0.82),
     MARGIN_TOP: () => (window.innerWidth < 700 ? 50 : 100),
 
-    MS_ON_FOCUS_TO_RENDER: 30,
+    MS_ON_FOCUS_TO_RENDER: 150,
 
     // Header detection
     TOLERANCE: 30, // pixels around detection boxes to tolerate small misalignments

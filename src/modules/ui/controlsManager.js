@@ -15,6 +15,10 @@ export class ControlsManager {
         this._updateTimerDisplay();
     }
 
+    getPlaybarIcon() {
+        return this.playIcon;
+    }
+
     // Cache all used DOM nodes once
     _cacheDOMElements() {
         this.voiceSelect = document.getElementById("voice-select");

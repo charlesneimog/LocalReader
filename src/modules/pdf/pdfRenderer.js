@@ -334,9 +334,161 @@ export class PDFRenderer {
         for (let i = 0; i < tasks.length; i += BATCH) {
             await Promise.allSettled(tasks.slice(i, i + BATCH));
         }
+    }
 
-        // Update highlights after sizes settle
-        this.updateHighlightFullDoc(state.currentSentence);
+    async refreshPdfRendering(options = {}) {
+        const { state } = this.app;
+        if (!state?.pdf) return;
+
+        const { containerWidth = null, forceFullRescale = false } = options;
+
+        const container = document.getElementById("pdf-doc-container");
+        const effectiveWidth = Math.max(
+            1,
+            containerWidth ||
+                (container ? container.clientWidth : 0) ||
+                window.innerWidth ||
+                1,
+        );
+
+        let processed = 0;
+        for (const [pageNumber, page] of state.pagesCache.entries()) {
+            try {
+                const baseViewport = page._baseViewport || page.getViewport({ scale: 1 });
+                page._baseViewport = baseViewport;
+                const unscaledWidth = page.unscaledWidth || baseViewport.width;
+                const unscaledHeight = page.unscaledHeight || baseViewport.height;
+                const displayScale = effectiveWidth / Math.max(1, unscaledWidth);
+                const viewportDisplay = {
+                    width: unscaledWidth * displayScale,
+                    height: unscaledHeight * displayScale,
+                };
+
+                state.viewportDisplayByPage.set(pageNumber, viewportDisplay);
+                page.currentDisplayScale = displayScale;
+                page.baseDisplayScale = displayScale;
+                page.needsWordRescale = true;
+
+                processed += 1;
+                if (processed % 200 === 0) {
+                    // Yield to keep UI responsive on very large documents
+                    // eslint-disable-next-line no-await-in-loop
+                    await new Promise(requestAnimationFrame);
+                }
+            } catch (err) {
+                console.warn("[refreshPdfRendering] Viewport recompute failed for page", pageNumber, err);
+            }
+        }
+
+        state.fullPageRenderCache.clear();
+        state.deviceScale = window.devicePixelRatio || 1;
+        this.pageCoordinateSystems.clear();
+
+        let containerReset = false;
+        if (container) {
+            container.querySelectorAll(".page-canvas").forEach((canvas) => canvas.remove());
+            container.querySelectorAll(".ignored-overlay").forEach((overlay) => overlay.remove());
+            this.clearFullDocHighlights();
+
+            if (state.viewMode === "full" && container.childElementCount) {
+                container.innerHTML = "";
+                containerReset = true;
+            }
+        }
+
+        if (state.viewMode === "full") {
+            const activeSentence =
+                state.currentSentenceIndex >= 0 ? state.sentences[state.currentSentenceIndex] : null;
+            const hoveredSentence =
+                state.hoveredSentenceIndex >= 0 && state.hoveredSentenceIndex < state.sentences.length
+                    ? state.sentences[state.hoveredSentenceIndex]
+                    : null;
+            const pagesToRebuild = new Set();
+
+            if (container && (containerReset || !container.querySelector(".pdf-page-wrapper"))) {
+                await this.renderFullDocumentIfNeeded();
+            }
+
+            if (activeSentence) {
+                await this.ensurePageCanvasMounted(activeSentence.pageNumber);
+                pagesToRebuild.add(activeSentence.pageNumber);
+            } else if (container) {
+                const firstWrapper = container.querySelector(".pdf-page-wrapper");
+                const fallbackPage = firstWrapper ? parseInt(firstWrapper.dataset.pageNumber, 10) : NaN;
+                if (Number.isFinite(fallbackPage)) {
+                    await this.ensurePageCanvasMounted(fallbackPage);
+                    pagesToRebuild.add(fallbackPage);
+                }
+            }
+
+            if (
+                hoveredSentence &&
+                (!activeSentence || hoveredSentence.pageNumber !== activeSentence.pageNumber)
+            ) {
+                await this.ensurePageCanvasMounted(hoveredSentence.pageNumber);
+                pagesToRebuild.add(hoveredSentence.pageNumber);
+            }
+
+            await this.refreshLayoutAfterViewportChange();
+            if (pagesToRebuild.size && this.app?.pdfHeaderFooterDetector?.ensureReadabilityForPage) {
+                await Promise.allSettled(
+                    Array.from(pagesToRebuild, (pageNumber) =>
+                        this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber, { force: true }),
+                    ),
+                );
+            }
+
+            this.updatePhraseHighlightsAndListeners({ sentence: activeSentence, forceFullRescale });
+            if (activeSentence) this.scrollSentenceIntoView(activeSentence);
+            return;
+        }
+
+        if (typeof state.currentSentenceIndex === "number" && state.currentSentenceIndex >= 0) {
+            await this.renderSentence(state.currentSentenceIndex, { skipTTS: true });
+            this.updatePhraseHighlightsAndListeners({ sentence: state.currentSentence, forceFullRescale });
+        }
+    }
+
+    async ensurePageCanvasMounted(pageNumber) {
+        const { state } = this.app;
+        const container = document.getElementById("pdf-doc-container");
+        if (!container) return null;
+        const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${pageNumber}"]`);
+        if (!wrapper) return null;
+
+        let canvas = wrapper.querySelector("canvas.page-canvas");
+        if (canvas) return canvas;
+
+        try {
+            const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
+            canvas = document.createElement("canvas");
+            canvas.className = "page-canvas";
+            canvas.width = Math.round(fullPageCanvas.width);
+            canvas.height = Math.round(fullPageCanvas.height);
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(fullPageCanvas, 0, 0);
+            canvas.style.width = "100%";
+            canvas.style.height = "100%";
+            wrapper.insertBefore(canvas, wrapper.firstChild);
+
+            const MAX_RENDERED_PAGES = 5;
+            state.fullPageRenderCache.set(pageNumber, fullPageCanvas);
+            if (state.fullPageRenderCache.size > MAX_RENDERED_PAGES) {
+                const oldest = state.fullPageRenderCache.keys().next().value;
+                if (oldest !== undefined && oldest !== pageNumber) {
+                    const oldWrapper = container.querySelector(
+                        `.pdf-page-wrapper[data-page-number="${oldest}"]`,
+                    );
+                    if (oldWrapper) oldWrapper.querySelector("canvas.page-canvas")?.remove();
+                    state.fullPageRenderCache.delete(oldest);
+                }
+            }
+        } catch (err) {
+            console.warn("[ensurePageCanvasMounted] Failed to prepare canvas for page", pageNumber, err);
+            return null;
+        }
+
+        return canvas;
     }
 
     applyPageScale(wrapper, viewportDisplay) {
@@ -362,7 +514,7 @@ export class PDFRenderer {
             const viewportDisplay = state.viewportDisplayByPage.get(p);
             if (viewportDisplay) this.applyPageScale(wrapper, viewportDisplay);
         });
-        this.updateHighlightFullDoc(state.currentSentence);
+        this.updatePhraseHighlightsAndListeners({ sentence: state.currentSentence });
     }
 
     scrollSentenceIntoView(sentence) {
@@ -430,6 +582,7 @@ export class PDFRenderer {
         };
 
         sentence.bboxReadable = bbox;
+        sentence.bbox = bbox;
         return bbox;
     }
 
@@ -439,6 +592,69 @@ export class PDFRenderer {
         container
             .querySelectorAll(".pdf-word-highlight,.persistent-highlight,.hover-highlight")
             .forEach((n) => n.remove());
+    }
+
+    updatePhraseHighlightsAndListeners({ sentence = null, forceFullRescale = false } = {}) {
+        const { state } = this.app;
+        const activeIndex = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+        const targetSentence = sentence || (activeIndex >= 0 ? state.sentences[activeIndex] : null);
+
+        // Reset hover state during layout changes to prevent stale hover highlights
+        if (forceFullRescale) {
+            state.hoveredSentenceIndex = -1;
+        }
+
+        const pagesToProcess = new Set();
+
+        if (forceFullRescale) {
+            for (const key of state.pageSentencesIndex.keys()) {
+                const pageNumber = Number(key);
+                if (Number.isFinite(pageNumber)) pagesToProcess.add(pageNumber);
+            }
+        } else {
+            if (targetSentence?.pageNumber) pagesToProcess.add(targetSentence.pageNumber);
+
+            if (state.hoveredSentenceIndex >= 0 && state.hoveredSentenceIndex < state.sentences.length) {
+                const hovered = state.sentences[state.hoveredSentenceIndex];
+                if (hovered?.pageNumber) pagesToProcess.add(hovered.pageNumber);
+            }
+
+            if (state.savedHighlights?.size) {
+                for (const [sentenceIndex] of state.savedHighlights.entries()) {
+                    const savedSentence = state.sentences[sentenceIndex];
+                    if (savedSentence?.pageNumber) pagesToProcess.add(savedSentence.pageNumber);
+                }
+            }
+
+            const container = document.getElementById("pdf-doc-container");
+            if (container) {
+                container.querySelectorAll(".pdf-page-wrapper[data-page-number]").forEach((wrapper) => {
+                    const num = parseInt(wrapper.dataset.pageNumber, 10);
+                    if (Number.isFinite(num)) pagesToProcess.add(num);
+                });
+            }
+        }
+
+        for (const pageNumber of pagesToProcess) {
+            this.ensurePageWordsScaled(pageNumber);
+            const indices = state.pageSentencesIndex.get(pageNumber);
+            if (!indices) continue;
+            for (const idx of indices) {
+                const s = state.sentences[idx];
+                if (!s) continue;
+                this.recomputeSentenceBBoxIfNeeded(s);
+            }
+        }
+
+        if (state.viewMode === "full") {
+            this.clearFullDocHighlights();
+            this.updateHighlightFullDoc(targetSentence);
+        } else if (targetSentence) {
+            this.ensurePageWordsScaled(targetSentence.pageNumber);
+            this.recomputeSentenceBBoxIfNeeded(targetSentence);
+        }
+
+        this.app.interactionHandler?.setupInteractionListeners?.();
     }
 
     renderSavedHighlightsFullDoc() {
@@ -478,11 +694,14 @@ export class PDFRenderer {
 
             const currentIdx =
                 state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+            const isCurrentSentence = sentenceIndex === currentIdx;
+            if (isCurrentSentence) {
+                continue;
+            }
 
             for (const word of wordsToRender) {
                 const div = document.createElement("div");
                 div.className = "persistent-highlight";
-                if (sentenceIndex === currentIdx) div.classList.add("current-playing");
                 div.style.left = offsetLeft + word.x * scaleX + "px";
 
                 // FIX: Use calibrated vertical positioning
@@ -492,8 +711,14 @@ export class PDFRenderer {
                 div.style.width = Math.max(1, word.width * scaleX) + "px";
                 div.style.height = Math.max(1, word.height * scaleY) + "px";
                 const rgb = hexToRgb(highlightData.color);
-                if (rgb) div.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8)`;
-                else div.style.backgroundColor = "rgba(255, 235, 59, 0.3)";
+                if (rgb) {
+                    div.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8)`;
+                    div.style.mixBlendMode = "multiply";
+                } else {
+                    div.style.backgroundColor = "rgba(255, 235, 59, 0.3)";
+                    div.style.mixBlendMode = "multiply";
+                }
+                div.style.zIndex = "10";
                 div.style.borderRadius = "2px";
                 div.title = `Highlighted: ${sentence.text.substring(0, 50)}...`;
                 wrapper.appendChild(div);
@@ -543,6 +768,7 @@ export class PDFRenderer {
 
             div.style.width = Math.max(1, w.width * scaleX) + "px";
             div.style.height = Math.max(1, w.height * scaleY) + "px";
+            div.style.zIndex = "30";
             wrapper.appendChild(div);
         }
     }
@@ -588,6 +814,10 @@ export class PDFRenderer {
             this.calibratePageCoordinateSystem(targetSentence.pageNumber, targetSentence);
         }
 
+        const savedHighlightData =
+            targetSentence?.index != null ? state.savedHighlights.get(targetSentence.index) : null;
+        const savedOutlineColor = savedHighlightData?.color || "#ff9800";
+
         if (highlightWords.length) {
             wrapper.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
 
@@ -605,6 +835,16 @@ export class PDFRenderer {
                 div.style.width = Math.max(1, w.width * scaleX) + "px";
                 div.style.height = Math.max(1, w.height * scaleY) + "px";
                 div.style.pointerEvents = "none";
+                if (savedHighlightData) {
+                    div.classList.add("saved-highlight");
+                    div.style.outline = `2px solid ${savedOutlineColor}`;
+                    div.style.outlineOffset = "1px";
+                    div.style.zIndex = "25";
+                } else {
+                    div.style.outline = "none";
+                    div.style.outlineOffset = "0px";
+                    div.style.zIndex = "20";
+                }
                 wrapper.appendChild(div);
             }
         }
@@ -641,7 +881,6 @@ export class PDFRenderer {
             if (state.awaitingOrientationDecision) return;
             if (state.viewMode === "full") {
                 this.rescaleAllPages();
-                this.updateHighlightFullDoc(state.currentSentence);
                 if (state.currentSentence) this.scrollSentenceIntoView(state.currentSentence);
             }
         });
@@ -649,7 +888,7 @@ export class PDFRenderer {
 
     async renderSentence(idx, options = {}) {
         const { state } = this.app;
-        const { autoAdvance = false } = options;
+        const { autoAdvance = false, skipTTS = false } = options;
         const visited = options.visited ?? new Set();
 
         if (idx < 0 || idx >= state.sentences.length) return;
@@ -671,7 +910,7 @@ export class PDFRenderer {
         if (state.generationEnabled && !sentence.isTextToRead && autoAdvance) {
             const nextIdx = await this.findNextReadableSentenceForward(idx, visited);
             if (nextIdx >= 0 && nextIdx !== idx) {
-                return this.renderSentence(nextIdx, { autoAdvance: true, visited });
+                return this.renderSentence(nextIdx, { autoAdvance: true, visited, skipTTS });
             }
         }
 
@@ -687,28 +926,8 @@ export class PDFRenderer {
         if (pdfDocContainer) pdfDocContainer.style.display = "block";
 
         // --- Renderização segura da página atual ---
-        const wrapper = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
-        if (wrapper && !wrapper.querySelector("canvas.page-canvas")) {
-            const fullPageCanvas = await this.ensureFullPageRendered(sentence.pageNumber);
-            const c = document.createElement("canvas");
-            c.className = "page-canvas";
-            c.width = fullPageCanvas.width;
-            c.height = fullPageCanvas.height;
-            const ctx = c.getContext("2d");
-            ctx.drawImage(fullPageCanvas, 0, 0);
-            c.style.width = "100%";
-            c.style.height = "100%";
-            wrapper.insertBefore(c, wrapper.firstChild);
-
-            // Limitar cache de páginas renderizadas
-            const MAX_RENDERED_PAGES = 5;
-            state.fullPageRenderCache.set(sentence.pageNumber, fullPageCanvas);
-            if (state.fullPageRenderCache.size > MAX_RENDERED_PAGES) {
-                const oldest = state.fullPageRenderCache.keys().next().value;
-                const wrapperOld = pdfDocContainer.querySelector(`.pdf-page-wrapper[data-page-number="${oldest}"]`);
-                if (wrapperOld) wrapperOld.querySelector("canvas.page-canvas")?.remove();
-                state.fullPageRenderCache.delete(oldest);
-            }
+        if (pdfDocContainer) {
+            await this.ensurePageCanvasMounted(sentence.pageNumber);
         }
 
         // Atualizar destaques e scroll
@@ -758,7 +977,7 @@ export class PDFRenderer {
             this.app.ui.showInfo(
                 `Sentence ${sentence.index + 1} is outside readable layout regions. Select another sentence to play.`,
             );
-        } else {
+        } else if (!skipTTS) {
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             this.app.ttsQueue.run();
         }

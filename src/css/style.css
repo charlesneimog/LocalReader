@@ -236,6 +236,11 @@ input[type="color"]:hover:not(:disabled) {
     background-color: rgba(12, 163, 223, 0.3);
     pointer-events: none;
     border-radius: 2px;
+    z-index: 20;
+}
+
+.pdf-word-highlight.saved-highlight {
+    outline-offset: 1px;
 }
 
 .persistent-highlight {
@@ -244,6 +249,7 @@ input[type="color"]:hover:not(:disabled) {
     mix-blend-mode: multiply;
     border-radius: 2px;
     pointer-events: none;
+    z-index: 10;
 }
 .persistent-highlight.current-playing {
     outline: 2px solid #ff9800;
@@ -255,7 +261,7 @@ input[type="color"]:hover:not(:disabled) {
     pointer-events: none;
     border-radius: 2px;
     outline: 1px solid var(--hover-highlight-stroke);
-    z-index: 5;
+    z-index: 30;
 }
 
 .highlight-color-option {

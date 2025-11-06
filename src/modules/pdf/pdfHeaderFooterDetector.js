@@ -107,7 +107,7 @@ export class PDFHeaderFooterDetector {
         overlay.style.top = "0";
         overlay.style.left = "0";
         overlay.style.pointerEvents = "none";
-        overlay.style.zIndex = "1000";
+        overlay.style.zIndex = "4";
         overlay.className = "ignored-overlay";
 
         const ctx = overlay.getContext("2d");

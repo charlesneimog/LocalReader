@@ -233,8 +233,8 @@ export class ControlsManager {
 
         if (this._orientationTimer) clearTimeout(this._orientationTimer);
         this._orientationTimer = setTimeout(async () => {
-            const { state, config, pdfRenderer } = this.app;
-            if (!state?.pdf) return;
+            const { state, pdfRenderer } = this.app;
+            if (!state?.pdf || !pdfRenderer) return;
 
             const container = document.getElementById("pdf-doc-container");
             const containerWidth = Math.max(1, container?.clientWidth || window.innerWidth);
@@ -244,45 +244,10 @@ export class ControlsManager {
             }
             this._lastContainerWidth = containerWidth;
 
-            // Recompute viewportDisplay per page lazily: mark pages for rescale instead of mutating all words now
-            let i = 0;
-            for (const [pageNumber, page] of state.pagesCache.entries()) {
-                try {
-                    const unscaledWidth = page.unscaledWidth || page.getViewport({ scale: 1 }).width;
-                    const unscaledHeight = page.unscaledHeight || page.getViewport({ scale: 1 }).height;
-                    const displayScale = containerWidth / unscaledWidth;
-                    const viewportDisplay = {
-                        width: unscaledWidth * displayScale,
-                        height: unscaledHeight * displayScale,
-                    };
-                    state.viewportDisplayByPage.set(pageNumber, viewportDisplay);
-                    page.currentDisplayScale = displayScale;
-                    page.needsWordRescale = true;
-                } catch (err) {
-                    console.warn("[orientationChange] Viewport recompute failed for page", pageNumber, err);
-                }
-                if (++i % 200 === 0) {
-                    // Yield to keep UI responsive on very large PDFs
-                    // eslint-disable-next-line no-await-in-loop
-                    await new Promise(requestAnimationFrame);
-                }
-            }
-
-            // Force re-render at new size
-            state.fullPageRenderCache.clear();
-            state.deviceScale = window.devicePixelRatio || 1;
-
-            if (state.viewMode === "full") {
-                try {
-                    await this.app.pdfRenderer.refreshLayoutAfterViewportChange();
-                    pdfRenderer.updateHighlightFullDoc(state.currentSentence);
-                    pdfRenderer.renderHoverHighlightFullDoc();
-                    if (state.currentSentence) pdfRenderer.scrollSentenceIntoView(state.currentSentence);
-                } catch (e) {
-                    console.warn("[orientationChange] Full doc re-render failed", e);
-                }
-            } else {
-                this.app.pdfRenderer.renderSentence(state.currentSentenceIndex);
+            try {
+                await pdfRenderer.refreshPdfRendering({ containerWidth, forceFullRescale: true });
+            } catch (err) {
+                console.warn("[orientationChange] Refresh failed", err);
             }
         }, 160);
     }
@@ -319,14 +284,27 @@ export class ControlsManager {
         const isFull =
             doc.fullscreenElement || doc.mozFullScreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement;
 
-        if (!isFull) {
-            await requestFull.call(docEl);
-            this.enableWakeLock();
-            this.bntFullScreen.classList.add("bg-primary/10", "text-primary");
-        } else {
-            await exitFull.call(doc);
-            this.disableWakeLock();
-            this.bntFullScreen.classList.remove("bg-primary/10", "text-primary");
+        try {
+            if (!isFull) {
+                await requestFull.call(docEl);
+                await this.enableWakeLock();
+                this.bntFullScreen.classList.add("bg-primary/10", "text-primary");
+            } else {
+                await exitFull.call(doc);
+                this.disableWakeLock();
+                this.bntFullScreen.classList.remove("bg-primary/10", "text-primary");
+            }
+        } catch (err) {
+            console.warn("[toggleFullscreen] Fullscreen toggle failed", err);
+        }
+
+        this._lastContainerWidth = null;
+        if (this.app?.pdfRenderer?.refreshPdfRendering) {
+            try {
+                await this.app.pdfRenderer.refreshPdfRendering({ forceFullRescale: true });
+            } catch (err) {
+                console.warn("[toggleFullscreen] Refresh failed", err);
+            }
         }
     }
 

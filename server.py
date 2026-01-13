@@ -62,6 +62,11 @@ class APIHandler(BaseHTTPRequestHandler):
         
         print(f"[GET] Received path: {path}")
         
+        # GET /api/ping - Simple health check
+        if path == "/api/ping":
+            self._send_json(200, {"status": "ok", "message": "Server is running"})
+            return
+        
         # GET /api/files - List all files
         if path == "/api/files":
             files = app.get_files()

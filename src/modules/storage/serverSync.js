@@ -16,6 +16,67 @@ export class ServerSync {
         return !!this.getServerUrl();
     }
 
+    async checkServerAvailability() {
+        return await this.pingServer(false);
+    }
+
+    async pingServer(showMessages = true) {
+        const serverUrl = this.getServerUrl();
+        if (!serverUrl) {
+            const msg = "No server URL configured";
+            console.error("[ServerSync] Ping failed:", msg);
+            if (showMessages) {
+                this.app.ui?.showInfo?.("❌ Ping failed: No server URL configured");
+            }
+            return false;
+        }
+
+        console.log(`[ServerSync] Pinging server: ${serverUrl}`);
+        if (showMessages) {
+            this.app.ui?.showInfo?.("Pinging server...");
+        }
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            
+            const startTime = Date.now();
+            const response = await fetch(`${serverUrl}/api/ping`, {
+                method: "GET",
+                signal: controller.signal,
+            });
+
+            clearTimeout(timeoutId);
+            const pingTime = Date.now() - startTime;
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
+                if (showMessages) {
+                    this.app.ui?.showInfo?.(`✓ Server is accessible (${pingTime}ms)`);
+                }
+                return true;
+            } else {
+                const msg = `Server returned ${response.status} ${response.statusText}`;
+                console.error("[ServerSync] ✗ Ping failed:", msg);
+                if (showMessages) {
+                    this.app.ui?.showInfo?.(`❌ Ping failed: ${msg}`);
+                }
+                return false;
+            }
+        } catch (error) {
+            let errorMsg = error.message;
+            if (error.name === "AbortError") {
+                errorMsg = "Connection timeout (server not responding)";
+            }
+            console.error("[ServerSync] ✗ Ping failed:", errorMsg);
+            if (showMessages) {
+                this.app.ui?.showInfo?.(`❌ Ping failed: ${errorMsg}`);
+            }
+            return false;
+        }
+    }
+
     async checkFileExists(fileId) {
         const serverUrl = this.getServerUrl();
         if (!serverUrl) return false;
@@ -441,9 +502,18 @@ export class ServerSync {
             this.syncAll();
         }, this.syncIntervalMs);
 
-        // Do initial sync to server after a short delay
+        // Do initial sync: check server availability, download books, then upload current state
         setTimeout(async () => {
-            await this.syncAll();
+            const serverAvailable = await this.checkServerAvailability();
+            
+            if (serverAvailable) {
+                console.log("[ServerSync] Server is accessible, downloading books...");
+                await this.syncFromServer();
+                await this.syncAll();
+            } else {
+                console.warn("[ServerSync] Server is not accessible");
+                this.app.ui?.showInfo?.("⚠️ Server is not accessible. Check your connection or server URL.");
+            }
         }, 1000);
     }
 

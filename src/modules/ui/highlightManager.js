@@ -6,13 +6,17 @@ export class HighlightManager {
     saveCurrentSentenceHighlight(color = null) {
         const { state } = this.app;
         if (!state) return;
-        if (state.currentSentenceIndex < 0 || state.currentSentenceIndex >= state.sentences.length) return;
+        const activeIndex =
+            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+        if (activeIndex < 0 || activeIndex >= state.sentences.length) return;
         let highlightColor = color || state.selectedHighlightColor || "#FFF176"; // default amarelo
         const selectedButton = document.querySelector(".highlight-color-option.selected");
         if (!color && selectedButton) {
             highlightColor = selectedButton.getAttribute("data-highlight-color");
         }
-        const currentIndex = state.currentSentenceIndex;
+        const currentIndex = activeIndex;
         const existingHighlight = state.savedHighlights.get(currentIndex);
 
         state.selectedHighlightColor = highlightColor;
@@ -23,7 +27,8 @@ export class HighlightManager {
             if (state.currentDocumentType === "epub") {
                 this.app.epubRenderer.updateHighlightDisplay();
             } else {
-                this.app.pdfRenderer.updateHighlightDisplay();
+                // Immediate visual feedback on PDF: redraw active sentence overlay.
+                this.app.pdfRenderer.updateHighlightFullDoc();
             }
             this.app.controlsManager?.reflectSelectedHighlightColor?.();
             return;
@@ -39,7 +44,8 @@ export class HighlightManager {
         if (state.currentDocumentType === "epub") {
             this.app.epubRenderer.updateHighlightDisplay();
         } else {
-            this.app.pdfRenderer.updateHighlightDisplay();
+            // Immediate visual feedback on PDF: redraw active sentence overlay.
+            this.app.pdfRenderer.updateHighlightFullDoc();
         }
         this.app.controlsManager?.reflectSelectedHighlightColor?.();
     }
@@ -48,7 +54,11 @@ export class HighlightManager {
         const { state } = this.app;
         if (!state || !color) return;
         state.selectedHighlightColor = color;
-        this.app.pdfRenderer.updateHighlightDisplay();
+        if (state.currentDocumentType === "epub") {
+            this.app.epubRenderer.updateHighlightDisplay();
+        } else {
+            this.app.pdfRenderer.updateHighlightFullDoc();
+        }
         this.app.controlsManager?.reflectSelectedHighlightColor?.();
     }
 
@@ -60,7 +70,11 @@ export class HighlightManager {
         }
         state.savedHighlights.delete(sentenceIndex);
         this.app.highlightsStorage.saveHighlightsForPdf({ allowEmpty: true });
-        this.app.pdfRenderer.updateHighlightDisplay();
+        if (state.currentDocumentType === "epub") {
+            this.app.epubRenderer.updateHighlightDisplay();
+        } else {
+            this.app.pdfRenderer.updateHighlightFullDoc();
+        }
         this.app.ui.showInfo("Highlight Saved");
     }
 }

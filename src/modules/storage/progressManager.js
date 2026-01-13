@@ -80,14 +80,8 @@ export class ProgressManager {
         if (this.app.serverSync?.isEnabled()) {
             const fileId = docType === "epub" ? state.currentEpubKey : state.currentPdfKey;
             if (fileId) {
-                this.app.serverSync.syncPosition(fileId, state.currentSentenceIndex).catch((err) => {
-                    console.warn("[ProgressManager] Position sync failed:", err);
-                });
-                if (state.currentPiperVoice) {
-                    this.app.serverSync.syncVoice(fileId, state.currentPiperVoice).catch((err) => {
-                        console.warn("[ProgressManager] Voice sync failed:", err);
-                    });
-                }
+                this.app.serverSync.queuePositionSync(fileId, state.currentSentenceIndex);
+                if (state.currentPiperVoice) this.app.serverSync.queueVoiceSync(fileId, state.currentPiperVoice);
             }
         }
     }

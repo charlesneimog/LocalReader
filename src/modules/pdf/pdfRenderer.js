@@ -594,6 +594,46 @@ export class PDFRenderer {
             .forEach((n) => n.remove());
     }
 
+    getMergedLineRects(words, pageNumber, { offsetYDisplay = 1, yTolerance = 2 } = {}) {
+        if (!Array.isArray(words) || !words.length) return [];
+
+        const items = [];
+        for (const w of words) {
+            if (!w) continue;
+            if (!Number.isFinite(w.x) || !Number.isFinite(w.y) || !Number.isFinite(w.width) || !Number.isFinite(w.height)) {
+                continue;
+            }
+            const top = this.getCorrectedVerticalPosition(w, offsetYDisplay, pageNumber);
+            if (!Number.isFinite(top)) continue;
+            const x1 = w.x;
+            const x2 = w.x + w.width;
+            const bottom = top + w.height;
+            items.push({ top, x1, x2, bottom });
+        }
+
+        if (!items.length) return [];
+        items.sort((a, b) => a.top - b.top || a.x1 - b.x1);
+
+        const lines = [];
+        for (const item of items) {
+            const last = lines[lines.length - 1];
+            if (!last || Math.abs(item.top - last.top) > yTolerance) {
+                lines.push({ top: item.top, bottom: item.bottom, x1: item.x1, x2: item.x2 });
+            } else {
+                last.x1 = Math.min(last.x1, item.x1);
+                last.x2 = Math.max(last.x2, item.x2);
+                last.bottom = Math.max(last.bottom, item.bottom);
+            }
+        }
+
+        return lines.map((l) => ({
+            x: l.x1,
+            y: l.top,
+            width: Math.max(1, l.x2 - l.x1),
+            height: Math.max(1, l.bottom - l.top),
+        }));
+    }
+
     updatePhraseHighlightsAndListeners({ sentence = null, forceFullRescale = false } = {}) {
         const { state } = this.app;
         const activeIndex = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
@@ -699,17 +739,16 @@ export class PDFRenderer {
                 continue;
             }
 
-            for (const word of wordsToRender) {
+            const lineRects = this.getMergedLineRects(wordsToRender, sentence.pageNumber);
+            if (!lineRects.length) continue;
+
+            for (const rect of lineRects) {
                 const div = document.createElement("div");
                 div.className = "persistent-highlight";
-                div.style.left = offsetLeft + word.x * scaleX + "px";
-
-                // FIX: Use calibrated vertical positioning
-                const correctedTop = this.getCorrectedVerticalPosition(word, 1, sentence.pageNumber);
-                div.style.top = offsetTop + correctedTop * scaleY + "px";
-
-                div.style.width = Math.max(1, word.width * scaleX) + "px";
-                div.style.height = Math.max(1, word.height * scaleY) + "px";
+                div.style.left = offsetLeft + rect.x * scaleX + "px";
+                div.style.top = offsetTop + rect.y * scaleY + "px";
+                div.style.width = Math.max(1, rect.width * scaleX) + "px";
+                div.style.height = Math.max(1, rect.height * scaleY) + "px";
                 const rgb = hexToRgb(highlightData.color);
                 if (rgb) {
                     div.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8)`;
@@ -757,17 +796,14 @@ export class PDFRenderer {
             this.calibratePageCoordinateSystem(s.pageNumber, s);
         }
 
-        for (const w of highlightWords) {
+        const lineRects = this.getMergedLineRects(highlightWords, s.pageNumber);
+        for (const rect of lineRects) {
             const div = document.createElement("div");
             div.className = "hover-highlight";
-            div.style.left = offsetLeft + w.x * scaleX + "px";
-
-            // FIX: Use calibrated vertical positioning
-            const correctedTop = this.getCorrectedVerticalPosition(w, 1, s.pageNumber);
-            div.style.top = offsetTop + correctedTop * scaleY + "px";
-
-            div.style.width = Math.max(1, w.width * scaleX) + "px";
-            div.style.height = Math.max(1, w.height * scaleY) + "px";
+            div.style.left = offsetLeft + rect.x * scaleX + "px";
+            div.style.top = offsetTop + rect.y * scaleY + "px";
+            div.style.width = Math.max(1, rect.width * scaleX) + "px";
+            div.style.height = Math.max(1, rect.height * scaleY) + "px";
             div.style.zIndex = "30";
             wrapper.appendChild(div);
         }
@@ -818,22 +854,19 @@ export class PDFRenderer {
             targetSentence?.index != null ? state.savedHighlights.get(targetSentence.index) : null;
         const savedOutlineColor = savedHighlightData?.color || "#ff9800";
 
-        if (highlightWords.length) {
+        const lineRects = this.getMergedLineRects(highlightWords, targetSentence.pageNumber);
+        if (lineRects.length) {
             wrapper.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
 
-            for (const w of highlightWords) {
+            for (const rect of lineRects) {
                 const div = document.createElement("div");
                 div.className = "pdf-word-highlight";
                 div.style.position = "absolute";
                 div.style.backgroundColor = ACTIVE_SENTENCE_HIGHLIGHT_RGBA;
-                div.style.left = offsetLeft + w.x * scaleX + "px";
-
-                // FIX: Use calibrated vertical positioning
-                const correctedTop = this.getCorrectedVerticalPosition(w, 1, targetSentence.pageNumber);
-                div.style.top = offsetTop + correctedTop * scaleY + "px";
-
-                div.style.width = Math.max(1, w.width * scaleX) + "px";
-                div.style.height = Math.max(1, w.height * scaleY) + "px";
+                div.style.left = offsetLeft + rect.x * scaleX + "px";
+                div.style.top = offsetTop + rect.y * scaleY + "px";
+                div.style.width = Math.max(1, rect.width * scaleX) + "px";
+                div.style.height = Math.max(1, rect.height * scaleY) + "px";
                 div.style.pointerEvents = "none";
                 if (savedHighlightData) {
                     div.classList.add("saved-highlight");

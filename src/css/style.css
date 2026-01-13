@@ -264,6 +264,45 @@ input[type="color"]:hover:not(:disabled) {
     z-index: 30;
 }
 
+.pdf-text-selection {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 2px;
+    background: rgba(120, 200, 255, 0.28);
+    outline: 1px solid rgba(120, 200, 255, 0.65);
+    z-index: 50;
+}
+
+.pdf-selection-menu {
+    position: fixed;
+    transform: translate(-10px, 12px);
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 10px;
+    background: rgba(20, 20, 24, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 9999;
+}
+
+.pdf-selection-menu-btn {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.92);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.pdf-selection-menu-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
 .highlight-color-option {
     border: 2px solid transparent;
     outline: none;

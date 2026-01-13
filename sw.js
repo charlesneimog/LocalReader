@@ -1,4 +1,4 @@
-const APP_VERSION = "0.8.6+0";
+const APP_VERSION = "0.8.7+0";
 const cacheName = `LocalReader-v${APP_VERSION}`;
 const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
 
@@ -379,6 +379,22 @@ const fetchHandler = async (e) => {
     e.respondWith(
         (async () => {
             try {
+                const urlObj = new URL(url);
+
+                // Never let the SW interfere with cross-origin API calls.
+                // If the network fails, return a real Response (not undefined).
+                if (urlObj.origin !== self.location.origin && urlObj.pathname.startsWith("/api/")) {
+                    try {
+                        return await fetch(request);
+                    } catch (err) {
+                        return new Response("Upstream API unavailable", {
+                            status: 502,
+                            statusText: "Bad Gateway",
+                            headers: { "Content-Type": "text/plain" },
+                        });
+                    }
+                }
+
                 // Handle offline retry for important requests
                 if (isOffline() && isRequestEligibleForRetry(request)) {
                     await storeRequest(request);
@@ -409,7 +425,15 @@ const fetchHandler = async (e) => {
                         })
                         .catch((err) => {
                             console.warn("[SW] Failed to fetch external:", url, err);
-                            return cachedResponse; // Return cached on network error
+                            // Always return a Response from respondWith()
+                            return (
+                                cachedResponse ||
+                                new Response("External resource unavailable", {
+                                    status: 504,
+                                    statusText: "Gateway Timeout",
+                                    headers: { "Content-Type": "text/plain" },
+                                })
+                            );
                         });
 
                     // Return cached immediately if available, otherwise wait for network

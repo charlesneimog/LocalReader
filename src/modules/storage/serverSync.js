@@ -2,13 +2,35 @@ export class ServerSync {
     constructor(app) {
         this.app = app;
         this.syncInterval = null;
-        this.syncIntervalMs = 5000; // Sync every 5 seconds
         this.lastSyncTime = 0;
         this.isSyncing = false;
+
+        this._autoSyncEnabled = false;
+        this._autoSyncListeners = [];
+
+        // Debounced client -> server updates
+        this.positionSyncDebounceMs = 900;
+        this.voiceSyncDebounceMs = 900;
+        this._pendingPositionByFile = new Map();
+        this._pendingVoiceByFile = new Map();
+        this._positionSyncTimers = new Map();
+        this._voiceSyncTimers = new Map();
 
         // Throttle server -> client state pulls (position/highlights/voice)
         this.serverPullIntervalMs = 30000; // Check every 30 seconds
         this.lastServerPullCheck = 0;
+    }
+
+    _addAutoSyncListener(element, type, handler, options) {
+        element.addEventListener(type, handler, options);
+        this._autoSyncListeners.push({ element, type, handler, options });
+    }
+
+    _clearAutoSyncListeners() {
+        for (const { element, type, handler, options } of this._autoSyncListeners) {
+            element.removeEventListener(type, handler, options);
+        }
+        this._autoSyncListeners = [];
     }
 
     getServerUrl() {
@@ -42,6 +64,50 @@ export class ServerSync {
         if (!serverAvailable) return;
 
         await this.pullServerStateUpdates();
+    }
+
+    queuePositionSync(fileId, sentenceIndex, { debounceMs } = {}) {
+        if (!this.isEnabled()) return;
+        if (!fileId) return;
+        if (!Number.isFinite(sentenceIndex) || sentenceIndex < 0) return;
+
+        this._pendingPositionByFile.set(fileId, sentenceIndex);
+
+        const delay = Number.isFinite(debounceMs) ? debounceMs : this.positionSyncDebounceMs;
+        const existing = this._positionSyncTimers.get(fileId);
+        if (existing) clearTimeout(existing);
+
+        const t = setTimeout(() => {
+            this._positionSyncTimers.delete(fileId);
+            const latest = this._pendingPositionByFile.get(fileId);
+            if (!Number.isFinite(latest)) return;
+            this.syncPosition(fileId, latest).catch((err) => {
+                console.warn("[ServerSync] Position sync failed:", err);
+            });
+        }, delay);
+        this._positionSyncTimers.set(fileId, t);
+    }
+
+    queueVoiceSync(fileId, voice, { debounceMs } = {}) {
+        if (!this.isEnabled()) return;
+        if (!fileId) return;
+        if (typeof voice !== "string" || !voice.trim()) return;
+
+        this._pendingVoiceByFile.set(fileId, voice.trim());
+
+        const delay = Number.isFinite(debounceMs) ? debounceMs : this.voiceSyncDebounceMs;
+        const existing = this._voiceSyncTimers.get(fileId);
+        if (existing) clearTimeout(existing);
+
+        const t = setTimeout(() => {
+            this._voiceSyncTimers.delete(fileId);
+            const latest = this._pendingVoiceByFile.get(fileId);
+            if (typeof latest !== "string" || !latest.trim()) return;
+            this.syncVoice(fileId, latest.trim()).catch((err) => {
+                console.warn("[ServerSync] Voice sync failed:", err);
+            });
+        }, delay);
+        this._voiceSyncTimers.set(fileId, t);
     }
 
     async pullServerStateUpdates() {
@@ -161,10 +227,6 @@ export class ServerSync {
             }
 
             this.app.progressManager.setProgressMap(progressMap);
-
-            if (updatedCount > 0) {
-                console.log(`[ServerSync] Pulled ${updatedCount} server state updates`);
-            }
         } catch (e) {
             console.warn("[ServerSync] pullServerStateUpdates failed:", e);
         }
@@ -185,7 +247,7 @@ export class ServerSync {
             return false;
         }
 
-        console.log(`[ServerSync] Pinging server: ${serverUrl}`);
+        // console.log(`[ServerSync] Pinging server: ${serverUrl}`);
         if (showMessages) {
             this.app.ui?.showInfo?.("Pinging server...");
         }
@@ -205,7 +267,7 @@ export class ServerSync {
 
             if (response.ok) {
                 const data = await response.json();
-                console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
+                // console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
                 if (showMessages) {
                     this.app.ui?.showInfo?.(`✓ Server is accessible (${pingTime}ms)`);
                 }
@@ -277,7 +339,7 @@ export class ServerSync {
 
             if (response.ok) {
                 const result = await response.json();
-                console.log("[ServerSync] File uploaded successfully:", result);
+                // console.log("[ServerSync] File uploaded successfully:", result);
                 this.app.ui?.showInfo?.("File synced to server");
                 return true;
             } else {
@@ -316,7 +378,7 @@ export class ServerSync {
             });
 
             if (response.ok) {
-                console.log("[ServerSync] Position synced:", sentenceIndex);
+                //console.log("[ServerSync] Position synced:", sentenceIndex);
                 return true;
             } else {
                 console.warn("[ServerSync] Position sync failed:", response.statusText);
@@ -351,7 +413,7 @@ export class ServerSync {
             });
 
             if (response.ok) {
-                console.log("[ServerSync] Voice synced:", voice);
+                //// console.log("[ServerSync] Voice synced:", voice);
                 return true;
             } else {
                 console.warn("[ServerSync] Voice sync failed:", response.statusText);
@@ -395,7 +457,7 @@ export class ServerSync {
             });
 
             if (response.ok) {
-                console.log("[ServerSync] Highlights synced:", highlightsArray.length);
+                //console.log("[ServerSync] Highlights synced:", highlightsArray.length);
                 return true;
             } else {
                 console.warn("[ServerSync] Highlights sync failed:", response.statusText);
@@ -410,7 +472,7 @@ export class ServerSync {
     async loadPositionAndHighlightsFromServer(fileId) {
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) {
-            console.log("[ServerSync] Cannot load from server - no URL or file ID");
+            // console.log("[ServerSync] Cannot load from server - no URL or file ID");
             return { position: null, voice: null, highlights: null };
         }
 
@@ -418,7 +480,7 @@ export class ServerSync {
             // Find the actual file_id on server (may have different timestamp)
             const actualFileIdOnServer = await this.findFileIdOnServer(fileId);
             if (!actualFileIdOnServer) {
-                console.log("[ServerSync] File not found on server");
+                // console.log("[ServerSync] File not found on server");
                 return { position: null, voice: null, highlights: null };
             }
 
@@ -435,7 +497,7 @@ export class ServerSync {
                 const fileData = await metaResponse.json();
                 position = fileData.reading_position ? parseInt(fileData.reading_position, 10) : null;
                 voice = fileData.voice || null;
-                console.log(`[ServerSync] Loaded from server - position: ${position}, voice: ${voice}`);
+                // console.log(`[ServerSync] Loaded from server - position: ${position}, voice: ${voice}`);
             }
 
             // Fetch highlights
@@ -455,7 +517,7 @@ export class ServerSync {
                             text: h.text || "",
                         });
                     });
-                    console.log(`[ServerSync] Loaded ${highlights.size} highlights from server`);
+                    // console.log(`[ServerSync] Loaded ${highlights.size} highlights from server`);
                 }
             }
 
@@ -560,7 +622,7 @@ export class ServerSync {
                 });
                 
                 if (existingFile) {
-                    console.log("[ServerSync] File with same name already exists on server:", existingFile.filename);
+                    // console.log("[ServerSync] File with same name already exists on server:", existingFile.filename);
                     return true;
                 }
             }
@@ -569,7 +631,7 @@ export class ServerSync {
         }
 
         // File doesn't exist, upload it
-        console.log("[ServerSync] File not on server, uploading...");
+        // console.log("[ServerSync] File not on server, uploading...");
 
         try {
             let file = null;
@@ -642,44 +704,57 @@ export class ServerSync {
     }
 
     startAutoSync() {
-        if (this.syncInterval) {
-            clearInterval(this.syncInterval);
-        }
+        this.stopAutoSync();
 
         if (!this.isEnabled()) {
-            console.log("[ServerSync] Auto-sync disabled - no server configured");
+            // console.log("[ServerSync] Auto-sync disabled - no server configured");
             return;
         }
+        this._autoSyncEnabled = true;
 
-        console.log("[ServerSync] Starting auto-sync");
-        this.syncInterval = setInterval(() => {
-            // Upload frequently; pull server state on a slower cadence.
-            this._maybePullServerStateUpdates();
-            this.syncAll();
-        }, this.syncIntervalMs);
+        const onWake = async () => {
+            if (!this._autoSyncEnabled) return;
+            await this._maybePullServerStateUpdates();
+            // Keep downloads up to date when the app regains focus/network.
+            await this.syncFromServer();
+        };
 
-        // Do initial sync: check server availability, pull server state (position/highlights), download books, then upload current state
+        // When the app becomes active again, do a lightweight pull + download.
+        this._addAutoSyncListener(window, "focus", () => {
+            onWake().catch(() => {});
+        });
+        this._addAutoSyncListener(window, "online", () => {
+            onWake().catch(() => {});
+        });
+        this._addAutoSyncListener(document, "visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+                onWake().catch(() => {});
+            }
+        });
+
+        // Do initial sync: check server availability, pull server state (position/highlights), download books.
         setTimeout(async () => {
             const serverAvailable = await this.checkServerAvailability();
-            
+
             if (serverAvailable) {
-                console.log("[ServerSync] Server is accessible, downloading books...");
+                // console.log("[ServerSync] Server is accessible, downloading books...");
                 await this.pullServerStateUpdates();
                 await this.syncFromServer();
-                await this.syncAll();
             } else {
                 console.warn("[ServerSync] Server is not accessible");
                 this.app.ui?.showInfo?.("⚠️ Server is not accessible. Check your connection or server URL.");
             }
-        }, 1000);
+        }, 600);
     }
 
     stopAutoSync() {
+        this._autoSyncEnabled = false;
         if (this.syncInterval) {
             clearInterval(this.syncInterval);
             this.syncInterval = null;
-            console.log("[ServerSync] Auto-sync stopped");
         }
+        this._clearAutoSyncListeners();
+        // console.log("[ServerSync] Auto-sync stopped");
     }
 
     async manualSync() {
@@ -693,7 +768,7 @@ export class ServerSync {
     async syncFromServer() {
         const serverUrl = this.getServerUrl();
         if (!serverUrl) {
-            console.log("[ServerSync] No server configured for download");
+            // console.log("[ServerSync] No server configured for download");
             return;
         }
 
@@ -714,7 +789,7 @@ export class ServerSync {
             const data = await response.json();
             const serverFiles = data.files || [];
 
-            console.log(`[ServerSync] Found ${serverFiles.length} files on server`);
+            // console.log(`[ServerSync] Found ${serverFiles.length} files on server`);
 
             // Get local files
             const localPdfKeys = await this.app.progressManager.listSavedPDFs();
@@ -747,12 +822,12 @@ export class ServerSync {
             });
 
             if (missingFiles.length === 0) {
-                console.log("[ServerSync] All server files are already cached locally");
+                // console.log("[ServerSync] All server files are already cached locally");
                 this.app.ui?.showInfo?.("Already synced with server");
                 return;
             }
 
-            console.log(`[ServerSync] Downloading ${missingFiles.length} missing files...`);
+            // console.log(`[ServerSync] Downloading ${missingFiles.length} missing files...`);
             this.app.ui?.showInfo?.(`Downloading ${missingFiles.length} files from server...`);
 
             // Download each missing file
@@ -769,33 +844,33 @@ export class ServerSync {
 
             if (downloaded > 0) {
                 this.app.ui?.showInfo?.(`Downloaded ${downloaded} files from server`);
-                console.log(`[ServerSync] Download complete: ${downloaded}/${missingFiles.length} files`);
+                // console.log(`[ServerSync] Download complete: ${downloaded}/${missingFiles.length} files`);
                 
                 // Refresh the saved PDFs view to show new downloads
-                console.log("[ServerSync] Refreshing library view with new downloads");
-                console.log("[ServerSync] Current document type:", this.app.state.currentDocumentType);
-                console.log("[ServerSync] App methods available:", {
-                    showSavedPDFs: typeof this.app.showSavedPDFs,
-                    pdfThumbnailCache: typeof this.app.pdfThumbnailCache,
-                    showSavedPDFsOnCache: this.app.pdfThumbnailCache ? typeof this.app.pdfThumbnailCache.showSavedPDFs : 'undefined'
-                });
+                // console.log("[ServerSync] Refreshing library view with new downloads");
+                // console.log("[ServerSync] Current document type:", this.app.state.currentDocumentType);
+                // console.log("[ServerSync] App methods available:", {
+                    //showSavedPDFs: typeof this.app.showSavedPDFs,
+                   // pdfThumbnailCache: typeof this.app.pdfThumbnailCache,
+                   // showSavedPDFsOnCache: this.app.pdfThumbnailCache ? typeof this.app.pdfThumbnailCache.showSavedPDFs : 'undefined'
+               // });
                 
                 setTimeout(() => {
                     try {
-                        console.log("[ServerSync] Attempting to refresh library...");
+                        // console.log("[ServerSync] Attempting to refresh library...");
                         
                         // Try to refresh the library view
                         if (typeof this.app.showSavedPDFs === 'function') {
-                            console.log("[ServerSync] Calling app.showSavedPDFs()");
+                            // console.log("[ServerSync] Calling app.showSavedPDFs()");
                             this.app.showSavedPDFs();
                         } else if (this.app.pdfThumbnailCache && typeof this.app.pdfThumbnailCache.showSavedPDFs === 'function') {
-                            console.log("[ServerSync] Calling pdfThumbnailCache.showSavedPDFs()");
+                            // console.log("[ServerSync] Calling pdfThumbnailCache.showSavedPDFs()");
                             this.app.pdfThumbnailCache.showSavedPDFs();
                         } else {
                             console.warn("[ServerSync] No method found to refresh library view");
                         }
                         
-                        console.log("[ServerSync] Library view refresh initiated");
+                        // console.log("[ServerSync] Library view refresh initiated");
                     } catch (error) {
                         console.error("[ServerSync] Failed to refresh library view:", error);
                         console.error("[ServerSync] Error details:", {
@@ -897,6 +972,6 @@ export class ServerSync {
             console.warn("[ServerSync] Failed to fetch/save highlights:", e);
         }
 
-        console.log(`[ServerSync] Downloaded and cached: ${actualFilename}`);
+        // console.log(`[ServerSync] Downloaded and cached: ${actualFilename}`);
     }
 }

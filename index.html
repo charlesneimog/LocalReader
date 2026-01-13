@@ -55,8 +55,6 @@
                 });
 
                 let sw = window.location.href + "sw.js";
-                console.log("service worker", sw);
-
                 navigator.serviceWorker
                     .register("sw.js", { updateViaCache: "none" })
                     .then((reg) => {

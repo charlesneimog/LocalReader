@@ -7,4 +7,5 @@ services:
       - ./data:/app/data
     environment:
       - ALLOWED_ORIGINS=https://charlesneimog.github.io,http://localhost:8080,http://127.0.0.1:8080
+      - TRANSLATE_TARGET_LANG=pt
     restart: unless-stopped

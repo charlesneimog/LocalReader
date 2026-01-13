@@ -19,6 +19,8 @@ export class ServerSync {
         // Throttle server -> client state pulls (position/highlights/voice)
         this.serverPullIntervalMs = 30000; // Check every 30 seconds
         this.lastServerPullCheck = 0;
+
+        this.pingServer(true).catch(() => {});
     }
 
     _addAutoSyncListener(element, type, handler, options) {
@@ -270,6 +272,7 @@ export class ServerSync {
                 // console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
                 if (showMessages) {
                     this.app.ui?.showInfo?.(`✓ Server is accessible (${pingTime}ms)`);
+                    console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
                 }
                 return true;
             } else {
@@ -290,6 +293,35 @@ export class ServerSync {
                 this.app.ui?.showInfo?.(`❌ Ping failed: ${errorMsg}`);
             }
             return false;
+        }
+    }
+
+    async translateText(text, { target = null } = {}) {
+        const serverUrl = this.getServerUrl();
+        if (!serverUrl) {
+            this.app.ui?.showInfo?.("⚠️ No server URL configured");
+            return null;
+        }
+        const payloadText = (text || "").trim();
+        if (!payloadText) return null;
+
+        try {
+            const response = await fetch(`${serverUrl}/api/translate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: payloadText, target }),
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const msg = data?.error || `Translate failed: ${response.status} ${response.statusText}`;
+                this.app.ui?.showInfo?.(msg);
+                return null;
+            }
+            return data;
+        } catch (e) {
+            this.app.ui?.showInfo?.("⚠️ Translate request failed");
+            return null;
         }
     }
 
@@ -429,12 +461,27 @@ export class ServerSync {
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) return false;
 
+        //console.log("[ServerSync] syncHighlights: start", {
+        //    fileId,
+        //    serverUrl,
+        //    count: highlights?.size ?? 0,
+        //});
+
         try {
             // Find the actual file_id on server (may have different timestamp)
-            const actualFileIdOnServer = await this.findFileIdOnServer(fileId);
+            let actualFileIdOnServer = await this.findFileIdOnServer(fileId);
             if (!actualFileIdOnServer) {
-                console.warn("[ServerSync] File not found on server for highlights sync");
-                return false;
+                console.warn("[ServerSync] File not found on server for highlights sync; trying ensureFileOnServer()");
+                try {
+                    await this.ensureFileOnServer();
+                } catch (e) {
+                    // ignore
+                }
+                actualFileIdOnServer = await this.findFileIdOnServer(fileId);
+                if (!actualFileIdOnServer) {
+                    console.warn("[ServerSync] Still no matching file on server; highlights not synced", { fileId });
+                    return false;
+                }
             }
 
             const highlightsArray = [];
@@ -442,7 +489,7 @@ export class ServerSync {
                 highlightsArray.push({
                     sentenceIndex,
                     color: data.color || "#ffda76",
-                    text: data.text || "",
+                    text: data.text || data.sentenceText || "",
                 });
             }
 
@@ -457,10 +504,19 @@ export class ServerSync {
             });
 
             if (response.ok) {
-                //console.log("[ServerSync] Highlights synced:", highlightsArray.length);
+                // console.log("[ServerSync] syncHighlights: OK", {
+                //    fileId,
+                //    actualFileIdOnServer,
+                //    count: highlightsArray.length,
+                //});
                 return true;
             } else {
-                console.warn("[ServerSync] Highlights sync failed:", response.statusText);
+                console.warn("[ServerSync] syncHighlights: FAILED", {
+                    status: response.status,
+                    statusText: response.statusText,
+                    fileId,
+                    actualFileIdOnServer,
+                });
                 return false;
             }
         } catch (error) {
@@ -511,10 +567,13 @@ export class ServerSync {
                 const highlightsData = await highlightsResponse.json();
                 if (highlightsData.highlights && Array.isArray(highlightsData.highlights)) {
                     highlights = new Map();
-                    highlightsData.highlights.forEach(h => {
-                        highlights.set(h.sentenceIndex, {
-                            color: h.color,
-                            text: h.text || "",
+                    highlightsData.highlights.forEach((h) => {
+                        const idxRaw = h?.sentence_index ?? h?.sentenceIndex;
+                        const idx = Number.isFinite(idxRaw) ? idxRaw : parseInt(String(idxRaw), 10);
+                        if (!Number.isFinite(idx) || idx < 0) return;
+                        highlights.set(idx, {
+                            color: h?.color,
+                            text: h?.text || "",
                         });
                     });
                     // console.log(`[ServerSync] Loaded ${highlights.size} highlights from server`);

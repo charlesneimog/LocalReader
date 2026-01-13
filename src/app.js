@@ -114,6 +114,38 @@ export class PDFTTSApp {
         return this.state.currentDocumentType === "epub" ? this.epubRenderer : this._pdfRenderer;
     }
 
+    async translateCurrentSentence() {
+        const { state } = this;
+        if (!state?.sentences?.length) {
+            this.ui?.showInfo?.("Load a document first");
+            return;
+        }
+
+        const idx =
+            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+        const sentence = state.sentences[idx];
+        const text = (sentence?.text || "").trim();
+        if (!text) return;
+
+        if (!this.serverSync?.isEnabled?.()) {
+            this.ui?.showInfo?.("⚠️ Configure Server Link to translate");
+            return;
+        }
+
+        this.ui?.showInfo?.("Translating...");
+        const result = await this.serverSync.translateText(text);
+        if (!result) return;
+
+        await this.ui?.showTranslatePopup?.({
+            originalText: text,
+            translatedText: result.translatedText || "",
+            target: result.target || "",
+            detectedSource: result.detectedSource || "",
+        });
+    }
+
     _getTotalPageCount() {
         if (this.state.currentDocumentType === "epub") {
             if (Number.isFinite(this.state.chapterCount) && this.state.chapterCount > 0) {
@@ -339,7 +371,7 @@ export class PDFTTSApp {
                 state.sentences = [];
                 state.currentSentenceIndex = -1;
                 state.hoveredSentenceIndex = -1;
-                state.currentSentence = null;
+                state.playingSentenceIndex = -1;
                 state.currentDocumentType = null;
                 state.currentPdfKey = null;
                 state.currentPdfDescriptor = null;

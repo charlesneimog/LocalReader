@@ -284,7 +284,12 @@ export class InteractionHandler {
             for (const idx of unique) {
                 if (typeof idx !== "number" || idx < 0 || idx >= state.sentences.length) continue;
                 const sentenceText = state.sentences[idx]?.text;
-                state.savedHighlights.set(idx, { color, timestamp: now, sentenceText: sentenceText || "" });
+                state.savedHighlights.set(idx, {
+                    color,
+                    timestamp: now,
+                    text: sentenceText || "",
+                    sentenceText: sentenceText || "",
+                });
             }
 
             this.app.highlightsStorage?.saveHighlightsForPdf?.();

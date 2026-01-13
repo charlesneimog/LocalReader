@@ -167,12 +167,46 @@ export class PDFLoader {
                     const currentParts = this._parseFileKeyParts(state.currentPdfKey);
                     if (currentParts?.name && currentParts.size > 0) {
                         const keys = await app.progressManager.listSavedPDFs();
-                        const match = keys.find((k) => {
+                        const matches = keys.filter((k) => {
                             const p = this._parseFileKeyParts(k);
                             return p && p.name === currentParts.name && p.size === currentParts.size;
                         });
-                        if (match) {
-                            state.currentPdfKey = match;
+
+                        if (matches.length) {
+                            // Prefer the key that already has saved highlights, else saved progress,
+                            // so reopening via file picker doesn't "lose" highlights.
+                            const highlightsByKey = app.highlightsStorage?.getHighlightsMap?.() || {};
+                            const hasHighlights = (k) => {
+                                const hl = highlightsByKey?.[k];
+                                return hl && typeof hl === "object" && Object.keys(hl).length > 0;
+                            };
+
+                            const withHighlights = matches.find(hasHighlights);
+                            const withProgress =
+                                withHighlights ||
+                                matches.find((k) => {
+                                    const saved = app.progressManager?.loadSavedPosition?.(k, "pdf");
+                                    return !!saved;
+                                });
+
+                            const chosen = withProgress || matches[0];
+                            state.currentPdfKey = chosen;
+
+                            // Merge any highlights scattered across duplicate keys into the chosen key.
+                            // This avoids the common case where highlights were saved under a sibling duplicate.
+                            if (matches.length > 1 && app.highlightsStorage?.saveHighlights) {
+                                const merged = {};
+                                for (const k of matches) {
+                                    const hl = highlightsByKey?.[k];
+                                    if (!hl || typeof hl !== "object") continue;
+                                    for (const [sentenceIndex, data] of Object.entries(hl)) {
+                                        merged[String(sentenceIndex)] = data;
+                                    }
+                                }
+                                if (Object.keys(merged).length) {
+                                    app.highlightsStorage.saveHighlights(chosen, merged, { merge: false });
+                                }
+                            }
                         }
                     }
                 }
@@ -231,19 +265,19 @@ export class PDFLoader {
                     // Update position from server if available
                     if (serverData.position !== null && serverData.position >= 0) {
                         startIndex = Math.min(Math.max(serverData.position, 0), state.sentences.length - 1);
-                        console.log(`[PDFLoader] Restored position from server: ${startIndex}`);
+                        //console.log(`[PDFLoader] Restored position from server: ${startIndex}`);
                     }
                     
                     // Update voice from server if available
                     if (resume && serverData.voice) {
                         resumeVoiceId = serverData.voice;
-                        console.log(`[PDFLoader] Restored voice from server: ${resumeVoiceId}`);
+                        //console.log(`[PDFLoader] Restored voice from server: ${resumeVoiceId}`);
                     }
                     
                     // Update highlights from server if available
                     if (serverData.highlights && serverData.highlights.size > 0) {
                         state.savedHighlights = serverData.highlights;
-                        console.log(`[PDFLoader] Restored ${serverData.highlights.size} highlights from server`);
+                        //console.log(`[PDFLoader] Restored ${serverData.highlights.size} highlights from server`);
                         
                         // Also save to local storage
                         app.highlightsStorage?.saveHighlights?.(state.currentPdfKey, serverData.highlights);

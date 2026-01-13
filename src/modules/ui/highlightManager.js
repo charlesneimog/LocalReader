@@ -37,6 +37,7 @@ export class HighlightManager {
         state.savedHighlights.set(currentIndex, {
             color: highlightColor,
             timestamp: Date.now(),
+            text: state.sentences[currentIndex].text,
             sentenceText: state.sentences[currentIndex].text,
         });
 

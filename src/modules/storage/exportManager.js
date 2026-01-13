@@ -68,18 +68,40 @@ export class ExportManager {
                 }
                 coordSystem = coordSystem || "baseline";
 
-                for (const word of wordsToAnnotate) {
-                    const x1 = word.x * scaleX;
-                    const x2 = x1 + word.width * scaleX;
+                // Prefer exporting merged per-line highlights (matches on-screen rendering)
+                let lineRects = [];
+                if (renderer && typeof renderer.getMergedLineRects === "function") {
+                    // Use a slightly looser tolerance for export to avoid splitting a single visual line.
+                    lineRects = renderer.getMergedLineRects(wordsToAnnotate, pageNum, { offsetYDisplay: 1, yTolerance: 3 }) || [];
+                }
 
-                    const displayTop = coordSystem === "top-based" ? word.y : word.y - word.height;
-                    const displayBottom = displayTop + word.height;
+                if (Array.isArray(lineRects) && lineRects.length) {
+                    for (const r of lineRects) {
+                        const x1 = r.x * scaleX;
+                        const x2 = (r.x + r.width) * scaleX;
 
-                    const yTop = height - displayTop * scaleY;
-                    const yBottom = height - displayBottom * scaleY;
+                        const displayTop = r.y;
+                        const displayBottom = r.y + r.height;
 
-                    // Use ordering: top-left, top-right, bottom-right, bottom-left per PDF spec
-                    quadPoints.push(x1, yTop, x2, yTop, x2, yBottom, x1, yBottom);
+                        const yTop = height - displayTop * scaleY;
+                        const yBottom = height - displayBottom * scaleY;
+
+                        quadPoints.push(x1, yTop, x2, yTop, x2, yBottom, x1, yBottom);
+                    }
+                } else {
+                    // Fallback: per-word quads (older behavior)
+                    for (const word of wordsToAnnotate) {
+                        const x1 = word.x * scaleX;
+                        const x2 = x1 + word.width * scaleX;
+
+                        const displayTop = coordSystem === "top-based" ? word.y : word.y - word.height;
+                        const displayBottom = displayTop + word.height;
+
+                        const yTop = height - displayTop * scaleY;
+                        const yBottom = height - displayBottom * scaleY;
+
+                        quadPoints.push(x1, yTop, x2, yTop, x2, yBottom, x1, yBottom);
+                    }
                 }
 
                 if (quadPoints.length === 0) continue;

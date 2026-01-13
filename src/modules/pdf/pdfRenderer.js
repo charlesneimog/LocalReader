@@ -10,6 +10,38 @@ export class PDFRenderer {
         this.pageCoordinateSystems = new Map();
     }
 
+    async ensureViewportDisplay(pageNumber) {
+        const { state, config } = this.app;
+        if (!Number.isFinite(pageNumber) || pageNumber <= 0) return null;
+        const existing = state.viewportDisplayByPage?.get?.(pageNumber);
+        if (existing && Number.isFinite(existing.width) && Number.isFinite(existing.height)) {
+            return existing;
+        }
+
+        if (!state.pdf) return null;
+
+        try {
+            const page = state.pagesCache.get(pageNumber) || (await state.pdf.getPage(pageNumber));
+            if (page && !state.pagesCache.has(pageNumber)) state.pagesCache.set(pageNumber, page);
+
+            const unscaled = page.getViewport({ scale: 1 });
+            const baseWidthCss = typeof config.BASE_WIDTH_CSS === "function" ? config.BASE_WIDTH_CSS() : window.innerWidth;
+            const displayScale = baseWidthCss / Math.max(1, unscaled.width);
+            const viewportDisplay = page.getViewport({ scale: displayScale });
+
+            // Keep page scaling metadata in sync when possible
+            page.unscaledWidth = page.unscaledWidth || unscaled.width;
+            page.unscaledHeight = page.unscaledHeight || unscaled.height;
+            page.baseDisplayScale = displayScale;
+            page.currentDisplayScale = displayScale;
+
+            state.viewportDisplayByPage.set(pageNumber, viewportDisplay);
+            return viewportDisplay;
+        } catch {
+            return null;
+        }
+    }
+
     ensurePageWordsScaled(pageNumber) {
         const { state } = this.app;
         const page = state.pagesCache.get(pageNumber);
@@ -179,7 +211,9 @@ export class PDFRenderer {
                 for (const entry of entries) {
                     const pageNumber = parseInt(entry.target.dataset.pageNumber, 10);
                     const wrapper = entry.target;
-                    const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+                    const viewportDisplay =
+                        state.viewportDisplayByPage.get(pageNumber) || (await this.ensureViewportDisplay(pageNumber));
+                    if (!viewportDisplay) continue;
                     const scale = getPageDisplayScale(viewportDisplay, config);
 
                     if (entry.isIntersecting) {
@@ -253,7 +287,8 @@ export class PDFRenderer {
 
         // Cria wrappers para todas as páginas
         for (let p = 1; p <= state.pdf.numPages; p++) {
-            const viewportDisplay = state.viewportDisplayByPage.get(p);
+            const viewportDisplay = state.viewportDisplayByPage.get(p) || (await this.ensureViewportDisplay(p));
+            if (!viewportDisplay) continue;
             const wrapper = document.createElement("div");
             wrapper.className = "pdf-page-wrapper";
             wrapper.dataset.pageNumber = p;

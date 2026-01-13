@@ -58,11 +58,23 @@ export class HighlightsStorage {
         all[key] = pdfHighlights;
         this.setHighlightsMap(all);
 
+        console.log("[HighlightsStorage] Saved highlights locally", {
+            key,
+            count: this.app.state?.savedHighlights?.size ?? 0,
+        });
+
         // Sync to server if enabled
         if (this.app.serverSync?.isEnabled()) {
-            this.app.serverSync.syncHighlights(key, this.app.state.savedHighlights).catch((err) => {
-                console.warn("[HighlightsStorage] Server sync failed:", err);
-            });
+            this.app.serverSync
+                .syncHighlights(key, this.app.state.savedHighlights)
+                .then((ok) => {
+                    if (!ok) {
+                        console.warn("[HighlightsStorage] Server highlights sync returned false", { key });
+                    }
+                })
+                .catch((err) => {
+                    console.warn("[HighlightsStorage] Server sync failed:", err);
+                });
         }
     }
 

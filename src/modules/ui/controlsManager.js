@@ -154,6 +154,7 @@ export class ControlsManager {
                     ArrowRight: () => app.nextSentence(true),
                     ArrowLeft: () => app.prevSentence(true),
                     KeyH: () => app.saveCurrentSentenceHighlight(),
+                    KeyT: () => app.translateCurrentSentence?.(),
                     KeyF: () => this.toggleFullscreen(),
                     Digit1: () => this._selectHighlightIndex(0),
                     Digit2: () => this._selectHighlightIndex(1),

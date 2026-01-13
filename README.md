@@ -37,6 +37,7 @@ It runs entirely in your browser and can be installed as a **Progressive Web App
 | ------- | -------------------------- |
 | `Space` | Play / Pause TTS           |
 | `h`     | Highlight current sentence |
+| `t`     | Translate current sentence |
 | `f`     | Toggle fullscreen          |
 
 ---
@@ -99,6 +100,8 @@ docker-compose up -d
 ```
 
 If you will host the site in another domain than [charlesneimog.github.io](charlesneimog.github.io), add this domain in `ALLOWED_ORIGINS`, multiple domains can be used using commas.
+
+You can configure the target translation language (used by `t`) with `TRANSLATE_TARGET_LANG` in `compose.yml` (example: `pt`, `es`, `fr`).
 
 Put the domain where the selfhost will be accessible in the `Server Link` in the `LocalReader` configuration.
 

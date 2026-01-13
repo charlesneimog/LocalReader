@@ -2,6 +2,8 @@
 import json
 import re
 import os
+import asyncio
+import inspect
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 import app
@@ -147,6 +149,61 @@ class APIHandler(BaseHTTPRequestHandler):
         """Handle POST requests."""
         parsed = urlparse(self.path)
         path = parsed.path
+
+        # POST /api/translate
+        if path == "/api/translate":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length) if content_length else b""
+                data = json.loads(body.decode()) if body else {}
+            except Exception as e:
+                self._send_error(400, f"Invalid JSON: {str(e)}")
+                return
+
+            text = (data.get("text") or "").strip()
+            target = (data.get("target") or os.environ.get("TRANSLATE_TARGET_LANG") or "pt").strip()
+
+            if not text:
+                self._send_error(400, "Missing 'text' field")
+                return
+
+            # Basic safety/size cap (Google Translate web endpoints are not designed for huge payloads)
+            if len(text) > 5000:
+                self._send_error(413, "Text too long (max 5000 chars)")
+                return
+
+            try:
+                from googletrans import Translator
+
+                async def _do_translate():
+                    translator = Translator()
+                    maybe_result = translator.translate(text, dest=target)
+                    if inspect.isawaitable(maybe_result):
+                        return await maybe_result
+                    return maybe_result
+
+                result = asyncio.run(_do_translate())
+
+                translated = getattr(result, "text", "")
+                detected = getattr(result, "src", None)
+                self._send_json(
+                    200,
+                    {
+                        "translatedText": translated,
+                        "detectedSource": detected,
+                        "target": target,
+                    },
+                )
+                return
+            except ImportError:
+                self._send_error(
+                    501,
+                    "Translation support not installed on server. Install googletrans (googletrans==4.0.0-rc1).",
+                )
+                return
+            except Exception as e:
+                self._send_error(500, f"Translation failed: {str(e)}")
+                return
         
         # POST /api/files
         if path == "/api/files":
@@ -263,12 +320,14 @@ class APIHandler(BaseHTTPRequestHandler):
             
             print(f"[PUT] Updating highlights for file_id: {file_id}")
             print(f"[PUT] Highlights count: {len(highlights) if isinstance(highlights, list) else 0}")
+            print(f"[PUT] File exists: {app.file_exists(file_id)}")
             
             if not isinstance(highlights, list):
                 self._send_error(400, "Missing or invalid 'highlights' field")
                 return
             
             count = app.update_highlights(file_id, highlights)
+            print(f"[PUT] Updated highlights written: {count}")
             
             self._send_json(200, {
                 "success": True,

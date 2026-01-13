@@ -95,7 +95,7 @@ Please:
 
 ```
 docker-compose build --no-cache
-docker-compose up
+docker-compose up -d
 ```
 
 If you will host the site in another domain than [charlesneimog.github.io](charlesneimog.github.io), add this domain in `ALLOWED_ORIGINS`, multiple domains can be used using commas.

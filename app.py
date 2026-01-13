@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime
 import os
+import time
 
 DB_PATH = "data/database.db"
 
@@ -9,7 +10,7 @@ def init_db():
     """Initialize database and create tables if they don't exist."""
     # Ensure the data directory exists
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     cursor = conn.cursor()
     
     cursor.execute("""
@@ -66,7 +67,13 @@ def init_db():
            OR voice_updated_at IS NULL
         """
     )
+    conn.commit()
     conn.close()
+
+
+def _sleep_on_lock(attempt: int) -> None:
+    # Small exponential backoff to reduce lock contention during rapid sync bursts.
+    time.sleep(0.05 * (2**attempt))
 
 
 def add_file(title, filename, format, voice=None):
@@ -264,38 +271,62 @@ def add_file_with_id(file_id, title, file_data, format, voice=None):
     created_at = datetime.utcnow().isoformat()
     updated_at = created_at
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Check if file already exists
-    cursor.execute("SELECT id FROM files WHERE filename = ?", (file_id,))
-    existing = cursor.fetchone()
-    
-    if existing:
-        # Update existing file
-        cursor.execute("""
-            UPDATE files
-            SET
-                title = ?,
-                file_data = ?,
-                format = ?,
-                voice = COALESCE(?, voice),
-                updated_at = ?,
-                voice_updated_at = CASE WHEN ? IS NOT NULL THEN ? ELSE voice_updated_at END
-            WHERE filename = ?
-        """, (title, file_data, format, voice, updated_at, voice, updated_at, file_id))
-    else:
-        # Insert new file
-        cursor.execute("""
-            INSERT INTO files (
-                title, filename, format, file_data, reading_position, voice,
-                created_at, updated_at, position_updated_at, highlights_updated_at, voice_updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (title, file_id, format, file_data, None, voice, created_at, updated_at, updated_at, updated_at, updated_at))
-    
-    conn.commit()
-    conn.close()
+    for attempt in range(4):
+        try:
+            with sqlite3.connect(DB_PATH, timeout=30) as conn:
+                cursor = conn.cursor()
+
+                # Check if file already exists
+                cursor.execute("SELECT id FROM files WHERE filename = ?", (file_id,))
+                existing = cursor.fetchone()
+
+                if existing:
+                    # Update existing file
+                    cursor.execute(
+                        """
+                        UPDATE files
+                        SET
+                            title = ?,
+                            file_data = ?,
+                            format = ?,
+                            voice = COALESCE(?, voice),
+                            updated_at = ?,
+                            voice_updated_at = CASE WHEN ? IS NOT NULL THEN ? ELSE voice_updated_at END
+                        WHERE filename = ?
+                        """,
+                        (title, file_data, format, voice, updated_at, voice, updated_at, file_id),
+                    )
+                else:
+                    # Insert new file
+                    cursor.execute(
+                        """
+                        INSERT INTO files (
+                            title, filename, format, file_data, reading_position, voice,
+                            created_at, updated_at, position_updated_at, highlights_updated_at, voice_updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            title,
+                            file_id,
+                            format,
+                            file_data,
+                            None,
+                            voice,
+                            created_at,
+                            updated_at,
+                            updated_at,
+                            updated_at,
+                            updated_at,
+                        ),
+                    )
+
+            break
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 3:
+                _sleep_on_lock(attempt)
+                continue
+            raise
     
     return file_id
 
@@ -310,24 +341,27 @@ def update_position_by_file_id(file_id, position):
     Returns:
         True if update was successful, False if file not found
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     now = datetime.utcnow().isoformat()
-    cursor.execute(
-        """
-        UPDATE files
-        SET reading_position = ?, updated_at = ?, position_updated_at = ?
-        WHERE filename = ?
-        """,
-        (position, now, now, file_id),
-    )
-    
-    rows_affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    
-    return rows_affected > 0
+
+    for attempt in range(4):
+        try:
+            with sqlite3.connect(DB_PATH, timeout=30) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE files
+                    SET reading_position = ?, updated_at = ?, position_updated_at = ?
+                    WHERE filename = ?
+                    """,
+                    (position, now, now, file_id),
+                )
+                rows_affected = cursor.rowcount
+            return rows_affected > 0
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 3:
+                _sleep_on_lock(attempt)
+                continue
+            raise
 
 
 def update_voice_by_file_id(file_id, voice):
@@ -340,24 +374,27 @@ def update_voice_by_file_id(file_id, voice):
     Returns:
         True if update was successful, False if file not found
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     now = datetime.utcnow().isoformat()
-    cursor.execute(
-        """
-        UPDATE files
-        SET voice = ?, updated_at = ?, voice_updated_at = ?
-        WHERE filename = ?
-        """,
-        (voice, now, now, file_id),
-    )
-    
-    rows_affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    
-    return rows_affected > 0
+
+    for attempt in range(4):
+        try:
+            with sqlite3.connect(DB_PATH, timeout=30) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE files
+                    SET voice = ?, updated_at = ?, voice_updated_at = ?
+                    WHERE filename = ?
+                    """,
+                    (voice, now, now, file_id),
+                )
+                rows_affected = cursor.rowcount
+            return rows_affected > 0
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 3:
+                _sleep_on_lock(attempt)
+                continue
+            raise
 
 
 def update_highlights(file_id, highlights):
@@ -370,42 +407,67 @@ def update_highlights(file_id, highlights):
     Returns:
         Number of highlights updated
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Clear existing highlights for this file
-    cursor.execute("DELETE FROM highlights WHERE file_id = ?", (file_id,))
-    
-    # Insert new highlights
     created_at = datetime.utcnow().isoformat()
-    count = 0
-    
-    for highlight in highlights:
-        sentence_index = highlight.get('sentenceIndex')
-        color = highlight.get('color', '#ffda76')
-        text = highlight.get('text', '')
-        
-        cursor.execute("""
-            INSERT INTO highlights (file_id, sentence_index, color, text, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (file_id, sentence_index, color, text, created_at))
-        count += 1
-    
-    conn.commit()
 
-    # Touch file timestamps for highlight sync
-    cursor.execute(
-        """
-        UPDATE files
-        SET updated_at = ?, highlights_updated_at = ?
-        WHERE filename = ?
-        """,
-        (created_at, created_at, file_id),
-    )
-    conn.commit()
-    conn.close()
-    
-    return count
+    def _coerce_sentence_index(h):
+        if not isinstance(h, dict):
+            return None
+        idx = h.get("sentenceIndex")
+        if idx is None:
+            idx = h.get("sentence_index")
+        if idx is None:
+            return None
+        try:
+            return int(idx)
+        except (TypeError, ValueError):
+            return None
+
+    for attempt in range(4):
+        try:
+            with sqlite3.connect(DB_PATH, timeout=30) as conn:
+                cursor = conn.cursor()
+
+                # Clear existing highlights for this file
+                cursor.execute("DELETE FROM highlights WHERE file_id = ?", (file_id,))
+
+                count = 0
+                if highlights:
+                    for highlight in highlights:
+                        sentence_index = _coerce_sentence_index(highlight)
+                        if sentence_index is None:
+                            continue
+
+                        color = "#ffda76"
+                        text = ""
+                        if isinstance(highlight, dict):
+                            color = highlight.get("color", color)
+                            text = highlight.get("text", text)
+
+                        cursor.execute(
+                            """
+                            INSERT INTO highlights (file_id, sentence_index, color, text, created_at)
+                            VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (file_id, sentence_index, color, text, created_at),
+                        )
+                        count += 1
+
+                # Touch file timestamps for highlight sync
+                cursor.execute(
+                    """
+                    UPDATE files
+                    SET updated_at = ?, highlights_updated_at = ?
+                    WHERE filename = ?
+                    """,
+                    (created_at, created_at, file_id),
+                )
+
+            return count
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 3:
+                _sleep_on_lock(attempt)
+                continue
+            raise
 
 
 def get_highlights(file_id):

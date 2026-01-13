@@ -613,12 +613,27 @@ export class ServerSync {
             if (downloaded > 0) {
                 this.app.ui?.showInfo?.(`Downloaded ${downloaded} files from server`);
                 console.log(`[ServerSync] Download complete: ${downloaded}/${missingFiles.length} files`);
-                // Only refresh the saved PDFs view if no document is currently open
-                if (!this.app.state.currentDocumentType) {
-                    setTimeout(() => {
-                        this.app.showSavedPDFs?.();
-                    }, 500);
-                }
+                
+                // Refresh the saved PDFs view to show new downloads
+                console.log("[ServerSync] Refreshing library view with new downloads");
+                console.log("[ServerSync] Current document type:", this.app.state.currentDocumentType);
+                
+                setTimeout(async () => {
+                    try {
+                        if (this.app.showSavedPDFs) {
+                            console.log("[ServerSync] Calling app.showSavedPDFs()");
+                            await this.app.showSavedPDFs();
+                        } else if (this.app.pdfThumbnailCache?.showSavedPDFs) {
+                            console.log("[ServerSync] Calling pdfThumbnailCache.showSavedPDFs()");
+                            await this.app.pdfThumbnailCache.showSavedPDFs();
+                        } else {
+                            console.warn("[ServerSync] No method found to refresh library view");
+                        }
+                        console.log("[ServerSync] Library view refreshed");
+                    } catch (error) {
+                        console.error("[ServerSync] Failed to refresh library view:", error);
+                    }
+                }, 1000);
             }
         } catch (error) {
             console.error("[ServerSync] Sync from server failed:", error);
@@ -651,11 +666,13 @@ export class ServerSync {
         }
 
         const blob = await response.blob();
-        const file = new File([blob], actualFilename, { 
-            type: format === "pdf" ? "application/pdf" : "application/epub+zip" 
-        });
+        
+        // Create a proper File object with correct type and name
+        const fileType = format === "pdf" ? "application/pdf" : "application/epub+zip";
+        const file = new File([blob], actualFilename, { type: fileType });
 
         // Save to IndexedDB using the full filename key from server
+        // The storage format is: { blob: File, name: string }
         if (format === "pdf") {
             await this.app.progressManager.savePdfToIndexedDB(file, filename);
         } else if (format === "epub") {
@@ -663,21 +680,19 @@ export class ServerSync {
         }
 
         // Restore progress if available
-        if (reading_position) {
-            const progressMap = this.app.progressManager.getProgressMap();
-            const docType = format === "epub" ? "epub" : "pdf";
-            const compoundKey = `${docType}::${filename}`;
-            
-            progressMap[compoundKey] = {
-                sentenceIndex: parseInt(reading_position, 10) || 0,
-                updated: Date.now(),
-                voice: voice || null,
-                title: title || null,
-                docType: docType,
-            };
-            
-            this.app.progressManager.setProgressMap(progressMap);
-        }
+        const progressMap = this.app.progressManager.getProgressMap();
+        const docType = format === "epub" ? "epub" : "pdf";
+        const compoundKey = `${docType}::${filename}`;
+        
+        progressMap[compoundKey] = {
+            sentenceIndex: parseInt(reading_position, 10) || 0,
+            updated: Date.now(),
+            voice: voice || null,
+            title: title || actualFilename,
+            docType: docType,
+        };
+        
+        this.app.progressManager.setProgressMap(progressMap);
 
         console.log(`[ServerSync] Downloaded and cached: ${actualFilename}`);
     }

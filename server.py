@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import re
+import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 import app
@@ -10,11 +11,11 @@ PORT = 8000
 
 
 class APIHandler(BaseHTTPRequestHandler):
-    ALLOWED_ORIGINS = [
-        "http://127.0.0.1:8080",
-        "https://charlesneimog.github.io",
-        "http://localhost:8080",
-    ]
+    # Read allowed origins from environment variable, fallback to defaults
+    ALLOWED_ORIGINS = os.environ.get(
+        "ALLOWED_ORIGINS",
+        "http://127.0.0.1:8080,https://charlesneimog.github.io,http://localhost:8080"
+    ).split(",")
     
     def _set_cors_headers(self):
         """Set CORS headers to allow browser requests."""

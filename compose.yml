@@ -1,0 +1,10 @@
+services:
+  localreader-server:
+    build: .
+    ports:
+      - "8997:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - ALLOWED_ORIGINS=http://127.0.0.1:8080,https://charlesneimog.github.io,http://localhost:8080
+    restart: unless-stopped

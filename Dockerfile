@@ -5,7 +5,7 @@ WORKDIR /app
 COPY app.py .
 COPY server.py .
 
-VOLUME ["/app/database.db"]
+VOLUME ["/app/data"]
 
 EXPOSE 8000
 

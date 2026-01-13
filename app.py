@@ -1,11 +1,14 @@
 import sqlite3
 from datetime import datetime
+import os
 
-DB_PATH = "database.db"
+DB_PATH = "data/database.db"
 
 
 def init_db():
     """Initialize database and create tables if they don't exist."""
+    # Ensure the data directory exists
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     

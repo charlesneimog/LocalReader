@@ -21,6 +21,7 @@ export class ControlsManager {
 
     // Cache all used DOM nodes once
     _cacheDOMElements() {
+        this.serverLinkInput = document.getElementById("server-link");
         this.voiceSelect = document.getElementById("voice-select");
         this.speedSelect = document.getElementById("reading-speed");
         this.speedSelectValue = document.getElementById("reading-speed-value");
@@ -226,6 +227,27 @@ export class ControlsManager {
                 this._updateTimerDisplay();
             }
         });
+
+        // Server Link Configuration
+        if (this.serverLinkInput) {
+            // Load saved server link from localStorage
+            const savedServerLink = localStorage.getItem("config.serverLink");
+            if (savedServerLink) {
+                this.serverLinkInput.value = savedServerLink;
+                this.showInfo("Loaded saved server link");
+            }
+
+            // Save server link on change
+            on(this.serverLinkInput, "change", () => {
+                const serverLink = this.serverLinkInput.value.trim();
+                if (serverLink) {
+                    localStorage.setItem("config.serverLink", serverLink);
+                    this.showInfo("Server link saved");
+                } else {
+                    localStorage.removeItem("config.serverLink");
+                }
+            });
+        }
     }
 
     orientationChange() {
@@ -371,5 +393,16 @@ export class ControlsManager {
         const minutes = Math.floor(this.timeLeft / 60);
         const seconds = this.timeLeft % 60;
         this.autoStopInput.value = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+    }
+
+    showInfo(message, duration = 2000) {
+        if (!this.infoBox) return;
+        this.infoBox.textContent = message;
+        this.infoBox.classList.remove("hidden");
+        setTimeout(() => this.infoBox.classList.add("hidden"), duration);
+    }
+
+    getServerLink() {
+        return localStorage.getItem("config.serverLink") || "";
     }
 }

@@ -75,6 +75,21 @@ export class ProgressManager {
             delete map[storageKey];
         }
         this.setProgressMap(map);
+
+        // Sync to server if enabled
+        if (this.app.serverSync?.isEnabled()) {
+            const fileId = docType === "epub" ? state.currentEpubKey : state.currentPdfKey;
+            if (fileId) {
+                this.app.serverSync.syncPosition(fileId, state.currentSentenceIndex).catch((err) => {
+                    console.warn("[ProgressManager] Position sync failed:", err);
+                });
+                if (state.currentPiperVoice) {
+                    this.app.serverSync.syncVoice(fileId, state.currentPiperVoice).catch((err) => {
+                        console.warn("[ProgressManager] Voice sync failed:", err);
+                    });
+                }
+            }
+        }
     }
 
     listSavedProgress() {

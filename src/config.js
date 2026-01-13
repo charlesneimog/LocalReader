@@ -61,5 +61,5 @@ export const CONFIG = {
     MS_ON_FOCUS_TO_RENDER: 150,
 
     // Header detection
-    TOLERANCE: 30, // pixels around detection boxes to tolerate small misalignments
+    TOLERANCE: 50, // pixels around detection boxes to tolerate small misalignments
 };

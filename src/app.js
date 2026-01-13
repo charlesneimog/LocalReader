@@ -28,6 +28,7 @@ import { ProgressManager } from "./modules/storage/progressManager.js";
 import { HighlightsStorage } from "./modules/storage/highlightsStorage.js";
 import { ExportManager } from "./modules/storage/exportManager.js";
 import { PDFThumbnailCache } from "./modules/storage/pdfThumbnailCache.js";
+import { ServerSync } from "./modules/storage/serverSync.js";
 
 export class PDFTTSApp {
     constructor() {
@@ -53,6 +54,7 @@ export class PDFTTSApp {
         this.highlightsStorage = new HighlightsStorage(this);
         this.exportManager = new ExportManager(this);
         this.pdfThumbnailCache = new PDFThumbnailCache(this);
+        this.serverSync = new ServerSync(this);
 
         // PDF / Text
         this.pdfLoader = new PDFLoader(this);
@@ -145,7 +147,9 @@ export class PDFTTSApp {
             const nopdf = document.getElementById("no-pdf-overlay");
             nopdf.style.display = "none";
         }
-        return this.pdfLoader.loadPDF(file, options);
+        const result = await this.pdfLoader.loadPDF(file, options);
+        this.serverSync?.startAutoSync();
+        return result;
     }
 
     async loadEPUB(file = null, options = {}) {
@@ -153,7 +157,9 @@ export class PDFTTSApp {
             const overlay = document.getElementById("no-pdf-overlay");
             if (overlay) overlay.style.display = "none";
         }
-        return this.epubLoader.loadEPUB(file, options);
+        const result = await this.epubLoader.loadEPUB(file, options);
+        this.serverSync?.startAutoSync();
+        return result;
     }
 
     nextSentence(manual = true) {
@@ -242,6 +248,13 @@ export class PDFTTSApp {
      */
     async closeCurrentDocument() {
         const { state } = this;
+
+        try {
+            // Stop server sync
+            this.serverSync?.stopAutoSync();
+        } catch (err) {
+            console.debug("closeCurrentDocument: server sync stop failed", err);
+        }
 
         try {
             // Stop audio playback (best-effort)

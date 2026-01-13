@@ -1,0 +1,355 @@
+import sqlite3
+from datetime import datetime
+
+DB_PATH = "database.db"
+
+
+def init_db():
+    """Initialize database and create tables if they don't exist."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            format TEXT NOT NULL,
+            file_data BLOB NOT NULL,
+            reading_position TEXT,
+            voice TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS highlights (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id TEXT NOT NULL,
+            sentence_index INTEGER NOT NULL,
+            color TEXT NOT NULL,
+            text TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(file_id, sentence_index)
+        )
+    """)
+    
+    conn.commit()
+    conn.close()
+
+
+def add_file(title, filename, format, voice=None):
+    """Add a new file to the database.
+    
+    Args:
+        title: The title of the file
+        filename: The name of the file
+        format: Either 'pdf' or 'epub'
+        voice: Optional voice setting
+        
+    Returns:
+        The ID of the newly created file record
+        
+    Note:
+        This function expects the file to exist at the given filename path.
+        The file data will be read and stored as a BLOB in the database.
+    """
+    with open(filename, 'rb') as f:
+        file_data = f.read()
+    
+    created_at = datetime.utcnow().isoformat()
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO files (title, filename, format, file_data, reading_position, voice, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (title, filename, format, file_data, None, voice, created_at))
+    
+    file_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return file_id
+
+
+def update_position(file_id, position):
+    """Update the reading position for a file.
+    
+    Args:
+        file_id: The ID of the file to update
+        position: The new reading position (string)
+        
+    Returns:
+        True if update was successful, False if file not found
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        UPDATE files
+        SET reading_position = ?
+        WHERE id = ?
+    """, (position, file_id))
+    
+    rows_affected = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    return rows_affected > 0
+
+
+def get_files():
+    """Get all files from the database (without file data).
+    
+    Returns:
+        List of dictionaries containing file information (excluding file_data)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT filename, title, format, reading_position, voice, created_at
+        FROM files
+        ORDER BY created_at DESC
+    """)
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    files = [dict(row) for row in rows]
+    return files
+
+
+def get_file_blob(file_id):
+    """Get the file blob data for a specific file by file_id.
+    
+    Args:
+        file_id: The file identifier (filename)
+        
+    Returns:
+        Binary file data or None if not found
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT file_data
+        FROM files
+        WHERE filename = ?
+    """, (file_id,))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    return row[0] if row else None
+
+
+def get_file_data(file_id):
+    """Get the file data for a specific file.
+    
+    Args:
+        file_id: The ID of the file
+        
+    Returns:
+        Tuple of (filename, file_data) or None if not found
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT filename, file_data
+        FROM files
+        WHERE id = ?
+    """, (file_id,))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    return row
+
+
+def file_exists(file_id):
+    """Check if a file exists by file_id (filename).
+    
+    Args:
+        file_id: The file identifier (filename)
+        
+    Returns:
+        True if file exists, False otherwise
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT COUNT(*) FROM files WHERE filename = ?
+    """, (file_id,))
+    
+    count = cursor.fetchone()[0]
+    conn.close()
+    
+    return count > 0
+
+
+def add_file_with_id(file_id, title, file_data, format, voice=None):
+    """Add or update a file in the database.
+    
+    Args:
+        file_id: The file identifier (filename)
+        title: The title of the file
+        file_data: The binary file data
+        format: Either 'pdf' or 'epub'
+        voice: Optional voice setting
+        
+    Returns:
+        The filename (file_id)
+    """
+    created_at = datetime.utcnow().isoformat()
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Check if file already exists
+    cursor.execute("SELECT id FROM files WHERE filename = ?", (file_id,))
+    existing = cursor.fetchone()
+    
+    if existing:
+        # Update existing file
+        cursor.execute("""
+            UPDATE files
+            SET title = ?, file_data = ?, format = ?, voice = COALESCE(?, voice)
+            WHERE filename = ?
+        """, (title, file_data, format, voice, file_id))
+    else:
+        # Insert new file
+        cursor.execute("""
+            INSERT INTO files (title, filename, format, file_data, reading_position, voice, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (title, file_id, format, file_data, None, voice, created_at))
+    
+    conn.commit()
+    conn.close()
+    
+    return file_id
+
+
+def update_position_by_file_id(file_id, position):
+    """Update the reading position for a file by file_id.
+    
+    Args:
+        file_id: The file identifier (filename)
+        position: The new reading position (string)
+        
+    Returns:
+        True if update was successful, False if file not found
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        UPDATE files
+        SET reading_position = ?
+        WHERE filename = ?
+    """, (position, file_id))
+    
+    rows_affected = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    return rows_affected > 0
+
+
+def update_voice_by_file_id(file_id, voice):
+    """Update the voice for a file by file_id.
+    
+    Args:
+        file_id: The file identifier (filename)
+        voice: The voice setting
+        
+    Returns:
+        True if update was successful, False if file not found
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        UPDATE files
+        SET voice = ?
+        WHERE filename = ?
+    """, (voice, file_id))
+    
+    rows_affected = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    return rows_affected > 0
+
+
+def update_highlights(file_id, highlights):
+    """Update highlights for a file.
+    
+    Args:
+        file_id: The file identifier (filename)
+        highlights: List of dicts with sentenceIndex, color, text
+        
+    Returns:
+        Number of highlights updated
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Clear existing highlights for this file
+    cursor.execute("DELETE FROM highlights WHERE file_id = ?", (file_id,))
+    
+    # Insert new highlights
+    created_at = datetime.utcnow().isoformat()
+    count = 0
+    
+    for highlight in highlights:
+        sentence_index = highlight.get('sentenceIndex')
+        color = highlight.get('color', '#ffda76')
+        text = highlight.get('text', '')
+        
+        cursor.execute("""
+            INSERT INTO highlights (file_id, sentence_index, color, text, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (file_id, sentence_index, color, text, created_at))
+        count += 1
+    
+    conn.commit()
+    conn.close()
+    
+    return count
+
+
+def get_highlights(file_id):
+    """Get highlights for a file.
+    
+    Args:
+        file_id: The file identifier (filename)
+        
+    Returns:
+        List of highlight dictionaries
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT sentence_index, color, text
+        FROM highlights
+        WHERE file_id = ?
+        ORDER BY sentence_index
+    """, (file_id,))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [dict(row) for row in rows]
+
+
+if __name__ == "__main__":
+    init_db()
+    print("Database initialized successfully")

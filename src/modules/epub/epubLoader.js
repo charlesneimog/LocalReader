@@ -178,7 +178,39 @@ export class EPUBLoader {
             if (state.sentences?.length) {
                 let startIndex = Math.max(0, state.currentSentenceIndex ?? 0);
                 let resumeVoiceId = null;
-                if (resume && state.currentEpubKey) {
+                
+                // First, try to load from server if enabled
+                if (this.app.serverSync?.isEnabled() && state.currentEpubKey) {
+                    try {
+                        const serverData = await this.app.serverSync.loadPositionAndHighlightsFromServer(state.currentEpubKey);
+                        
+                        // Update position from server if available
+                        if (serverData.position !== null && serverData.position >= 0) {
+                            startIndex = Math.min(Math.max(serverData.position, 0), state.sentences.length - 1);
+                            console.log(`[EPUBLoader] Restored position from server: ${startIndex}`);
+                        }
+                        
+                        // Update voice from server if available
+                        if (resume && serverData.voice) {
+                            resumeVoiceId = serverData.voice;
+                            console.log(`[EPUBLoader] Restored voice from server: ${resumeVoiceId}`);
+                        }
+                        
+                        // Update highlights from server if available
+                        if (serverData.highlights && serverData.highlights.size > 0) {
+                            state.savedHighlights = serverData.highlights;
+                            console.log(`[EPUBLoader] Restored ${serverData.highlights.size} highlights from server`);
+                            
+                            // Also save to local storage
+                            this.app.highlightsStorage.saveHighlights(state.currentEpubKey, serverData.highlights);
+                        }
+                    } catch (error) {
+                        console.warn("[EPUBLoader] Failed to load from server, using local data:", error);
+                    }
+                }
+                
+                // If no server data, load from local storage
+                if (startIndex === 0 && resume && state.currentEpubKey) {
                     const saved = this.app.progressManager.loadSavedPosition(state.currentEpubKey, "epub");
                     if (saved) {
                         if (typeof saved.sentenceIndex === "number") {

@@ -8,3 +8,4 @@ src/modules/tts/pt_BR-faber-medium.onnx.json
 src/modules/tts/pipertts.data
 src/modules/tts/pipertts.js
 src/modules/tts/pipertts.wasm
+database.db

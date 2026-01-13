@@ -196,7 +196,39 @@ export class PDFLoader {
 
             let startIndex = 0;
             let resumeVoiceId = null;
-            if (state.currentPdfKey) {
+            
+            // First, try to load from server if enabled
+            if (app.serverSync?.isEnabled() && state.currentPdfKey) {
+                try {
+                    const serverData = await app.serverSync.loadPositionAndHighlightsFromServer(state.currentPdfKey);
+                    
+                    // Update position from server if available
+                    if (serverData.position !== null && serverData.position >= 0) {
+                        startIndex = Math.min(Math.max(serverData.position, 0), state.sentences.length - 1);
+                        console.log(`[PDFLoader] Restored position from server: ${startIndex}`);
+                    }
+                    
+                    // Update voice from server if available
+                    if (resume && serverData.voice) {
+                        resumeVoiceId = serverData.voice;
+                        console.log(`[PDFLoader] Restored voice from server: ${resumeVoiceId}`);
+                    }
+                    
+                    // Update highlights from server if available
+                    if (serverData.highlights && serverData.highlights.size > 0) {
+                        state.savedHighlights = serverData.highlights;
+                        console.log(`[PDFLoader] Restored ${serverData.highlights.size} highlights from server`);
+                        
+                        // Also save to local storage
+                        app.highlightsStorage.saveHighlights(state.currentPdfKey, serverData.highlights);
+                    }
+                } catch (error) {
+                    console.warn("[PDFLoader] Failed to load from server, using local data:", error);
+                }
+            }
+            
+            // If no server data, load from local storage
+            if (startIndex === 0 && state.currentPdfKey) {
                 const saved = app.progressManager.loadSavedPosition(state.currentPdfKey);
                 if (saved) {
                     if (typeof saved.sentenceIndex === "number") {
@@ -216,7 +248,10 @@ export class PDFLoader {
                 await app.pdfRenderer.renderFullDocumentIfNeeded();
             }
 
-            state.savedHighlights = app.highlightsStorage.loadSavedHighlights(state.currentPdfKey);
+            // Load highlights from local storage if not already loaded from server
+            if (!state.savedHighlights || state.savedHighlights.size === 0) {
+                state.savedHighlights = app.highlightsStorage.loadSavedHighlights(state.currentPdfKey);
+            }
             if (state.savedHighlights.size) {
                 const lastSaved = Array.from(state.savedHighlights.values()).pop();
                 if (lastSaved?.color) state.selectedHighlightColor = lastSaved.color;

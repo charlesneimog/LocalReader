@@ -17,6 +17,16 @@ export class PDFLoader {
         return null;
     }
 
+    _parseFileKeyParts(key) {
+        if (typeof key !== "string") return null;
+        if (!key.startsWith("file::")) return null;
+        const parts = key.split("::");
+        if (parts.length < 4) return null;
+        const name = parts[1] ?? "";
+        const size = Number(parts[2] ?? 0);
+        return { name, size: Number.isFinite(size) ? size : 0 };
+    }
+
     async preprocessPage(pageNumber) {
         const { app } = this;
         const { state } = app;
@@ -150,6 +160,22 @@ export class PDFLoader {
                 state.currentPdfKey = existingKey;
             } else {
                 state.currentPdfKey = this.computePdfKeyFromSource(state.currentPdfDescriptor);
+
+                // If the same PDF was already saved under a different key (e.g., server timestamp vs File.lastModified),
+                // reuse the existing key to avoid duplicates.
+                if (file instanceof File && state.currentPdfKey) {
+                    const currentParts = this._parseFileKeyParts(state.currentPdfKey);
+                    if (currentParts?.name && currentParts.size > 0) {
+                        const keys = await app.progressManager.listSavedPDFs();
+                        const match = keys.find((k) => {
+                            const p = this._parseFileKeyParts(k);
+                            return p && p.name === currentParts.name && p.size === currentParts.size;
+                        });
+                        if (match) {
+                            state.currentPdfKey = match;
+                        }
+                    }
+                }
             }
 
             if (file instanceof File) {
@@ -220,7 +246,7 @@ export class PDFLoader {
                         console.log(`[PDFLoader] Restored ${serverData.highlights.size} highlights from server`);
                         
                         // Also save to local storage
-                        app.highlightsStorage.saveHighlights(state.currentPdfKey, serverData.highlights);
+                        app.highlightsStorage?.saveHighlights?.(state.currentPdfKey, serverData.highlights);
                     }
                 } catch (error) {
                     console.warn("[PDFLoader] Failed to load from server, using local data:", error);

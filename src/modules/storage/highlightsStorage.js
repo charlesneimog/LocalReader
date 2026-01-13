@@ -65,6 +65,28 @@ export class HighlightsStorage {
             });
         }
     }
+
+    saveHighlights(key, highlights, { merge = false } = {}) {
+        if (!key) return;
+
+        const all = this.getHighlightsMap();
+        const existing = all[key] || {};
+        const next = merge ? { ...existing } : {};
+
+        if (highlights instanceof Map) {
+            for (const [sentenceIndex, data] of highlights.entries()) {
+                next[String(sentenceIndex)] = data;
+            }
+        } else if (highlights && typeof highlights === "object") {
+            // Accept plain object maps too.
+            for (const [sentenceIndex, data] of Object.entries(highlights)) {
+                next[String(sentenceIndex)] = data;
+            }
+        }
+
+        all[key] = next;
+        this.setHighlightsMap(all);
+    }
     listSavedHighlights() {
         return this.getHighlightsMap();
     }

@@ -38,6 +38,34 @@ def init_db():
     """)
     
     conn.commit()
+
+    # Lightweight schema migrations for older DBs
+    def _ensure_column(table_name: str, column_name: str, column_def: str):
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        cols = {row[1] for row in cursor.fetchall()}  # row[1] is column name
+        if column_name not in cols:
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+
+    _ensure_column("files", "updated_at", "TEXT")
+    _ensure_column("files", "position_updated_at", "TEXT")
+    _ensure_column("files", "highlights_updated_at", "TEXT")
+    _ensure_column("files", "voice_updated_at", "TEXT")
+
+    # Backfill any NULL timestamps for existing rows
+    cursor.execute(
+        """
+        UPDATE files
+        SET
+            updated_at = COALESCE(updated_at, created_at),
+            position_updated_at = COALESCE(position_updated_at, created_at),
+            highlights_updated_at = COALESCE(highlights_updated_at, created_at),
+            voice_updated_at = COALESCE(voice_updated_at, created_at)
+        WHERE updated_at IS NULL
+           OR position_updated_at IS NULL
+           OR highlights_updated_at IS NULL
+           OR voice_updated_at IS NULL
+        """
+    )
     conn.close()
 
 
@@ -61,14 +89,21 @@ def add_file(title, filename, format, voice=None):
         file_data = f.read()
     
     created_at = datetime.utcnow().isoformat()
+    updated_at = created_at
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    cursor.execute("""
-        INSERT INTO files (title, filename, format, file_data, reading_position, voice, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (title, filename, format, file_data, None, voice, created_at))
+    cursor.execute(
+        """
+        INSERT INTO files (
+            title, filename, format, file_data, reading_position, voice,
+            created_at, updated_at, position_updated_at, highlights_updated_at, voice_updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (title, filename, format, file_data, None, voice, created_at, updated_at, updated_at, updated_at, updated_at),
+    )
     
     file_id = cursor.lastrowid
     conn.commit()
@@ -113,11 +148,19 @@ def get_files():
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    cursor.execute("""
-        SELECT filename, title, format, reading_position, voice, created_at
+    cursor.execute(
+        """
+        SELECT
+            filename, title, format, reading_position, voice,
+            created_at,
+            COALESCE(updated_at, created_at) AS updated_at,
+            COALESCE(position_updated_at, created_at) AS position_updated_at,
+            COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
+            COALESCE(voice_updated_at, created_at) AS voice_updated_at
         FROM files
         ORDER BY created_at DESC
-    """)
+        """
+    )
     
     rows = cursor.fetchall()
     conn.close()
@@ -151,27 +194,36 @@ def get_file_blob(file_id):
 
 
 def get_file_data(file_id):
-    """Get the file data for a specific file.
-    
+    """Get file metadata by filename (file_id).
+
     Args:
-        file_id: The ID of the file
-        
+        file_id: The file identifier (filename)
+
     Returns:
-        Tuple of (filename, file_data) or None if not found
+        Dict-like row with metadata, or None.
     """
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT filename, file_data
+
+    cursor.execute(
+        """
+        SELECT
+            filename, title, format, reading_position, voice,
+            created_at,
+            COALESCE(updated_at, created_at) AS updated_at,
+            COALESCE(position_updated_at, created_at) AS position_updated_at,
+            COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
+            COALESCE(voice_updated_at, created_at) AS voice_updated_at
         FROM files
-        WHERE id = ?
-    """, (file_id,))
-    
+        WHERE filename = ?
+        """,
+        (file_id,),
+    )
+
     row = cursor.fetchone()
     conn.close()
-    
-    return row
+    return dict(row) if row else None
 
 
 def file_exists(file_id):
@@ -210,6 +262,7 @@ def add_file_with_id(file_id, title, file_data, format, voice=None):
         The filename (file_id)
     """
     created_at = datetime.utcnow().isoformat()
+    updated_at = created_at
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -222,15 +275,24 @@ def add_file_with_id(file_id, title, file_data, format, voice=None):
         # Update existing file
         cursor.execute("""
             UPDATE files
-            SET title = ?, file_data = ?, format = ?, voice = COALESCE(?, voice)
+            SET
+                title = ?,
+                file_data = ?,
+                format = ?,
+                voice = COALESCE(?, voice),
+                updated_at = ?,
+                voice_updated_at = CASE WHEN ? IS NOT NULL THEN ? ELSE voice_updated_at END
             WHERE filename = ?
-        """, (title, file_data, format, voice, file_id))
+        """, (title, file_data, format, voice, updated_at, voice, updated_at, file_id))
     else:
         # Insert new file
         cursor.execute("""
-            INSERT INTO files (title, filename, format, file_data, reading_position, voice, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (title, file_id, format, file_data, None, voice, created_at))
+            INSERT INTO files (
+                title, filename, format, file_data, reading_position, voice,
+                created_at, updated_at, position_updated_at, highlights_updated_at, voice_updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (title, file_id, format, file_data, None, voice, created_at, updated_at, updated_at, updated_at, updated_at))
     
     conn.commit()
     conn.close()
@@ -251,11 +313,15 @@ def update_position_by_file_id(file_id, position):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    cursor.execute("""
+    now = datetime.utcnow().isoformat()
+    cursor.execute(
+        """
         UPDATE files
-        SET reading_position = ?
+        SET reading_position = ?, updated_at = ?, position_updated_at = ?
         WHERE filename = ?
-    """, (position, file_id))
+        """,
+        (position, now, now, file_id),
+    )
     
     rows_affected = cursor.rowcount
     conn.commit()
@@ -277,11 +343,15 @@ def update_voice_by_file_id(file_id, voice):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    cursor.execute("""
+    now = datetime.utcnow().isoformat()
+    cursor.execute(
+        """
         UPDATE files
-        SET voice = ?
+        SET voice = ?, updated_at = ?, voice_updated_at = ?
         WHERE filename = ?
-    """, (voice, file_id))
+        """,
+        (voice, now, now, file_id),
+    )
     
     rows_affected = cursor.rowcount
     conn.commit()
@@ -321,6 +391,17 @@ def update_highlights(file_id, highlights):
         """, (file_id, sentence_index, color, text, created_at))
         count += 1
     
+    conn.commit()
+
+    # Touch file timestamps for highlight sync
+    cursor.execute(
+        """
+        UPDATE files
+        SET updated_at = ?, highlights_updated_at = ?
+        WHERE filename = ?
+        """,
+        (created_at, created_at, file_id),
+    )
     conn.commit()
     conn.close()
     

@@ -5,6 +5,10 @@ export class ServerSync {
         this.syncIntervalMs = 5000; // Sync every 5 seconds
         this.lastSyncTime = 0;
         this.isSyncing = false;
+
+        // Throttle server -> client state pulls (position/highlights/voice)
+        this.serverPullIntervalMs = 30000; // Check every 30 seconds
+        this.lastServerPullCheck = 0;
     }
 
     getServerUrl() {
@@ -14,6 +18,156 @@ export class ServerSync {
 
     isEnabled() {
         return !!this.getServerUrl();
+    }
+
+    _parseIsoToMs(value) {
+        if (!value || typeof value !== "string") return 0;
+        const ms = Date.parse(value);
+        return Number.isFinite(ms) ? ms : 0;
+    }
+
+    _extractActualFilename(key) {
+        if (typeof key !== "string") return key;
+        if (!key.startsWith("file::")) return key;
+        const parts = key.split("::");
+        return parts.length >= 2 ? parts[1] : key;
+    }
+
+    async _maybePullServerStateUpdates() {
+        const now = Date.now();
+        if (now - this.lastServerPullCheck < this.serverPullIntervalMs) return;
+        this.lastServerPullCheck = now;
+
+        const serverAvailable = await this.checkServerAvailability();
+        if (!serverAvailable) return;
+
+        await this.pullServerStateUpdates();
+    }
+
+    async pullServerStateUpdates() {
+        const serverUrl = this.getServerUrl();
+        if (!serverUrl) return;
+
+        try {
+            const response = await fetch(`${serverUrl}/api/files`, {
+                method: "GET",
+                headers: { "Content-Type": "application/json" },
+            });
+
+            if (!response.ok) {
+                console.warn("[ServerSync] Failed to fetch server files for state sync");
+                return;
+            }
+
+            const data = await response.json();
+            const serverFiles = data.files || [];
+
+            const [localPdfKeys, localEpubKeys] = await Promise.all([
+                this.app.progressManager.listSavedPDFs(),
+                this.app.progressManager.listSavedEPUBs(),
+            ]);
+            const allLocalKeys = [...localPdfKeys, ...localEpubKeys];
+
+            // Map actual filename -> local key for matching when timestamps differ.
+            const localByActualName = new Map();
+            for (const k of allLocalKeys) {
+                const actual = this._extractActualFilename(k);
+                if (!localByActualName.has(actual)) localByActualName.set(actual, k);
+            }
+
+            const progressMap = this.app.progressManager.getProgressMap();
+
+            let updatedCount = 0;
+            for (const fileInfo of serverFiles) {
+                const serverKey = fileInfo.filename;
+                const actualName = this._extractActualFilename(serverKey);
+
+                // Find local key: exact match first, else match by actual filename.
+                const localKey = allLocalKeys.includes(serverKey) ? serverKey : localByActualName.get(actualName);
+                if (!localKey) continue;
+
+                const docType = fileInfo.format === "epub" ? "epub" : "pdf";
+                const compoundKey = `${docType}::${localKey}`;
+                const localEntry = progressMap[compoundKey] || {};
+
+                const serverPosMs = this._parseIsoToMs(fileInfo.position_updated_at || fileInfo.updated_at);
+                const serverHlMs = this._parseIsoToMs(fileInfo.highlights_updated_at || fileInfo.updated_at);
+                const serverVoiceMs = this._parseIsoToMs(fileInfo.voice_updated_at || fileInfo.updated_at);
+
+                const localServerPosMs = Number(localEntry.serverPositionUpdatedAt || 0);
+                const localServerHlMs = Number(localEntry.serverHighlightsUpdatedAt || 0);
+                const localServerVoiceMs = Number(localEntry.serverVoiceUpdatedAt || 0);
+
+                // Position: if server has newer position than last pulled, update local.
+                if (serverPosMs > localServerPosMs) {
+                    const pos = fileInfo.reading_position != null ? parseInt(fileInfo.reading_position, 10) : null;
+                    if (Number.isFinite(pos) && pos >= 0) {
+                        localEntry.sentenceIndex = pos;
+                        // Use server timestamp so "last timed sync" matches server.
+                        localEntry.updated = serverPosMs;
+                    }
+                    localEntry.serverPositionUpdatedAt = serverPosMs;
+                    updatedCount++;
+                }
+
+                // Voice: if newer.
+                if (serverVoiceMs > localServerVoiceMs) {
+                    if (typeof fileInfo.voice === "string" && fileInfo.voice.trim()) {
+                        localEntry.voice = fileInfo.voice.trim();
+                    }
+                    localEntry.serverVoiceUpdatedAt = serverVoiceMs;
+                    updatedCount++;
+                }
+
+                // Title: keep if server provides.
+                if (typeof fileInfo.title === "string" && fileInfo.title.trim()) {
+                    localEntry.title = fileInfo.title.trim();
+                }
+                localEntry.docType = docType;
+
+                // Highlights: only fetch when highlights timestamp advanced.
+                if (serverHlMs > localServerHlMs) {
+                    try {
+                        const hlResp = await fetch(
+                            `${serverUrl}/api/files/${encodeURIComponent(serverKey)}/highlights`,
+                            { method: "GET", headers: { "Content-Type": "application/json" } },
+                        );
+                        if (hlResp.ok) {
+                            const hlData = await hlResp.json();
+                            if (hlData?.highlights && Array.isArray(hlData.highlights)) {
+                                const highlightsMap = new Map();
+                                for (const h of hlData.highlights) {
+                                    const idx = h?.sentence_index ?? h?.sentenceIndex;
+                                    const sentenceIndex = typeof idx === "number" ? idx : parseInt(idx, 10);
+                                    if (Number.isFinite(sentenceIndex)) {
+                                        highlightsMap.set(sentenceIndex, {
+                                            color: h.color,
+                                            text: h.text || "",
+                                        });
+                                    }
+                                }
+                                // Save under the local key we will open with.
+                                this.app.highlightsStorage?.saveHighlights?.(localKey, highlightsMap);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("[ServerSync] Failed to pull highlights:", e);
+                    }
+                    localEntry.serverHighlightsUpdatedAt = serverHlMs;
+                    updatedCount++;
+                }
+
+                progressMap[compoundKey] = localEntry;
+            }
+
+            this.app.progressManager.setProgressMap(progressMap);
+
+            if (updatedCount > 0) {
+                console.log(`[ServerSync] Pulled ${updatedCount} server state updates`);
+            }
+        } catch (e) {
+            console.warn("[ServerSync] pullServerStateUpdates failed:", e);
+        }
     }
 
     async checkServerAvailability() {
@@ -499,15 +653,18 @@ export class ServerSync {
 
         console.log("[ServerSync] Starting auto-sync");
         this.syncInterval = setInterval(() => {
+            // Upload frequently; pull server state on a slower cadence.
+            this._maybePullServerStateUpdates();
             this.syncAll();
         }, this.syncIntervalMs);
 
-        // Do initial sync: check server availability, download books, then upload current state
+        // Do initial sync: check server availability, pull server state (position/highlights), download books, then upload current state
         setTimeout(async () => {
             const serverAvailable = await this.checkServerAvailability();
             
             if (serverAvailable) {
                 console.log("[ServerSync] Server is accessible, downloading books...");
+                await this.pullServerStateUpdates();
                 await this.syncFromServer();
                 await this.syncAll();
             } else {
@@ -617,21 +774,35 @@ export class ServerSync {
                 // Refresh the saved PDFs view to show new downloads
                 console.log("[ServerSync] Refreshing library view with new downloads");
                 console.log("[ServerSync] Current document type:", this.app.state.currentDocumentType);
+                console.log("[ServerSync] App methods available:", {
+                    showSavedPDFs: typeof this.app.showSavedPDFs,
+                    pdfThumbnailCache: typeof this.app.pdfThumbnailCache,
+                    showSavedPDFsOnCache: this.app.pdfThumbnailCache ? typeof this.app.pdfThumbnailCache.showSavedPDFs : 'undefined'
+                });
                 
-                setTimeout(async () => {
+                setTimeout(() => {
                     try {
-                        if (this.app.showSavedPDFs) {
+                        console.log("[ServerSync] Attempting to refresh library...");
+                        
+                        // Try to refresh the library view
+                        if (typeof this.app.showSavedPDFs === 'function') {
                             console.log("[ServerSync] Calling app.showSavedPDFs()");
-                            await this.app.showSavedPDFs();
-                        } else if (this.app.pdfThumbnailCache?.showSavedPDFs) {
+                            this.app.showSavedPDFs();
+                        } else if (this.app.pdfThumbnailCache && typeof this.app.pdfThumbnailCache.showSavedPDFs === 'function') {
                             console.log("[ServerSync] Calling pdfThumbnailCache.showSavedPDFs()");
-                            await this.app.pdfThumbnailCache.showSavedPDFs();
+                            this.app.pdfThumbnailCache.showSavedPDFs();
                         } else {
                             console.warn("[ServerSync] No method found to refresh library view");
                         }
-                        console.log("[ServerSync] Library view refreshed");
+                        
+                        console.log("[ServerSync] Library view refresh initiated");
                     } catch (error) {
                         console.error("[ServerSync] Failed to refresh library view:", error);
+                        console.error("[ServerSync] Error details:", {
+                            name: error.name,
+                            message: error.message,
+                            stack: error.stack
+                        });
                     }
                 }, 1000);
             }
@@ -671,12 +842,18 @@ export class ServerSync {
         const fileType = format === "pdf" ? "application/pdf" : "application/epub+zip";
         const file = new File([blob], actualFilename, { type: fileType });
 
-        // Save to IndexedDB using the full filename key from server
-        // The storage format is: { blob: File, name: string }
+        // Save to IndexedDB using the full filename key from server.
+        // Avoid duplicates: if it already exists under this key, don't save again.
         if (format === "pdf") {
-            await this.app.progressManager.savePdfToIndexedDB(file, filename);
+            const existing = await this.app.progressManager.loadPdfFromIndexedDB(filename);
+            if (!existing) {
+                await this.app.progressManager.savePdfToIndexedDB(file, filename);
+            }
         } else if (format === "epub") {
-            await this.app.progressManager.saveEpubToIndexedDB(file, filename);
+            const existing = await this.app.progressManager.loadEpubFromIndexedDB(filename);
+            if (!existing) {
+                await this.app.progressManager.saveEpubToIndexedDB(file, filename);
+            }
         }
 
         // Restore progress if available
@@ -693,6 +870,32 @@ export class ServerSync {
         };
         
         this.app.progressManager.setProgressMap(progressMap);
+
+        // Pull highlights from server and persist locally so the device has an offline copy
+        // without needing to open the document.
+        try {
+            const highlightsResponse = await fetch(
+                `${serverUrl}/api/files/${encodeURIComponent(filename)}/highlights`,
+                { method: "GET", headers: { "Content-Type": "application/json" } },
+            );
+            if (highlightsResponse.ok) {
+                const highlightsData = await highlightsResponse.json();
+                if (highlightsData?.highlights && Array.isArray(highlightsData.highlights)) {
+                    const highlightsMap = new Map();
+                    for (const h of highlightsData.highlights) {
+                        if (h && Number.isFinite(h.sentenceIndex)) {
+                            highlightsMap.set(h.sentenceIndex, {
+                                color: h.color,
+                                text: h.text || "",
+                            });
+                        }
+                    }
+                    this.app.highlightsStorage?.saveHighlights?.(filename, highlightsMap);
+                }
+            }
+        } catch (e) {
+            console.warn("[ServerSync] Failed to fetch/save highlights:", e);
+        }
 
         console.log(`[ServerSync] Downloaded and cached: ${actualFilename}`);
     }

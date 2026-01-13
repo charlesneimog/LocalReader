@@ -130,6 +130,11 @@ class APIHandler(BaseHTTPRequestHandler):
                     "format": file_data.get("format"),
                     "reading_position": file_data.get("reading_position"),
                     "voice": file_data.get("voice"),
+                    "created_at": file_data.get("created_at"),
+                    "updated_at": file_data.get("updated_at"),
+                    "position_updated_at": file_data.get("position_updated_at"),
+                    "highlights_updated_at": file_data.get("highlights_updated_at"),
+                    "voice_updated_at": file_data.get("voice_updated_at"),
                 })
             else:
                 print(f"[GET] File NOT found: {file_id}")

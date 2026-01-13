@@ -94,7 +94,7 @@ Please:
 ## How to Selfhost
 
 ```
-docker-compose build --no-cache                                                                                (b
+docker-compose build --no-cache
 docker-compose up
 ```
 

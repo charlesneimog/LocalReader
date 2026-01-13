@@ -33,6 +33,39 @@ export class PDFThumbnailCache {
         this.container = document.getElementById("previous-pdf-container");
         this.overlay = document.getElementById("pdf-previous-list");
         this.noPdfOverlay = document.getElementById("no-pdf-overlay");
+
+        // iOS Safari can lack requestIdleCallback or provide limited IdleDeadline.
+        // Provide a safe fallback so thumbnails/titles/sizes always render.
+        const g = globalThis;
+        this._requestIdle =
+            typeof g.requestIdleCallback === "function"
+                ? (cb, opts) => g.requestIdleCallback(cb, opts)
+                : (cb, _opts) => g.setTimeout(() => cb({ didTimeout: true, timeRemaining: () => 50 }), 1);
+        this._cancelIdle =
+            typeof g.cancelIdleCallback === "function" ? (id) => g.cancelIdleCallback(id) : (id) => g.clearTimeout(id);
+        this._idleHandle = null;
+    }
+
+    _scheduleIdle(cb, timeout = 2000) {
+        // Cancel any prior scheduled callback to avoid piling up on slow devices.
+        if (this._idleHandle != null) {
+            this._cancelIdle(this._idleHandle);
+            this._idleHandle = null;
+        }
+        this._idleHandle = this._requestIdle(cb, { timeout });
+    }
+
+    _timeRemaining(deadline) {
+        try {
+            if (deadline && typeof deadline.timeRemaining === "function") {
+                const remaining = deadline.timeRemaining();
+                return Number.isFinite(remaining) ? remaining : 0;
+            }
+        } catch {
+            // ignore
+        }
+        // Fallback budget (~one frame)
+        return 16;
     }
 
     /**
@@ -81,7 +114,12 @@ export class PDFThumbnailCache {
         this.isProcessingQueue = true;
 
         const renderBatch = async (deadline) => {
-            while (this.renderQueue.length > 0 && deadline.timeRemaining() > 0) {
+            // Always process at least one item per batch; on some browsers timeRemaining() can be 0.
+            let processed = 0;
+            while (this.renderQueue.length > 0) {
+                const remaining = this._timeRemaining(deadline);
+                if (processed > 0 && remaining <= 0) break;
+
                 const { key, docType, index } = this.renderQueue.shift();
                 try {
                     if (container && container.children[index]) {
@@ -97,17 +135,20 @@ export class PDFThumbnailCache {
                         this.markCardAsError(this.container.children[index], key, docType);
                     }
                 }
+
+                processed++;
             }
 
             // Continue processing remaining items
             if (this.renderQueue.length > 0) {
-                requestIdleCallback(renderBatch, { timeout: 2000 });
+                this._scheduleIdle(renderBatch, 2000);
             } else {
                 this.isProcessingQueue = false;
+                this._idleHandle = null;
             }
         };
 
-        requestIdleCallback(renderBatch, { timeout: 2000 });
+        this._scheduleIdle(renderBatch, 2000);
     }
 
     createPlaceholderCard({ key, docType }) {
@@ -222,8 +263,8 @@ export class PDFThumbnailCache {
         // Add close button (visible on hover)
         this.addCloseButton(cardElement, pdfKey, pdfName, canvas, "pdf");
 
-        // Add click handler to open PDF
-        this.addOpenHandler(cardElement, pdfBlob, pdfName, canvas, "pdf");
+        // Add click handler to open PDF (pass key to avoid duplicate IndexedDB entries)
+        this.addOpenHandler(cardElement, pdfBlob, pdfName, canvas, "pdf", pdfKey);
     }
 
     async renderEpubCard(epubKey, cardElement) {
@@ -299,7 +340,7 @@ export class PDFThumbnailCache {
         }
 
         this.addCloseButton(cardElement, epubKey, epubName, null, "epub");
-        this.addOpenHandler(cardElement, epubBlob, epubName, null, "epub");
+        this.addOpenHandler(cardElement, epubBlob, epubName, null, "epub", epubKey);
     }
 
     /**
@@ -353,7 +394,7 @@ export class PDFThumbnailCache {
     /**
      * Add click handler to open PDF
      */
-    addOpenHandler(cardElement, pdfBlob, pdfName, canvas, docType = "pdf") {
+    addOpenHandler(cardElement, pdfBlob, pdfName, canvas, docType = "pdf", storageKey = null) {
         cardElement.addEventListener("click", async () => {
             try {
                 const overlay = this.overlay;
@@ -367,14 +408,14 @@ export class PDFThumbnailCache {
                             ? pdfBlob
                             : new File([pdfBlob], pdfName, { type: pdfBlob.type || "application/epub+zip" });
 
-                    await this.app.epubLoader.loadEPUB(epubFile, { resume: true });
+                    await this.app.epubLoader.loadEPUB(epubFile, { resume: true, existingKey: storageKey });
                 } else {
                     const pdfFile =
                         pdfBlob instanceof File
                             ? pdfBlob
                             : new File([pdfBlob], pdfName, { type: pdfBlob.type || "application/pdf" });
 
-                    await this.app.pdfLoader.loadPDF(pdfFile, { resume: true });
+                    await this.app.pdfLoader.loadPDF(pdfFile, { resume: true, existingKey: storageKey });
                 }
 
                 // Hide overlay after successful load

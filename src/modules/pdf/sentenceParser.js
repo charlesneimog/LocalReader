@@ -39,6 +39,16 @@ export class SentenceParser {
         const abbreviations = ["Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "e.g", "i.e.", "etc", "Fig", "p", "al"];
         let sentenceIndex = state.sentences.length; // Continue from existing sentences
 
+        const getCanonicalGeom = (w) => {
+            // Prefer canonical base geometry (unscaled PDF units) to keep thresholds consistent
+            // across different display scales/device widths.
+            const x = Number.isFinite(w?._baseX) ? w._baseX : w?.x;
+            const y = Number.isFinite(w?._baseYDisplay) ? w._baseYDisplay : w?.y;
+            const width = Number.isFinite(w?._baseWidth) ? w._baseWidth : w?.width;
+            const height = Number.isFinite(w?._baseHeight) ? w._baseHeight : w?.height;
+            return { x, y, width, height };
+        };
+
         function isSentenceEnd(wordStr, nextWordStr) {
             const endings = config.SENTENCE_END.map((c) => `\\${c}`).join("");
             const sentenceEndRegex = new RegExp(`[${endings}]+$`);
@@ -103,9 +113,11 @@ export class SentenceParser {
             const w = wordsToProcess[i];
             let gapBreak = false;
 
+            const { x: canonX, y: canonY, width: canonWidth, height: canonHeight } = getCanonicalGeom(w);
+
             // Check vertical gap
             if (config.SPLIT_ON_LINE_GAP && lastY !== null) {
-                const verticalDelta = Math.abs(lastY - w.y);
+                const verticalDelta = Math.abs(lastY - canonY);
                 if (lastHeight && verticalDelta > lastHeight * config.LINE_GAP_THRESHOLD) {
                     gapBreak = true;
                 }
@@ -114,8 +126,13 @@ export class SentenceParser {
             // Check horizontal gap
             if (!gapBreak && buffer.length > 0) {
                 const lastWord = buffer[buffer.length - 1];
-                const horizontalGap = w.x - (lastWord.x + lastWord.width);
-                if (horizontalGap > config.TOLERANCE) {
+                const { x: lastX, width: lastWidth, height: lastH } = getCanonicalGeom(lastWord);
+                const horizontalGap = canonX - (lastX + lastWidth);
+                const em = lastH || canonHeight || 0;
+                const wordGapThresholdEm = Number.isFinite(config.WORD_GAP_THRESHOLD_EM) ? config.WORD_GAP_THRESHOLD_EM : 2.5;
+                const gapThreshold = em > 0 ? em * wordGapThresholdEm : config.TOLERANCE;
+
+                if (horizontalGap > gapThreshold) {
                     gapBreak = true;
                 }
             }
@@ -129,8 +146,8 @@ export class SentenceParser {
                 flush();
             }
 
-            lastY = w.y;
-            lastHeight = w.height;
+            lastY = canonY;
+            lastHeight = canonHeight;
         }
 
         flush(); // Flush any remaining words

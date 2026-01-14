@@ -242,7 +242,7 @@ export class PDFHeaderFooterDetector {
                     detections,
                     timestamp: Date.now(),
                     cacheVersion: state.layoutCacheVersion,
-                    modelVersion: payload?.modelVersion || "yolov10m-doclaynet-v1",
+                    modelVersion: payload?.modelVersion || "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis",
                     readabilityVersion: null,
                     readableWordCount: null,
                 };
@@ -304,7 +304,7 @@ export class PDFHeaderFooterDetector {
                     detections,
                     timestamp: Date.now(),
                     cacheVersion: state.layoutCacheVersion,
-                    modelVersion: "yolov10m-doclaynet-v1",
+                    modelVersion: "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis",
                     readabilityVersion: null,
                     readableWordCount: null,
                 };

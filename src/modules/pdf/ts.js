@@ -3,7 +3,7 @@ import { AutoModel, AutoProcessor, RawImage, env } from "https://cdn.jsdelivr.ne
 let model;
 let processor;
 let initPromise = null;
-const MODEL_VERSION = "yolov10m-doclaynet-v1";
+const MODEL_VERSION = "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis";
 
 const serializeError = (error) => ({
     message: error?.message || String(error),

@@ -882,7 +882,7 @@ export class ServerSync {
 
             if (missingFiles.length === 0) {
                 // console.log("[ServerSync] All server files are already cached locally");
-                this.app.ui?.showInfo?.("Already synced with server");
+                //this.app.ui?.showInfo?.("Already synced with server");
                 return;
             }
 

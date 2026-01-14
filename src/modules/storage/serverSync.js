@@ -271,7 +271,7 @@ export class ServerSync {
                 const data = await response.json();
                 // console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
                 if (showMessages) {
-                    this.app.ui?.showInfo?.(`✓ Server is accessible (${pingTime}ms)`);
+                    //this.app.ui?.showInfo?.(`✓ Server is accessible (${pingTime}ms)`);
                     console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
                 }
                 return true;

@@ -4,6 +4,7 @@ import re
 import os
 import asyncio
 import inspect
+import cgi
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 import app
@@ -207,25 +208,33 @@ class APIHandler(BaseHTTPRequestHandler):
         
         # POST /api/files
         if path == "/api/files":
-            content_type = self.headers.get("Content-Type", "")
-            
-            if not content_type.startswith("multipart/form-data"):
-                self._send_error(400, "Expected multipart/form-data")
-                return
-            
-            # Parse multipart data
             try:
-                boundary = content_type.split("boundary=")[1].encode()
-                content_length = int(self.headers.get("Content-Length", 0))
-                body = self.rfile.read(content_length)
-                
-                fields = self._parse_multipart(body, boundary)
-                
-                file_id = fields.get("file_id")
-                title = fields.get("title")
-                format_type = fields.get("format")
-                voice = fields.get("voice")
-                file_data = fields.get("file")
+                content_type = self.headers.get("Content-Type", "")
+
+                if not content_type.startswith("multipart/form-data"):
+                    self._send_error(400, "Expected multipart/form-data")
+                    return
+
+                # Robust multipart parsing (safe for binary files like EPUB/PDF)
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={
+                        "REQUEST_METHOD": "POST",
+                        "CONTENT_TYPE": content_type,
+                        "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
+                    },
+                )
+
+                file_id = form.getfirst("file_id")
+                title = form.getfirst("title")
+                format_type = form.getfirst("format")
+                voice = form.getfirst("voice")
+
+                file_item = form["file"] if "file" in form else None
+                file_data = None
+                if file_item is not None and getattr(file_item, "file", None) is not None:
+                    file_data = file_item.file.read()
                 
                 print(f"[POST] Uploading file_id: {file_id}")
                 print(f"[POST] Title: {title}")
@@ -337,47 +346,7 @@ class APIHandler(BaseHTTPRequestHandler):
         
         self._send_error(404, "Not found")
     
-    def _parse_multipart(self, body, boundary):
-        """Parse multipart/form-data.
-        
-        Simple parser for multipart data. Handles both text fields and file uploads.
-        """
-        fields = {}
-        parts = body.split(b"--" + boundary)
-        
-        for part in parts:
-            if not part or part == b"--\r\n" or part == b"--":
-                continue
-            
-            # Split headers and content
-            if b"\r\n\r\n" not in part:
-                continue
-            
-            headers_section, content = part.split(b"\r\n\r\n", 1)
-            
-            # Remove trailing \r\n
-            content = content.rstrip(b"\r\n")
-            
-            # Parse Content-Disposition header
-            headers = headers_section.decode("utf-8", errors="ignore")
-            name_match = re.search(r'name="([^"]+)"', headers)
-            
-            if not name_match:
-                continue
-            
-            field_name = name_match.group(1)
-            
-            # Check if this is a file field
-            filename_match = re.search(r'filename="([^"]+)"', headers)
-            
-            if filename_match:
-                # This is a file upload
-                fields[field_name] = content
-            else:
-                # This is a text field
-                fields[field_name] = content.decode("utf-8", errors="ignore")
-        
-        return fields
+    # NOTE: multipart parsing is handled by cgi.FieldStorage for correctness with binary files.
     
     def log_message(self, format, *args):
         """Log requests to stdout."""

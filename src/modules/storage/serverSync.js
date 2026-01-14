@@ -393,10 +393,19 @@ export class ServerSync {
 
         try {
             // Find the actual file_id on server (may have different timestamp)
-            const actualFileIdOnServer = await this.findFileIdOnServer(fileId);
+            let actualFileIdOnServer = await this.findFileIdOnServer(fileId);
             if (!actualFileIdOnServer) {
-                console.warn("[ServerSync] File not found on server for position sync");
-                return false;
+                console.warn("[ServerSync] File not found on server for position sync; trying ensureFileOnServer()");
+                try {
+                    await this.ensureFileOnServer();
+                } catch (e) {
+                    // ignore
+                }
+                actualFileIdOnServer = await this.findFileIdOnServer(fileId);
+                if (!actualFileIdOnServer) {
+                    console.warn("[ServerSync] Still no matching file on server; position not synced", { fileId });
+                    return false;
+                }
             }
 
             const response = await fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/position`, {
@@ -428,10 +437,19 @@ export class ServerSync {
 
         try {
             // Find the actual file_id on server (may have different timestamp)
-            const actualFileIdOnServer = await this.findFileIdOnServer(fileId);
+            let actualFileIdOnServer = await this.findFileIdOnServer(fileId);
             if (!actualFileIdOnServer) {
-                console.warn("[ServerSync] File not found on server for voice sync");
-                return false;
+                console.warn("[ServerSync] File not found on server for voice sync; trying ensureFileOnServer()");
+                try {
+                    await this.ensureFileOnServer();
+                } catch (e) {
+                    // ignore
+                }
+                actualFileIdOnServer = await this.findFileIdOnServer(fileId);
+                if (!actualFileIdOnServer) {
+                    console.warn("[ServerSync] Still no matching file on server; voice not synced", { fileId });
+                    return false;
+                }
             }
 
             const response = await fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/voice`, {

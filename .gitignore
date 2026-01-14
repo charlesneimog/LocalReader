@@ -9,3 +9,4 @@ src/modules/tts/pipertts.data
 src/modules/tts/pipertts.js
 src/modules/tts/pipertts.wasm
 database.db
+__pycache__

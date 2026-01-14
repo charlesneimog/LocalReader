@@ -24,6 +24,10 @@ export const CONFIG = {
     BREAK_ON_LINE: false,
     SPLIT_ON_LINE_GAP: true,
     LINE_GAP_THRESHOLD: 2,
+    // Multiplier applied to the current line height (in PDF unscaled units) to detect large horizontal gaps
+    // (e.g. multi-column layouts). Using a relative threshold keeps sentence splitting consistent across
+    // devices, zoom levels, and different BASE_WIDTH_CSS scales.
+    WORD_GAP_THRESHOLD_EM: 2.5,
     SENTENCE_END: [".", "?", "!", ":", ".\""],
 
     // TTS

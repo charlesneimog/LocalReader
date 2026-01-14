@@ -58,10 +58,10 @@ export class HighlightsStorage {
         all[key] = pdfHighlights;
         this.setHighlightsMap(all);
 
-        console.log("[HighlightsStorage] Saved highlights locally", {
-            key,
-            count: this.app.state?.savedHighlights?.size ?? 0,
-        });
+        //console.log("[HighlightsStorage] Saved highlights locally", {
+        //    key,
+        //    count: this.app.state?.savedHighlights?.size ?? 0,
+        //});
 
         // Sync to server if enabled
         if (this.app.serverSync?.isEnabled()) {

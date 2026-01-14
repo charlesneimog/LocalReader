@@ -38,12 +38,21 @@ export class ExportManager {
                 const pageNum = sentence.pageNumber;
                 if (pageNum > pages.length) continue;
                 const page = pages[pageNum - 1];
-                const { width, height } = page.getSize();
                 const viewportDisplay = state.viewportDisplayByPage.get(pageNum);
                 if (!viewportDisplay) continue;
 
+                const { width, height } = page.getSize();
+
                 const scaleX = width / viewportDisplay.width;
                 const scaleY = height / viewportDisplay.height;
+
+                const toPdfPoint = (xDisplay, yDisplay) => {
+                    if (viewportDisplay && typeof viewportDisplay.convertToPdfPoint === "function") {
+                        return viewportDisplay.convertToPdfPoint(xDisplay, yDisplay);
+                    }
+                    // Fallback (top-left display coords -> bottom-left PDF coords)
+                    return [xDisplay * scaleX, height - yDisplay * scaleY];
+                };
 
                 // Convert hex color to rgb 0-1 values
                 const rgb = hexToRgb(highlightData.color) || { r: 255, g: 255, b: 0 };
@@ -77,30 +86,34 @@ export class ExportManager {
 
                 if (Array.isArray(lineRects) && lineRects.length) {
                     for (const r of lineRects) {
-                        const x1 = r.x * scaleX;
-                        const x2 = (r.x + r.width) * scaleX;
+                        const left = r.x;
+                        const right = r.x + r.width;
+                        const top = r.y;
+                        const bottom = r.y + r.height;
 
-                        const displayTop = r.y;
-                        const displayBottom = r.y + r.height;
+                        const [x1, y1] = toPdfPoint(left, top);
+                        const [x2, y2] = toPdfPoint(right, top);
+                        const [x3, y3] = toPdfPoint(left, bottom);
+                        const [x4, y4] = toPdfPoint(right, bottom);
 
-                        const yTop = height - displayTop * scaleY;
-                        const yBottom = height - displayBottom * scaleY;
-
-                        quadPoints.push(x1, yTop, x2, yTop, x2, yBottom, x1, yBottom);
+                        // PDF spec ordering for QuadPoints: top-left, top-right, bottom-left, bottom-right
+                        quadPoints.push(x1, y1, x2, y2, x3, y3, x4, y4);
                     }
                 } else {
                     // Fallback: per-word quads (older behavior)
                     for (const word of wordsToAnnotate) {
-                        const x1 = word.x * scaleX;
-                        const x2 = x1 + word.width * scaleX;
+                        const left = word.x;
+                        const right = word.x + word.width;
+                        const top = coordSystem === "top-based" ? word.y : word.y - word.height;
+                        const bottom = top + word.height;
 
-                        const displayTop = coordSystem === "top-based" ? word.y : word.y - word.height;
-                        const displayBottom = displayTop + word.height;
+                        const [x1, y1] = toPdfPoint(left, top);
+                        const [x2, y2] = toPdfPoint(right, top);
+                        const [x3, y3] = toPdfPoint(left, bottom);
+                        const [x4, y4] = toPdfPoint(right, bottom);
 
-                        const yTop = height - displayTop * scaleY;
-                        const yBottom = height - displayBottom * scaleY;
-
-                        quadPoints.push(x1, yTop, x2, yTop, x2, yBottom, x1, yBottom);
+                        // PDF spec ordering for QuadPoints: top-left, top-right, bottom-left, bottom-right
+                        quadPoints.push(x1, y1, x2, y2, x3, y3, x4, y4);
                     }
                 }
 
@@ -125,6 +138,7 @@ export class ExportManager {
                 const highlightDict = pdfDoc.context.obj({
                     Type: PDFName.of("Annot"),
                     Subtype: PDFName.of("Highlight"),
+                    P: page.ref,
                     Rect: pdfDoc.context.obj([xMin, yMin, xMax, yMax]),
                     QuadPoints: pdfDoc.context.obj(quadPoints),
                     C: pdfDoc.context.obj(colorArray),
@@ -133,6 +147,8 @@ export class ExportManager {
                     NM: PDFString.of(uniqueId),
                     T: PDFString.of(annotationAuthor),
                     Contents: PDFString.of(annotationContents),
+                    Subj: PDFString.of("Highlight"),
+                    Border: pdfDoc.context.obj([0, 0, 0]),
                     CreationDate: PDFString.fromDate(createdAt),
                     M: PDFString.fromDate(modifiedAt),
                 });

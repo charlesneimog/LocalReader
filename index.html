@@ -50,8 +50,9 @@
                 navigator.serviceWorker.addEventListener("controllerchange", () => {
                     if (refreshing) return;
                     refreshing = true;
-                    console.log("[PWA] New service worker activated, reloading...");
-                    window.location.reload();
+                    // Avoid disruptive reloads during user actions (e.g. auth/password reset flows).
+                    // If you want a hard-refresh update behavior, re-enable this.
+                    console.log("[PWA] New service worker activated (reload suppressed)");
                 });
 
                 let sw = window.location.href + "sw.js";
@@ -342,6 +343,13 @@
                         placeholder="New password"
                         class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
                     />
+                    <input
+                        id="auth-reset-confirm-password"
+                        type="password"
+                        autocomplete="new-password"
+                        placeholder="Confirm new password"
+                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                    />
                     <button
                         type="submit"
                         class="w-full rounded-lg bg-primary text-white font-bold py-2 hover:bg-primary/90 transition"
@@ -380,7 +388,7 @@
                         type="button"
                     >
                         <span class="material-symbols-outlined text-base">person</span>
-                        <span>Account</span>
+                        <span id="auth-button-label">Account</span>
                     </button>
                     <button
                         id="config-menu-close"
@@ -757,6 +765,15 @@
                 const apiFetch = async (path, { method = "GET", body = null } = {}) => {
                     const serverUrl = getServerUrl();
                     if (!serverUrl) throw new Error("No server URL configured");
+
+                    // Some service-worker helpers (e.g. coi-serviceworker) can trigger a page reload
+                    // on certain network events/updates; avoid reloading while an API call is in flight.
+                    const suppressUntil = Date.now() + 15000;
+                    window.__localreaderSuppressReloadUntil = Math.max(
+                        Number(window.__localreaderSuppressReloadUntil || 0),
+                        suppressUntil,
+                    );
+
                     const token = localStorage.getItem(TOKEN_KEY) || "";
                     const headers = { "Content-Type": "application/json" };
                     if (token) headers.Authorization = `Bearer ${token}`;
@@ -784,15 +801,22 @@
                 const refreshAuthState = async () => {
                     setAuthError("");
                     authStatus.textContent = "";
+                    const authButtonLabel = document.getElementById("auth-button-label");
                     const token = localStorage.getItem(TOKEN_KEY) || "";
                     if (!token) {
                         authStatus.textContent = "Not authenticated";
+                        if (authButtonLabel) authButtonLabel.textContent = "Account";
                         return { authenticated: false };
                     }
                     try {
                         const me = await apiFetch("/api/auth/me");
                         if (me?.authenticated) {
                             authEmailText.textContent = me.email || "";
+                            if (authButtonLabel) {
+                                const email = (me.email || "").trim();
+                                const username = email.includes("@") ? email.split("@", 1)[0] : email;
+                                authButtonLabel.textContent = username || "Account";
+                            }
                             loggedInPanel.classList.remove("hidden");
                             loginForm.classList.add("hidden");
                             signupForm.classList.add("hidden");
@@ -805,6 +829,7 @@
                     }
                     localStorage.removeItem(TOKEN_KEY);
                     authStatus.textContent = "Not authenticated";
+                    if (authButtonLabel) authButtonLabel.textContent = "Account";
                     return { authenticated: false };
                 };
 
@@ -885,12 +910,16 @@
                     }
                 });
 
-                resetSendBtn?.addEventListener("click", async () => {
+                resetSendBtn?.addEventListener("click", async (e) => {
+                    // Prevent any accidental form submission / navigation.
+                    e?.preventDefault?.();
+                    e?.stopPropagation?.();
                     setAuthError("");
                     try {
                         const email = document.getElementById("auth-reset-email").value;
                         await apiFetch("/api/auth/request-password-reset", { method: "POST", body: { email } });
-                        setAuthError("If the email exists, a reset code was sent.");
+                        
+                        //setAuthError("If the email exists, a reset code was sent.");
                     } catch (err) {
                         setAuthError(err.message || "Failed to request reset");
                     }
@@ -903,6 +932,16 @@
                         const email = document.getElementById("auth-reset-email").value;
                         const token = document.getElementById("auth-reset-code").value;
                         const newPassword = document.getElementById("auth-reset-new-password").value;
+                        const confirmPassword = document.getElementById("auth-reset-confirm-password")?.value || "";
+
+                        if (!newPassword || !confirmPassword) {
+                            setAuthError("Please enter and confirm the new password");
+                            return;
+                        }
+                        if (newPassword !== confirmPassword) {
+                            setAuthError("Passwords do not match");
+                            return;
+                        }
                         const data = await apiFetch("/api/auth/reset-password", {
                             method: "POST",
                             body: { email, token, newPassword },

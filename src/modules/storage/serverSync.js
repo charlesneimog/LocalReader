@@ -20,7 +20,32 @@ export class ServerSync {
         this.serverPullIntervalMs = 30000; // Check every 30 seconds
         this.lastServerPullCheck = 0;
 
-        this.pingServer(true).catch(() => {});
+        try {
+            if (localStorage.getItem("localreaderAuthToken")) {
+                this.pingServer(true).catch(() => {});
+            }
+        } catch {
+            // ignore
+        }
+    }
+
+    _getAuthToken() {
+        try {
+            return localStorage.getItem("localreaderAuthToken") || "";
+        } catch {
+            return "";
+        }
+    }
+
+    _withAuthHeaders(headers = {}) {
+        const token = this._getAuthToken();
+        if (!token) return headers;
+        return { ...headers, Authorization: `Bearer ${token}` };
+    }
+
+    _fetch(url, options = {}) {
+        const headers = this._withAuthHeaders(options.headers || {});
+        return fetch(url, { ...options, headers });
     }
 
     _addAutoSyncListener(element, type, handler, options) {
@@ -117,7 +142,7 @@ export class ServerSync {
         if (!serverUrl) return;
 
         try {
-            const response = await fetch(`${serverUrl}/api/files`, {
+            const response = await this._fetch(`${serverUrl}/api/files`, {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
@@ -196,7 +221,7 @@ export class ServerSync {
                 // Highlights: only fetch when highlights timestamp advanced.
                 if (serverHlMs > localServerHlMs) {
                     try {
-                        const hlResp = await fetch(
+                        const hlResp = await this._fetch(
                             `${serverUrl}/api/files/${encodeURIComponent(serverKey)}/highlights`,
                             { method: "GET", headers: { "Content-Type": "application/json" } },
                         );
@@ -259,7 +284,7 @@ export class ServerSync {
             const timeoutId = setTimeout(() => controller.abort(), 5000);
             
             const startTime = Date.now();
-            const response = await fetch(`${serverUrl}/api/ping`, {
+            const response = await this._fetch(`${serverUrl}/api/ping`, {
                 method: "GET",
                 signal: controller.signal,
             });
@@ -306,7 +331,7 @@ export class ServerSync {
         if (!payloadText) return null;
 
         try {
-            const response = await fetch(`${serverUrl}/api/translate`, {
+            const response = await this._fetch(`${serverUrl}/api/translate`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: payloadText, target }),
@@ -330,7 +355,7 @@ export class ServerSync {
         if (!serverUrl) return false;
 
         try {
-            const response = await fetch(`${serverUrl}/api/files/${fileId}`, {
+            const response = await this._fetch(`${serverUrl}/api/files/${fileId}`, {
                 method: "GET",
                 headers: {
                     "Content-Type": "application/json",
@@ -364,7 +389,7 @@ export class ServerSync {
                 formData.append("voice", voice);
             }
 
-            const response = await fetch(`${serverUrl}/api/files`, {
+            const response = await this._fetch(`${serverUrl}/api/files`, {
                 method: "POST",
                 body: formData,
             });
@@ -408,7 +433,7 @@ export class ServerSync {
                 }
             }
 
-            const response = await fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/position`, {
+            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/position`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -452,7 +477,7 @@ export class ServerSync {
                 }
             }
 
-            const response = await fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/voice`, {
+            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/voice`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -511,7 +536,7 @@ export class ServerSync {
                 });
             }
 
-            const response = await fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`, {
+            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -559,7 +584,7 @@ export class ServerSync {
             }
 
             // Fetch file metadata (includes position and voice)
-            const metaResponse = await fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}`, {
+            const metaResponse = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}`, {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
@@ -575,7 +600,7 @@ export class ServerSync {
             }
 
             // Fetch highlights
-            const highlightsResponse = await fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`, {
+            const highlightsResponse = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`, {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
@@ -619,7 +644,7 @@ export class ServerSync {
         }
 
         try {
-            const response = await fetch(`${serverUrl}/api/files`, {
+            const response = await this._fetch(`${serverUrl}/api/files`, {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
@@ -674,7 +699,7 @@ export class ServerSync {
         // First check if a file with the same actual filename already exists
         const serverUrl = this.getServerUrl();
         try {
-            const response = await fetch(`${serverUrl}/api/files`, {
+            const response = await this._fetch(`${serverUrl}/api/files`, {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
@@ -851,7 +876,7 @@ export class ServerSync {
 
         try {
             // Get list of files from server
-            const response = await fetch(`${serverUrl}/api/files`, {
+            const response = await this._fetch(`${serverUrl}/api/files`, {
                 method: "GET",
                 headers: {
                     "Content-Type": "application/json",
@@ -980,7 +1005,7 @@ export class ServerSync {
         }
 
         // Download file blob
-        const response = await fetch(`${serverUrl}/api/files/${encodeURIComponent(filename)}/download`, {
+        const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(filename)}/download`, {
             method: "GET",
         });
 
@@ -1026,7 +1051,7 @@ export class ServerSync {
         // Pull highlights from server and persist locally so the device has an offline copy
         // without needing to open the document.
         try {
-            const highlightsResponse = await fetch(
+            const highlightsResponse = await this._fetch(
                 `${serverUrl}/api/files/${encodeURIComponent(filename)}/highlights`,
                 { method: "GET", headers: { "Content-Type": "application/json" } },
             );

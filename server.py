@@ -4,14 +4,15 @@ import re
 import os
 import asyncio
 import inspect
-import cgi
 import base64
 import hashlib
 import hmac
 import secrets
 import smtplib
 from email.message import EmailMessage
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from email.parser import BytesParser
+from email.policy import default
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 import app
@@ -34,7 +35,7 @@ def _b64url_decode(raw: str) -> bytes:
 
 
 def issue_auth_token(email: str, ttl_seconds: int = AUTH_TOKEN_TTL_SECONDS) -> str:
-    exp = int((datetime.utcnow() + timedelta(seconds=ttl_seconds)).timestamp())
+    exp = int((datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).timestamp())
     payload = json.dumps({"email": email, "exp": exp}, separators=(",", ":")).encode("utf-8")
     payload_b64 = _b64url_encode(payload)
     sig = hmac.new(AUTH_SECRET.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).digest()
@@ -55,12 +56,53 @@ def verify_auth_token(token: str) -> str | None:
             return None
         payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
         exp = int(payload.get("exp", 0))
-        if exp <= int(datetime.utcnow().timestamp()):
+        if exp <= int(datetime.now(timezone.utc).timestamp()):
             return None
         email = payload.get("email")
         return email if isinstance(email, str) and email.strip() else None
     except Exception:
         return None
+
+
+def _parse_multipart_form_data(content_type: str, body: bytes) -> tuple[dict, dict]:
+    """Parse multipart/form-data without using deprecated cgi.
+
+    Returns (fields, files) where:
+      - fields: {name: str}
+      - files: {name: {filename, content_type, content(bytes)}}
+    """
+    if not content_type or not content_type.startswith("multipart/form-data"):
+        return {}, {}
+
+    # The email parser expects a full message; synthesize minimal headers.
+    msg = BytesParser(policy=default).parsebytes(
+        b"Content-Type: " + content_type.encode("utf-8") + b"\r\nMIME-Version: 1.0\r\n\r\n" + body
+    )
+    if not msg.is_multipart():
+        return {}, {}
+
+    fields: dict[str, str] = {}
+    files: dict[str, dict] = {}
+    for part in msg.iter_parts():
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        filename = part.get_param("filename", header="content-disposition")
+        payload = part.get_payload(decode=True) or b""
+        if filename is not None:
+            files[name] = {
+                "filename": filename,
+                "content_type": part.get_content_type(),
+                "content": payload,
+            }
+        else:
+            charset = part.get_content_charset() or "utf-8"
+            try:
+                fields[name] = payload.decode(charset, errors="replace")
+            except LookupError:
+                fields[name] = payload.decode("utf-8", errors="replace")
+
+    return fields, files
 
 
 def _send_email_smtp(to_email: str, subject: str, body: str) -> None:
@@ -157,6 +199,7 @@ class APIHandler(BaseHTTPRequestHandler):
         
         # GET /api/ping - Simple health check
         if path == "/api/ping":
+            print("[GET] Ping request received")
             self._send_json(200, {"status": "ok", "message": "Server is running"})
             return
 
@@ -257,6 +300,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # POST /api/auth/signup
         if path == "/api/auth/signup":
+            print(f"[AUTH] Signup attempt for email: {self.headers.get('email')}")
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -294,6 +338,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # POST /api/auth/login
         if path == "/api/auth/login":
+            print(f"[AUTH] Login attempt for email: {self.headers.get('email')}")
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -318,6 +363,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # POST /api/auth/request-password-reset
         if path == "/api/auth/request-password-reset":
+            print(f"[AUTH] Password reset request for email: {self.headers.get('email')}")
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -334,7 +380,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 return
 
             reset_token = secrets.token_urlsafe(32)
-            expires_at = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+            expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
             if not app.create_password_reset(email, reset_token, expires_at):
                 return
 
@@ -354,6 +400,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # POST /api/auth/reset-password
         if path == "/api/auth/reset-password":
+            print(f"[AUTH] Password reset attempt for email: {self.headers.get('email')}")
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -392,6 +439,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # POST /api/translate
         if path == "/api/translate":
+            print(f"[TRANSLATE] Translation request by: {user_email}")
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -447,6 +495,7 @@ class APIHandler(BaseHTTPRequestHandler):
         
         # POST /api/files
         if path == "/api/files":
+            print(f"[POST] File upload attempt by: {user_email}")
             try:
                 content_type = self.headers.get("Content-Type", "")
 
@@ -454,26 +503,19 @@ class APIHandler(BaseHTTPRequestHandler):
                     self._send_error(400, "Expected multipart/form-data")
                     return
 
-                # Robust multipart parsing (safe for binary files like EPUB/PDF)
-                form = cgi.FieldStorage(
-                    fp=self.rfile,
-                    headers=self.headers,
-                    environ={
-                        "REQUEST_METHOD": "POST",
-                        "CONTENT_TYPE": content_type,
-                        "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
-                    },
-                )
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length) if content_length else b""
+                fields, files = _parse_multipart_form_data(content_type, body)
 
-                file_id = form.getfirst("file_id")
-                title = form.getfirst("title")
-                format_type = form.getfirst("format")
-                voice = form.getfirst("voice")
+                file_id = (fields.get("file_id") or "").strip()
+                title = (fields.get("title") or "").strip()
+                format_type = (fields.get("format") or "").strip()
+                voice = (fields.get("voice") or "").strip() or None
 
-                file_item = form["file"] if "file" in form else None
                 file_data = None
-                if file_item is not None and getattr(file_item, "file", None) is not None:
-                    file_data = file_item.file.read()
+                file_part = files.get("file")
+                if file_part:
+                    file_data = file_part.get("content")
                 
                 print(f"[POST] Uploading file_id: {file_id}")
                 print(f"[POST] Title: {title}")
@@ -589,7 +631,7 @@ class APIHandler(BaseHTTPRequestHandler):
         
         self._send_error(404, "Not found")
     
-    # NOTE: multipart parsing is handled by cgi.FieldStorage for correctness with binary files.
+    # NOTE: multipart parsing is handled by email.parser (stdlib) for correctness with binary files.
     
     def log_message(self, format, *args):
         """Log requests to stdout."""

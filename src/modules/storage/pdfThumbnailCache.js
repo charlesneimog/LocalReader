@@ -44,6 +44,74 @@ export class PDFThumbnailCache {
         this._cancelIdle =
             typeof g.cancelIdleCallback === "function" ? (id) => g.cancelIdleCallback(id) : (id) => g.clearTimeout(id);
         this._idleHandle = null;
+
+        this._serverPresenceRefreshInFlight = null;
+    }
+
+    _extractActualFilename(key) {
+        if (typeof key !== "string") return "";
+        if (!key.startsWith("file::")) return key;
+        const parts = key.split("::");
+        return parts.length >= 2 ? parts[1] : key;
+    }
+
+    _setServerBadge(cardElement, show) {
+        if (!cardElement) return;
+        const existing = cardElement.querySelector('[data-server-badge="true"]');
+        if (!show) {
+            if (existing) existing.remove();
+            return;
+        }
+        if (existing) return;
+
+        // Ensure absolute positioning is relative to the card.
+        if (!cardElement.style.position) {
+            cardElement.style.position = "relative";
+        }
+
+        const badge = document.createElement("span");
+        badge.dataset.serverBadge = "true";
+        badge.className = "absolute z-10 p-1 material-symbols-outlined text-primary dark:text-primary !text-lg pointer-events-none";
+        // Use inline positioning to avoid relying on Tailwind utilities being present in output.css.
+        badge.style.top = "6px";
+        badge.style.left = "6px";
+        badge.title = "On server";
+        badge.setAttribute("aria-label", "On server");
+        badge.textContent = "cloud";
+
+        cardElement.appendChild(badge);
+    }
+
+    async _refreshServerBadges() {
+        const serverSync = this.app?.serverSync;
+        const container = this.container;
+        if (!serverSync?.isEnabled?.() || !container) return;
+
+        // Coalesce concurrent refreshes.
+        if (this._serverPresenceRefreshInFlight) return;
+        this._serverPresenceRefreshInFlight = (async () => {
+            try {
+                const data = await serverSync.apiFetch("/api/files", { method: "GET", withAuth: true });
+                const serverFiles = Array.isArray(data?.files) ? data.files : [];
+
+                const actualOnServer = new Set();
+                for (const f of serverFiles) {
+                    if (!f || f.deleted) continue;
+                    const name = this._extractActualFilename(f.filename);
+                    if (name) actualOnServer.add(name);
+                }
+
+                for (const child of Array.from(container.children || [])) {
+                    const key = child?.dataset?.docKey;
+                    const actual = this._extractActualFilename(key);
+                    this._setServerBadge(child, !!actual && actualOnServer.has(actual));
+                }
+            } catch (e) {
+                // No auth / offline / server unreachable; just omit badges.
+            } finally {
+                this._serverPresenceRefreshInFlight = null;
+            }
+        })();
     }
 
     _scheduleIdle(cb, timeout = 2000) {
@@ -105,6 +173,9 @@ export class PDFThumbnailCache {
                 this.container.scrollLeft = this.container.scrollWidth;
             });
         }
+
+        // Best-effort: show a small cloud badge for files present on server.
+        this._refreshServerBadges();
         this.startProgressiveRendering(this.container);
     }
 
@@ -366,7 +437,17 @@ export class PDFThumbnailCache {
                     await this.app.progressManager.removeEpubFromIndexedDB(pdfKey);
                 } else {
                     await this.app.progressManager.clearPdfProgress(pdfKey);
+                    this.app.highlightsStorage?.clearPdfHighlights?.(pdfKey);
                     await this.app.progressManager.removePdfFromIndexedDB(pdfKey);
+                }
+
+                // Best-effort server deletion (creates a tombstone so other instances purge too).
+                if (this.app.serverSync?.isEnabled?.()) {
+                    const ok = await this.app.serverSync.deleteFileOnServer(pdfKey);
+                    if (!ok) {
+                        console.warn("[PDFThumbnailCache] Failed to delete file on server", { key: pdfKey });
+                        this.app.ui?.showInfo?.("Failed to delete file on server");
+                    }
                 }
 
                 // Animate removal

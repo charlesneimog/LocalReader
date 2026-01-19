@@ -176,6 +176,34 @@ export class ServerSync {
         return parts.length >= 2 ? parts[1] : key;
     }
 
+    async _purgeLocalByActualFilename(actualFilename, docTypeHint) {
+        const actual = (actualFilename || "").toString();
+        if (!actual) return;
+
+        const docType = docTypeHint === "epub" ? "epub" : "pdf";
+
+        try {
+            const keys =
+                docType === "epub"
+                    ? await this.app.progressManager.listSavedEPUBs()
+                    : await this.app.progressManager.listSavedPDFs();
+
+            const matching = keys.filter((k) => this._extractActualFilename(k) === actual);
+            for (const k of matching) {
+                if (docType === "epub") {
+                    this.app.progressManager.clearEpubProgress(k);
+                    await this.app.progressManager.removeEpubFromIndexedDB(k);
+                } else {
+                    this.app.progressManager.clearPdfProgress(k);
+                    this.app.highlightsStorage?.clearPdfHighlights?.(k);
+                    await this.app.progressManager.removePdfFromIndexedDB(k);
+                }
+            }
+        } catch (e) {
+            console.warn("[ServerSync] Failed to purge local copies by actual filename:", e);
+        }
+    }
+
     async _maybePullServerStateUpdates() {
         const now = Date.now();
         if (now - this.lastServerPullCheck < this.serverPullIntervalMs) return;
@@ -264,6 +292,24 @@ export class ServerSync {
 
             const progressMap = this.app.progressManager.getProgressMap();
 
+            const deleteLocalDoc = async (docType, localKey, actualNameForMessage) => {
+                try {
+                    if (docType === "epub") {
+                        this.app.progressManager.clearEpubProgress(localKey);
+                        await this.app.progressManager.removeEpubFromIndexedDB(localKey);
+                    } else {
+                        this.app.progressManager.clearPdfProgress(localKey);
+                        this.app.highlightsStorage?.clearPdfHighlights?.(localKey);
+                        await this.app.progressManager.removePdfFromIndexedDB(localKey);
+                    }
+                    if (actualNameForMessage) {
+                        this.app.ui?.showInfo?.(`Removed deleted file: ${actualNameForMessage}`);
+                    }
+                } catch (e) {
+                    console.warn("[ServerSync] Failed to delete local document:", e);
+                }
+            };
+
             let updatedCount = 0;
             for (const fileInfo of serverFiles) {
                 const serverKey = fileInfo.filename;
@@ -274,6 +320,14 @@ export class ServerSync {
                 if (!localKey) continue;
 
                 const docType = fileInfo.format === "epub" ? "epub" : "pdf";
+
+                // Server tombstone: remove local copies and skip state pulls.
+                if (fileInfo && fileInfo.deleted) {
+                    await deleteLocalDoc(docType, localKey, actualName);
+                    updatedCount++;
+                    continue;
+                }
+
                 const compoundKey = `${docType}::${localKey}`;
                 const localEntry = progressMap[compoundKey] || {};
 
@@ -350,6 +404,25 @@ export class ServerSync {
             this.app.progressManager.setProgressMap(progressMap);
         } catch (e) {
             console.warn("[ServerSync] pullServerStateUpdates failed:", e);
+        }
+    }
+
+    async deleteFileOnServer(fileId) {
+        const serverUrl = this.getServerUrl();
+        if (!serverUrl || !fileId) return false;
+
+        try {
+            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(fileId)}`, {
+                method: "DELETE",
+            });
+
+            if (response.ok) return true;
+            const data = await response.json().catch(() => ({}));
+            const msg = data?.error || `${response.status} ${response.statusText}`;
+            throw new Error(msg);
+        } catch (e) {
+            console.warn("[ServerSync] Failed to delete file on server:", e);
+            return false;
         }
     }
 
@@ -494,6 +567,14 @@ export class ServerSync {
                 this.app.ui?.showInfo?.("File synced to server");
                 return true;
             } else {
+                if (response.status === 410) {
+                    const actualName = this._extractActualFilename(fileId);
+                    const docType = format === "epub" ? "epub" : "pdf";
+                    await this._purgeLocalByActualFilename(actualName, docType);
+                    this.app.ui?.showInfo?.(`Server has deleted: ${actualName}`);
+                    return false;
+                }
+
                 const errorText = await response.text();
                 console.error("[ServerSync] Upload failed:", errorText);
                 this.app.ui?.showInfo?.("Failed to sync file to server");
@@ -749,6 +830,7 @@ export class ServerSync {
                 
                 // Find file by matching actual filename
                 const matchingFile = serverFiles.find(f => {
+                    if (f && f.deleted) return false;
                     if (f.filename === localFileId) return true; // Exact match
                     
                     // Check if actual filenames match
@@ -804,6 +886,7 @@ export class ServerSync {
                 
                 // Check if any server file matches the actual filename
                 const existingFile = serverFiles.find(f => {
+                    if (f && f.deleted) return false;
                     if (f.filename === fileId) return true; // Exact match
                     
                     // Check if actual filenames match

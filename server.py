@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import secrets
 import smtplib
+import logging
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
@@ -23,6 +24,14 @@ PORT = 8000
 
 AUTH_SECRET = os.environ.get("AUTH_SECRET") or secrets.token_urlsafe(32)
 AUTH_TOKEN_TTL_SECONDS = int(os.environ.get("AUTH_TOKEN_TTL_SECONDS", "604800"))  # 7 days
+
+
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("localreader.server")
 
 
 def _b64url_encode(raw: bytes) -> str:
@@ -168,6 +177,7 @@ class APIHandler(BaseHTTPRequestHandler):
     def _require_auth(self):
         email = self._get_auth_email()
         if not email:
+            logger.info("Unauthorized request: method=%s path=%s ip=%s", self.command, self.path, self.client_address[0])
             self._send_json(401, {"error": "Unauthorized"})
             return None
         return email
@@ -186,6 +196,7 @@ class APIHandler(BaseHTTPRequestHandler):
     
     def do_OPTIONS(self):
         """Handle preflight requests."""
+        logger.debug("CORS preflight: path=%s origin=%s", self.path, self.headers.get("Origin", ""))
         self.send_response(200)
         self._set_cors_headers()
         self.end_headers()
@@ -194,12 +205,12 @@ class APIHandler(BaseHTTPRequestHandler):
         """Handle GET requests."""
         parsed = urlparse(self.path)
         path = parsed.path
-        
-        print(f"[GET] Received path: {path}")
+
+        logger.debug("GET %s ip=%s", path, self.client_address[0])
         
         # GET /api/ping - Simple health check
         if path == "/api/ping":
-            print("[GET] Ping request received")
+            logger.debug("Ping")
             self._send_json(200, {"status": "ok", "message": "Server is running"})
             return
 
@@ -220,7 +231,38 @@ class APIHandler(BaseHTTPRequestHandler):
         # GET /api/files - List all files
         if path == "/api/files":
             files = app.get_files(owner_email=user_email)
-            print(f"[GET] Listing {len(files)} files")
+            deleted = app.get_deleted_files(owner_email=user_email)
+
+            # Emit tombstones as lightweight entries so other instances can purge local copies.
+            for d in deleted:
+                actual = (d.get("actual_filename") or "").strip()
+                deleted_at = d.get("deleted_at")
+                if not actual:
+                    continue
+                fmt = "epub" if actual.lower().endswith(".epub") else "pdf"
+                files.append(
+                    {
+                        "filename": actual,
+                        "title": actual,
+                        "format": fmt,
+                        "reading_position": None,
+                        "voice": None,
+                        "created_at": deleted_at,
+                        "updated_at": deleted_at,
+                        "position_updated_at": deleted_at,
+                        "highlights_updated_at": deleted_at,
+                        "voice_updated_at": deleted_at,
+                        "deleted": True,
+                        "deleted_at": deleted_at,
+                    }
+                )
+
+            logger.info(
+                "List files: owner=%s count=%d tombstones=%d",
+                user_email,
+                len(files),
+                len(deleted),
+            )
             self._send_json(200, {"files": files})
             return
         
@@ -228,7 +270,11 @@ class APIHandler(BaseHTTPRequestHandler):
         match = re.match(r'^/api/files/(.+)/download$', path)
         if match:
             file_id = unquote(match.group(1))
-            print(f"[GET] Downloading file_id: {file_id}")
+            logger.info("Download request: owner=%s file_id=%s", user_email, file_id)
+
+            if app.is_file_deleted(file_id, owner_email=user_email):
+                self._send_json(410, {"error": "File deleted", "deleted": True})
+                return
             
             file_data = app.get_file_blob(file_id, owner_email=user_email)
             if file_data:
@@ -245,7 +291,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._set_cors_headers()
                 self.end_headers()
                 self.wfile.write(file_data)
-                print(f"[GET] Downloaded {len(file_data)} bytes as {filename}")
+                logger.info("Download served: owner=%s bytes=%d filename=%s", user_email, len(file_data), filename)
             else:
                 self._send_error(404, "File not found")
             return
@@ -254,7 +300,7 @@ class APIHandler(BaseHTTPRequestHandler):
         match = re.match(r'^/api/files/(.+)/highlights$', path)
         if match:
             file_id = unquote(match.group(1))
-            print(f"[GET] Getting highlights for file_id: {file_id}")
+            logger.info("Get highlights: owner=%s file_id=%s", user_email, file_id)
             
             highlights = app.get_highlights(file_id, owner_email=user_email)
             if highlights is not None:
@@ -267,12 +313,12 @@ class APIHandler(BaseHTTPRequestHandler):
         match = re.match(r'^/api/files/(.+)$', path)
         if match:
             file_id = unquote(match.group(1))
-            print(f"[GET] Checking file_id: {file_id}")
+            logger.debug("Check file exists: owner=%s file_id=%s", user_email, file_id)
             
             # Get file metadata
             file_data = app.get_file_data(file_id, owner_email=user_email)
             if file_data:
-                print(f"[GET] File exists: {file_id}")
+                logger.debug("File exists: owner=%s file_id=%s", user_email, file_id)
                 self._send_json(200, {
                     "exists": True,
                     "file_id": file_data.get("filename"),
@@ -287,8 +333,11 @@ class APIHandler(BaseHTTPRequestHandler):
                     "voice_updated_at": file_data.get("voice_updated_at"),
                 })
             else:
-                print(f"[GET] File NOT found: {file_id}")
-                self._send_json(404, {"exists": False, "file_id": file_id})
+                logger.debug("File not found: owner=%s file_id=%s", user_email, file_id)
+                if app.is_file_deleted(file_id, owner_email=user_email):
+                    self._send_json(410, {"exists": False, "deleted": True, "file_id": file_id})
+                else:
+                    self._send_json(404, {"exists": False, "file_id": file_id})
             return
         
         self._send_error(404, "Not found")
@@ -300,7 +349,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # POST /api/auth/signup
         if path == "/api/auth/signup":
-            print(f"[AUTH] Signup attempt for email: {self.headers.get('email')}")
+            logger.info("Signup attempt")
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -318,8 +367,11 @@ class APIHandler(BaseHTTPRequestHandler):
 
             ok = app.create_user(email, password)
             if not ok:
+                logger.info("Signup failed: email=%s", (email or "").strip().lower())
                 self._send_error(400, "Signup failed (email may already exist or password too short)")
                 return
+
+            logger.info("Signup success: email=%s", email.strip().lower())
 
             # Best-effort welcome email (uses SMTP settings; ignored if not configured)
             try:
@@ -330,7 +382,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     f"Your {app_name} account was created successfully.\n",
                 )
             except Exception as e:
-                print(f"[AUTH] Signup email not sent: {e}")
+                logger.warning("Signup email not sent: email=%s err=%s", email.strip().lower(), e)
 
             token = issue_auth_token(email.strip().lower())
             self._send_json(201, {"success": True, "token": token})
@@ -338,7 +390,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # POST /api/auth/login
         if path == "/api/auth/login":
-            print(f"[AUTH] Login attempt for email: {self.headers.get('email')}")
+            logger.info("Login attempt")
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -354,8 +406,11 @@ class APIHandler(BaseHTTPRequestHandler):
                 return
 
             if not app.verify_user(email, password):
+                logger.info("Login failed: email=%s", email.strip().lower())
                 self._send_error(401, "Invalid credentials")
                 return
+
+            logger.info("Login success: email=%s", email.strip().lower())
 
             token = issue_auth_token(email.strip().lower())
             self._send_json(200, {"success": True, "token": token})
@@ -363,7 +418,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # POST /api/auth/request-password-reset
         if path == "/api/auth/request-password-reset":
-            print(f"[AUTH] Password reset request for email: {self.headers.get('email')}")
+            logger.info("Password reset request")
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -384,6 +439,8 @@ class APIHandler(BaseHTTPRequestHandler):
             if not app.create_password_reset(email, reset_token, expires_at):
                 return
 
+            logger.info("Password reset token created: email=%s", email)
+
             try:
                 app_name = os.environ.get("APP_NAME", "LocalReader")
                 subject = f"{app_name} password reset"
@@ -395,12 +452,12 @@ class APIHandler(BaseHTTPRequestHandler):
                 _send_email_smtp(email, subject, body)
             except Exception as e:
                 # Log but do not leak details to the client.
-                print(f"[AUTH] Failed to send reset email: {e}")
+                logger.warning("Failed to send reset email: email=%s err=%s", email, e)
             return
 
         # POST /api/auth/reset-password
         if path == "/api/auth/reset-password":
-            print(f"[AUTH] Password reset attempt for email: {self.headers.get('email')}")
+            logger.info("Password reset attempt")
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -421,12 +478,16 @@ class APIHandler(BaseHTTPRequestHandler):
                 return
 
             if not app.consume_password_reset(email, token):
+                logger.info("Password reset failed: email=%s reason=invalid_or_expired", email)
                 self._send_error(400, "Invalid or expired reset token")
                 return
 
             if not app.set_user_password(email, new_password):
+                logger.warning("Password reset failed: email=%s reason=db_update_failed", email)
                 self._send_error(400, "Failed to set password")
                 return
+
+            logger.info("Password reset success: email=%s", email)
 
             token_auth = issue_auth_token(email)
             self._send_json(200, {"success": True, "token": token_auth})
@@ -439,7 +500,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # POST /api/translate
         if path == "/api/translate":
-            print(f"[TRANSLATE] Translation request by: {user_email}")
+            logger.info("Translate request: owner=%s", user_email)
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length) if content_length else b""
@@ -490,12 +551,13 @@ class APIHandler(BaseHTTPRequestHandler):
                 )
                 return
             except Exception as e:
+                logger.exception("Translation failed: owner=%s", user_email)
                 self._send_error(500, f"Translation failed: {str(e)}")
                 return
         
         # POST /api/files
         if path == "/api/files":
-            print(f"[POST] File upload attempt by: {user_email}")
+            logger.info("Upload attempt: owner=%s", user_email)
             try:
                 content_type = self.headers.get("Content-Type", "")
 
@@ -516,20 +578,34 @@ class APIHandler(BaseHTTPRequestHandler):
                 file_part = files.get("file")
                 if file_part:
                     file_data = file_part.get("content")
-                
-                print(f"[POST] Uploading file_id: {file_id}")
-                print(f"[POST] Title: {title}")
-                print(f"[POST] Format: {format_type}")
-                print(f"[POST] File size: {len(file_data) if file_data else 0} bytes")
+
+                logger.info(
+                    "Upload received: owner=%s file_id=%s format=%s bytes=%d",
+                    user_email,
+                    file_id,
+                    format_type,
+                    (len(file_data) if file_data else 0),
+                )
                 
                 if not all([file_id, title, format_type, file_data]):
                     self._send_error(400, "Missing required fields: file_id, title, format, file")
                     return
                 
-                result_id = app.add_file_with_id(file_id, title, file_data, format_type, voice, owner_email=user_email)
-                
-                print(f"[POST] File saved with id: {result_id}")
-                print(f"[POST] Verifying file exists: {app.file_exists(result_id)}")
+                try:
+                    result_id = app.add_file_with_id(
+                        file_id,
+                        title,
+                        file_data,
+                        format_type,
+                        voice,
+                        owner_email=user_email,
+                    )
+                except app.FileDeletedError:
+                    logger.info("Upload rejected (tombstoned): owner=%s file_id=%s", user_email, file_id)
+                    self._send_json(410, {"error": "File is marked deleted on server", "deleted": True})
+                    return
+
+                logger.info("Upload stored: owner=%s file_id=%s", user_email, result_id)
                 
                 self._send_json(201, {
                     "success": True,
@@ -539,9 +615,33 @@ class APIHandler(BaseHTTPRequestHandler):
                 return
                 
             except Exception as e:
+                logger.exception("Upload failed: owner=%s", user_email)
                 self._send_error(500, f"Upload failed: {str(e)}")
                 return
         
+        self._send_error(404, "Not found")
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        user_email = self._require_auth()
+        if not user_email:
+            return
+
+        # DELETE /api/files/{file_id}
+        match = re.match(r'^/api/files/(.+)$', path)
+        if match:
+            file_id = unquote(match.group(1))
+            logger.info("Delete request: owner=%s file_id=%s", user_email, file_id)
+
+            ok = app.mark_file_deleted(file_id, owner_email=user_email)
+            if ok:
+                self._send_json(200, {"success": True, "deleted": True})
+            else:
+                self._send_error(400, "Invalid file id")
+            return
+
         self._send_error(404, "Not found")
     
     def do_PUT(self):
@@ -567,10 +667,13 @@ class APIHandler(BaseHTTPRequestHandler):
         if match:
             file_id = unquote(match.group(1))
             position = data.get("position")
-            
-            print(f"[PUT] Updating position for file_id: {file_id}")
-            print(f"[PUT] Position: {position}")
-            print(f"[PUT] File exists: {app.file_exists(file_id, owner_email=user_email)}")
+
+            logger.info(
+                "Update position: owner=%s file_id=%s has_position=%s",
+                user_email,
+                file_id,
+                position is not None,
+            )
             
             if position is None:
                 self._send_error(400, "Missing 'position' field")
@@ -589,10 +692,13 @@ class APIHandler(BaseHTTPRequestHandler):
         if match:
             file_id = unquote(match.group(1))
             voice = data.get("voice")
-            
-            print(f"[PUT] Updating voice for file_id: {file_id}")
-            print(f"[PUT] Voice: {voice}")
-            print(f"[PUT] File exists: {app.file_exists(file_id, owner_email=user_email)}")
+
+            logger.info(
+                "Update voice: owner=%s file_id=%s has_voice=%s",
+                user_email,
+                file_id,
+                bool(voice),
+            )
             
             if not voice:
                 self._send_error(400, "Missing 'voice' field")
@@ -611,17 +717,20 @@ class APIHandler(BaseHTTPRequestHandler):
         if match:
             file_id = unquote(match.group(1))
             highlights = data.get("highlights")
-            
-            print(f"[PUT] Updating highlights for file_id: {file_id}")
-            print(f"[PUT] Highlights count: {len(highlights) if isinstance(highlights, list) else 0}")
-            print(f"[PUT] File exists: {app.file_exists(file_id, owner_email=user_email)}")
+
+            logger.info(
+                "Update highlights: owner=%s file_id=%s count=%d",
+                user_email,
+                file_id,
+                (len(highlights) if isinstance(highlights, list) else 0),
+            )
             
             if not isinstance(highlights, list):
                 self._send_error(400, "Missing or invalid 'highlights' field")
                 return
             
             count = app.update_highlights(file_id, highlights, owner_email=user_email)
-            print(f"[PUT] Updated highlights written: {count}")
+            logger.info("Highlights updated: owner=%s file_id=%s written=%d", user_email, file_id, count)
             
             self._send_json(200, {
                 "success": True,
@@ -635,31 +744,25 @@ class APIHandler(BaseHTTPRequestHandler):
     
     def log_message(self, format, *args):
         """Log requests to stdout."""
-        print(f"[{self.log_date_time_string()}] {format % args}")
+        logger.info("HTTP: %s", format % args)
 
 
 def main():
     # Initialize database
     app.init_db()
-    print(f"Database initialized at {app.DB_PATH}")
+    logger.info("Database initialized at %s", app.DB_PATH)
     
     # Start server
     server = HTTPServer((HOST, PORT), APIHandler)
-    print(f"Server running on http://{HOST}:{PORT}")
-    print(f"API endpoints:")
-    print(f"  GET  /api/files")
-    print(f"  GET  /api/files/{{file_id}}")
-    print(f"  GET  /api/files/{{file_id}}/download")
-    print(f"  GET  /api/files/{{file_id}}/highlights")
-    print(f"  POST /api/files")
-    print(f"  PUT  /api/files/{{file_id}}/position")
-    print(f"  PUT  /api/files/{{file_id}}/voice")
-    print(f"  PUT  /api/files/{{file_id}}/highlights")
+    logger.info("Server running on http://%s:%s", HOST, PORT)
+    logger.info("CORS allowed origins: %s", ",".join([o.strip() for o in APIHandler.ALLOWED_ORIGINS if o.strip()]))
+    logger.debug("API endpoints: GET /api/files, GET /api/files/{file_id}, GET /api/files/{file_id}/download, GET /api/files/{file_id}/highlights")
+    logger.debug("API endpoints: POST /api/files, DELETE /api/files/{file_id}, PUT /api/files/{file_id}/position|voice|highlights")
     
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down server...")
+        logger.info("Shutting down server...")
         server.shutdown()
 
 

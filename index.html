@@ -9,9 +9,9 @@
         <link rel="manifest" href="manifest.webmanifest" />
         <meta name="theme-color" content="#2b2b2b" />
         <meta name="description" content="Listen to your podcasts with local IA" />
-        <meta name="mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
         <!-- Favicon -->
         <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32x32.png" />
@@ -194,6 +194,177 @@
             </div>
         </div>
 
+        <!-- Auth Overlay (blocks app until logged in) -->
+        <div
+            id="auth-overlay"
+            class="hidden fixed inset-0 z-50 flex items-center justify-center bg-background-light/80 dark:bg-background-dark/80 p-2"
+        >
+            <div
+                class="w-full max-w-md p-6 bg-white/60 dark:bg-background-dark/60 rounded-xl shadow-2xl backdrop-blur-lg border border-white/20 dark:border-background-dark/20"
+            >
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <img src="./assets/icons/icon-192.png" alt="App Icon" class="w-10 h-10" />
+                        <div>
+                            <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">LocalReader</h2>
+                            <p id="auth-status" class="text-xs text-slate-500 dark:text-slate-400"></p>
+                        </div>
+                    </div>
+                    <button
+                        id="auth-close"
+                        class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary"
+                        aria-label="Close"
+                    >
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+
+                <div id="auth-server-hint" class="text-sm text-slate-600 dark:text-slate-300 mb-4"></div>
+
+                <div class="mb-4 space-y-2">
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Server Link</label>
+                    <input
+                        id="server-link"
+                        type="url"
+                        placeholder="https://mylib.your-server-link.com"
+                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                    />
+                    <div class="text-xs text-slate-500 dark:text-slate-400">
+                        This is the URL where your LocalReader server is accessible.
+                    </div>
+                </div>
+
+                <div class="flex gap-2 mb-4">
+                    <button
+                        type="button"
+                        data-auth-tab="login"
+                        class="auth-tab flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/60 dark:bg-black/20 py-2 text-sm font-semibold"
+                    >
+                        Login
+                    </button>
+                    <button
+                        type="button"
+                        data-auth-tab="signup"
+                        class="auth-tab flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/60 dark:bg-black/20 py-2 text-sm font-semibold"
+                    >
+                        Sign up
+                    </button>
+                    <button
+                        type="button"
+                        data-auth-tab="reset"
+                        class="auth-tab flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/60 dark:bg-black/20 py-2 text-sm font-semibold"
+                    >
+                        Reset
+                    </button>
+                </div>
+
+                <div id="auth-error" class="hidden mb-3 text-sm text-red-700 dark:text-red-300"></div>
+
+                <form id="auth-login-form" class="space-y-3">
+                    <input
+                        id="auth-login-email"
+                        type="email"
+                        autocomplete="email"
+                        placeholder="Email"
+                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                        required
+                    />
+                    <input
+                        id="auth-login-password"
+                        type="password"
+                        autocomplete="current-password"
+                        placeholder="Password"
+                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                        required
+                    />
+                    <button
+                        type="submit"
+                        class="w-full rounded-lg bg-primary text-white font-bold py-2 hover:bg-primary/90 transition"
+                    >
+                        Login
+                    </button>
+                </form>
+
+                <form id="auth-signup-form" class="hidden space-y-3">
+                    <input
+                        id="auth-signup-email"
+                        type="email"
+                        autocomplete="email"
+                        placeholder="Email"
+                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                        required
+                    />
+                    <input
+                        id="auth-signup-password"
+                        type="password"
+                        autocomplete="new-password"
+                        placeholder="Password (min 8 chars)"
+                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                        required
+                    />
+                    <button
+                        type="submit"
+                        class="w-full rounded-lg bg-primary text-white font-bold py-2 hover:bg-primary/90 transition"
+                    >
+                        Create account
+                    </button>
+                </form>
+
+                <form id="auth-reset-form" class="hidden space-y-3">
+                    <input
+                        id="auth-reset-email"
+                        type="email"
+                        autocomplete="email"
+                        placeholder="Email"
+                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                        required
+                    />
+                    <div class="flex gap-2">
+                        <button
+                            id="auth-reset-send"
+                            type="button"
+                            class="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/60 dark:bg-black/20 py-2 text-sm font-semibold"
+                        >
+                            Send code
+                        </button>
+                        <input
+                            id="auth-reset-code"
+                            type="text"
+                            inputmode="text"
+                            placeholder="Code"
+                            class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                        />
+                    </div>
+                    <input
+                        id="auth-reset-new-password"
+                        type="password"
+                        autocomplete="new-password"
+                        placeholder="New password"
+                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
+                    />
+                    <button
+                        type="submit"
+                        class="w-full rounded-lg bg-primary text-white font-bold py-2 hover:bg-primary/90 transition"
+                    >
+                        Reset password
+                    </button>
+                </form>
+
+                <div id="auth-loggedin" class="hidden mt-4 space-y-3">
+                    <div class="text-sm text-slate-700 dark:text-slate-300">
+                        Logged in as <span id="auth-email" class="font-semibold"></span>
+                    </div>
+                    <button
+                        id="auth-logout"
+                        type="button"
+                        class="w-full rounded-lg border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 py-2 text-sm font-semibold"
+                    >
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Config Menu -->
         <div
             id="config-menu"
@@ -201,26 +372,26 @@
         >
             <div class="flex items-center justify-between mb-6">
                 <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
-                <button
-                    id="config-menu-close"
-                    class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary"
-                >
-                    <span class="material-symbols-outlined">close</span>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button
+                        id="auth-button"
+                        class="flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/60 dark:bg-black/20 px-3 py-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:border-primary/60"
+                        title="Login / Account"
+                        type="button"
+                    >
+                        <span class="material-symbols-outlined text-base">person</span>
+                        <span>Account</span>
+                    </button>
+                    <button
+                        id="config-menu-close"
+                        class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary"
+                        type="button"
+                    >
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
             </div>
             <div class="space-y-6">
-                <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
-                        Server Link
-                    </label>
-                    <input
-                        id="server-link"
-                        type="url"
-                        placeholder="https://mylib.your-server-link.com"
-                        class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
-                    />
-                </div>
-
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
                         Change voice language
@@ -504,6 +675,9 @@
             import { app } from "./src/app.js";
 
             window.addEventListener("DOMContentLoaded", async () => {
+                const TOKEN_KEY = "localreaderAuthToken";
+                let appInitialized = false;
+
                 const fileInput = document.getElementById("file-input");
                 const settingsBtn = document.getElementById("settings-button");
                 const settingsMenu = document.getElementById("config-menu");
@@ -513,19 +687,242 @@
                 const highlightMenu = document.getElementById("highlight-menu");
 
                 const homeBtn = document.getElementById("home-btn");
-                const loginBtn = document.getElementById("login-button");
-                const subscriptionBtn = document.getElementById("subscription-button");
-                const logoutBtn = document.getElementById("logout-button");
-                const loginMenu = document.getElementById("login-menu");
+                const authButton = document.getElementById("auth-button");
 
-                document.getElementById("open-file").addEventListener("click", () => fileInput.click());
-                document.getElementById("init-open-pdf").addEventListener("click", () => fileInput.click());
+                const authOverlay = document.getElementById("auth-overlay");
+                const authClose = document.getElementById("auth-close");
+                const authStatus = document.getElementById("auth-status");
+                const authServerHint = document.getElementById("auth-server-hint");
+                const serverLinkInput = document.getElementById("server-link");
+                const authError = document.getElementById("auth-error");
+                const authTabs = Array.from(document.querySelectorAll(".auth-tab"));
+                const loginForm = document.getElementById("auth-login-form");
+                const signupForm = document.getElementById("auth-signup-form");
+                const resetForm = document.getElementById("auth-reset-form");
+                const loggedInPanel = document.getElementById("auth-loggedin");
+                const authEmailText = document.getElementById("auth-email");
+                const logoutBtn = document.getElementById("auth-logout");
+                const resetSendBtn = document.getElementById("auth-reset-send");
 
-                document.getElementById("login-button").addEventListener("click", () => app.login());
-                document.getElementById("manage-button").addEventListener("click", () => app.subscribe());
-                document.getElementById("logout-button").addEventListener("click", () => app.logout());
+                const getServerUrl = () => {
+                    const link = localStorage.getItem("config.serverLink") || "";
+                    return link ? link.replace(/\/$/, "") : "";
+                };
 
-                fileInput.addEventListener("change", async (e) => {
+                const setAuthError = (msg) => {
+                    if (!msg) {
+                        authError.classList.add("hidden");
+                        authError.textContent = "";
+                        return;
+                    }
+                    authError.textContent = msg;
+                    authError.classList.remove("hidden");
+                };
+
+                const setTab = (tab) => {
+                    loginForm.classList.toggle("hidden", tab !== "login");
+                    signupForm.classList.toggle("hidden", tab !== "signup");
+                    resetForm.classList.toggle("hidden", tab !== "reset");
+                    loggedInPanel.classList.add("hidden");
+                    authTabs.forEach((b) => {
+                        const active = b.dataset.authTab === tab;
+                        // Tailwind class generation order can cause the base bg/text/border
+                        // classes to override active styles unless we also toggle them off.
+                        b.classList.toggle("bg-primary", active);
+                        b.classList.toggle("text-white", active);
+                        b.classList.toggle("border-primary", active);
+
+                        b.classList.toggle("bg-white/60", !active);
+                        b.classList.toggle("dark:bg-black/20", !active);
+                        b.classList.toggle("text-slate-700", !active);
+                        b.classList.toggle("dark:text-slate-200", !active);
+                        b.classList.toggle("border-slate-300", !active);
+                        b.classList.toggle("dark:border-slate-700", !active);
+                    });
+                };
+
+                const showAuthOverlay = ({ force = false } = {}) => {
+                    const serverUrl = getServerUrl();
+                    authServerHint.textContent = serverUrl
+                        ? `Server: ${serverUrl}`
+                        : "Set Server Link below before logging in.";
+                    if (force) setTab("login");
+                    authOverlay.classList.remove("hidden");
+                };
+
+                const hideAuthOverlay = () => {
+                    authOverlay.classList.add("hidden");
+                };
+
+                const apiFetch = async (path, { method = "GET", body = null } = {}) => {
+                    const serverUrl = getServerUrl();
+                    if (!serverUrl) throw new Error("No server URL configured");
+                    const token = localStorage.getItem(TOKEN_KEY) || "";
+                    const headers = { "Content-Type": "application/json" };
+                    if (token) headers.Authorization = `Bearer ${token}`;
+                    const res = await fetch(`${serverUrl}${path}`, {
+                        method,
+                        headers,
+                        body: body ? JSON.stringify(body) : undefined,
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        const msg = data?.error || `${res.status} ${res.statusText}`;
+                        throw new Error(msg);
+                    }
+                    return data;
+                };
+
+                const ensureAppInitialized = async () => {
+                    if (appInitialized) return;
+                    appInitialized = true;
+                    await app.initialize();
+                    // After init, try pinging (now that token exists)
+                    app.serverSync?.pingServer?.(false).catch(() => {});
+                };
+
+                const refreshAuthState = async () => {
+                    setAuthError("");
+                    authStatus.textContent = "";
+                    const token = localStorage.getItem(TOKEN_KEY) || "";
+                    if (!token) {
+                        authStatus.textContent = "Not authenticated";
+                        return { authenticated: false };
+                    }
+                    try {
+                        const me = await apiFetch("/api/auth/me");
+                        if (me?.authenticated) {
+                            authEmailText.textContent = me.email || "";
+                            loggedInPanel.classList.remove("hidden");
+                            loginForm.classList.add("hidden");
+                            signupForm.classList.add("hidden");
+                            resetForm.classList.add("hidden");
+                            authStatus.textContent = "Authenticated";
+                            return { authenticated: true, email: me.email };
+                        }
+                    } catch {
+                        // token invalid
+                    }
+                    localStorage.removeItem(TOKEN_KEY);
+                    authStatus.textContent = "Not authenticated";
+                    return { authenticated: false };
+                };
+
+                // Server link lives in the auth overlay now.
+                if (serverLinkInput) {
+                    const savedServerLink = localStorage.getItem("config.serverLink") || "";
+                    if (savedServerLink) serverLinkInput.value = savedServerLink;
+
+                    const persistAndRefreshHint = () => {
+                        const raw = serverLinkInput.value || "";
+                        const trimmed = raw.trim().replace(/\/$/, "");
+                        if (trimmed) localStorage.setItem("config.serverLink", trimmed);
+                        else localStorage.removeItem("config.serverLink");
+                        const serverUrl = getServerUrl();
+                        authServerHint.textContent = serverUrl
+                            ? `Server: ${serverUrl}`
+                            : "Set Server Link below before logging in.";
+                    };
+
+                    serverLinkInput.addEventListener("input", persistAndRefreshHint, { passive: true });
+                    serverLinkInput.addEventListener("change", persistAndRefreshHint, { passive: true });
+                }
+
+                const openFileBtn = document.getElementById("open-file");
+                const initOpenBtn = document.getElementById("init-open-pdf");
+                if (openFileBtn && fileInput) openFileBtn.addEventListener("click", () => fileInput.click());
+                if (initOpenBtn && fileInput) initOpenBtn.addEventListener("click", () => fileInput.click());
+
+                if (authButton) {
+                    authButton.addEventListener("click", async () => {
+                        showAuthOverlay({ force: true });
+                        await refreshAuthState();
+                    });
+                }
+
+                if (authClose) {
+                    authClose.addEventListener("click", () => {
+                        hideAuthOverlay();
+                    });
+                }
+
+                authTabs.forEach((btn) => {
+                    btn.addEventListener("click", () => {
+                        setAuthError("");
+                        setTab(btn.dataset.authTab);
+                    });
+                });
+
+                loginForm.addEventListener("submit", async (e) => {
+                    e.preventDefault();
+                    setAuthError("");
+                    try {
+                        const email = document.getElementById("auth-login-email").value;
+                        const password = document.getElementById("auth-login-password").value;
+                        const data = await apiFetch("/api/auth/login", { method: "POST", body: { email, password } });
+                        localStorage.setItem(TOKEN_KEY, data.token);
+                        await refreshAuthState();
+                        hideAuthOverlay();
+                        await ensureAppInitialized();
+                    } catch (err) {
+                        setAuthError(err.message || "Login failed");
+                    }
+                });
+
+                signupForm.addEventListener("submit", async (e) => {
+                    e.preventDefault();
+                    setAuthError("");
+                    try {
+                        const email = document.getElementById("auth-signup-email").value;
+                        const password = document.getElementById("auth-signup-password").value;
+                        const data = await apiFetch("/api/auth/signup", { method: "POST", body: { email, password } });
+                        localStorage.setItem(TOKEN_KEY, data.token);
+                        await refreshAuthState();
+                        hideAuthOverlay();
+                        await ensureAppInitialized();
+                    } catch (err) {
+                        setAuthError(err.message || "Signup failed");
+                    }
+                });
+
+                resetSendBtn?.addEventListener("click", async () => {
+                    setAuthError("");
+                    try {
+                        const email = document.getElementById("auth-reset-email").value;
+                        await apiFetch("/api/auth/request-password-reset", { method: "POST", body: { email } });
+                        setAuthError("If the email exists, a reset code was sent.");
+                    } catch (err) {
+                        setAuthError(err.message || "Failed to request reset");
+                    }
+                });
+
+                resetForm.addEventListener("submit", async (e) => {
+                    e.preventDefault();
+                    setAuthError("");
+                    try {
+                        const email = document.getElementById("auth-reset-email").value;
+                        const token = document.getElementById("auth-reset-code").value;
+                        const newPassword = document.getElementById("auth-reset-new-password").value;
+                        const data = await apiFetch("/api/auth/reset-password", {
+                            method: "POST",
+                            body: { email, token, newPassword },
+                        });
+                        localStorage.setItem(TOKEN_KEY, data.token);
+                        await refreshAuthState();
+                        hideAuthOverlay();
+                        await ensureAppInitialized();
+                    } catch (err) {
+                        setAuthError(err.message || "Reset failed");
+                    }
+                });
+
+                logoutBtn.addEventListener("click", async () => {
+                    localStorage.removeItem(TOKEN_KEY);
+                    await refreshAuthState();
+                    showAuthOverlay({ force: true });
+                });
+
+                fileInput?.addEventListener("change", async (e) => {
                     const file = e.target.files[0];
                     if (!file) return;
                     const name = file.name || "";
@@ -576,7 +973,10 @@
                     }
                 });
 
-                app.initialize();
+                // App starts normally; auth modal opens only when requested.
+                setTab("login");
+                await refreshAuthState();
+                await ensureAppInitialized();
             });
         </script>
     </body>

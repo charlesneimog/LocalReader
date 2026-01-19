@@ -10,3 +10,6 @@ src/modules/tts/pipertts.js
 src/modules/tts/pipertts.wasm
 database.db
 __pycache__
+data
+node_modules
+.env

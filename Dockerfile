@@ -5,7 +5,7 @@ WORKDIR /app
 COPY app.py .
 COPY server.py .
 
-RUN pip install --no-cache-dir googletrans==4.0.0-rc1
+RUN pip install --no-cache-dir googletrans
 
 VOLUME ["/app/data"]
 

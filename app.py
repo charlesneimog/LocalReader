@@ -2,6 +2,9 @@ import sqlite3
 from datetime import datetime
 import os
 import time
+import hashlib
+import hmac
+import secrets
 
 DB_PATH = "data/database.db"
 
@@ -37,6 +40,33 @@ def init_db():
             UNIQUE(file_id, sentence_index)
         )
     """)
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            password_salt TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(email, token_hash)
+        )
+        """
+    )
     
     conn.commit()
 
@@ -51,6 +81,9 @@ def init_db():
     _ensure_column("files", "position_updated_at", "TEXT")
     _ensure_column("files", "highlights_updated_at", "TEXT")
     _ensure_column("files", "voice_updated_at", "TEXT")
+    _ensure_column("files", "owner_email", "TEXT")
+
+    _ensure_column("highlights", "owner_email", "TEXT")
 
     # Backfill any NULL timestamps for existing rows
     cursor.execute(
@@ -67,8 +100,160 @@ def init_db():
            OR voice_updated_at IS NULL
         """
     )
+    # Backfill ownership for older DBs (single-user legacy): keep NULL if unknown.
     conn.commit()
     conn.close()
+
+
+def _normalize_email(email: str) -> str:
+    if not isinstance(email, str):
+        return ""
+    return email.strip().lower()
+
+
+def _hash_password(password: str, salt_hex: str) -> str:
+    """PBKDF2-HMAC-SHA256 password hash.
+
+    Returns hex string.
+    """
+    salt = bytes.fromhex(salt_hex)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200_000)
+    return dk.hex()
+
+
+def create_user(email: str, password: str) -> bool:
+    email_n = _normalize_email(email)
+    if not email_n or "@" not in email_n:
+        return False
+    if not isinstance(password, str) or len(password) < 8:
+        return False
+
+    now = datetime.utcnow().isoformat()
+    salt_hex = secrets.token_bytes(16).hex()
+    pw_hash = _hash_password(password, salt_hex)
+
+    try:
+        with sqlite3.connect(DB_PATH, timeout=30) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO users (email, password_hash, password_salt, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (email_n, pw_hash, salt_hex, now, now),
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def verify_user(email: str, password: str) -> bool:
+    email_n = _normalize_email(email)
+    if not email_n or not isinstance(password, str):
+        return False
+
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT password_hash, password_salt FROM users WHERE email = ?", (email_n,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        expected_hash, salt_hex = row
+
+    computed = _hash_password(password, salt_hex)
+    return hmac.compare_digest(computed, expected_hash)
+
+
+def set_user_password(email: str, new_password: str) -> bool:
+    email_n = _normalize_email(email)
+    if not email_n or not isinstance(new_password, str) or len(new_password) < 8:
+        return False
+
+    now = datetime.utcnow().isoformat()
+    salt_hex = secrets.token_bytes(16).hex()
+    pw_hash = _hash_password(new_password, salt_hex)
+
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE users
+            SET password_hash = ?, password_salt = ?, updated_at = ?
+            WHERE email = ?
+            """,
+            (pw_hash, salt_hex, now, email_n),
+        )
+        return cursor.rowcount > 0
+
+
+def user_exists(email: str) -> bool:
+    email_n = _normalize_email(email)
+    if not email_n:
+        return False
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM users WHERE email = ?", (email_n,))
+        return cursor.fetchone() is not None
+
+
+def create_password_reset(email: str, token_plain: str, expires_at_iso: str) -> bool:
+    email_n = _normalize_email(email)
+    if not email_n or not token_plain:
+        return False
+    token_hash = hashlib.sha256(token_plain.encode("utf-8")).hexdigest()
+    now = datetime.utcnow().isoformat()
+
+    try:
+        with sqlite3.connect(DB_PATH, timeout=30) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO password_resets (email, token_hash, expires_at, used_at, created_at)
+                VALUES (?, ?, ?, NULL, ?)
+                """,
+                (email_n, token_hash, expires_at_iso, now),
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def consume_password_reset(email: str, token_plain: str) -> bool:
+    """Mark a reset token as used if valid and unexpired."""
+    email_n = _normalize_email(email)
+    if not email_n or not token_plain:
+        return False
+
+    token_hash = hashlib.sha256(token_plain.encode("utf-8")).hexdigest()
+    now = datetime.utcnow().isoformat()
+
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, expires_at, used_at
+            FROM password_resets
+            WHERE email = ? AND token_hash = ?
+            """,
+            (email_n, token_hash),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        reset_id, expires_at, used_at = row
+        if used_at:
+            return False
+
+        # ISO string comparison is safe if both are ISO 8601 UTC from this app.
+        if isinstance(expires_at, str) and expires_at < now:
+            return False
+
+        cursor.execute(
+            "UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL",
+            (now, reset_id),
+        )
+        return cursor.rowcount > 0
 
 
 def _sleep_on_lock(attempt: int) -> None:
@@ -145,7 +330,7 @@ def update_position(file_id, position):
     return rows_affected > 0
 
 
-def get_files():
+def get_files(owner_email=None):
     """Get all files from the database (without file data).
     
     Returns:
@@ -155,19 +340,37 @@ def get_files():
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    cursor.execute(
-        """
-        SELECT
-            filename, title, format, reading_position, voice,
-            created_at,
-            COALESCE(updated_at, created_at) AS updated_at,
-            COALESCE(position_updated_at, created_at) AS position_updated_at,
-            COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
-            COALESCE(voice_updated_at, created_at) AS voice_updated_at
-        FROM files
-        ORDER BY created_at DESC
-        """
-    )
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    if owner_n:
+        cursor.execute(
+            """
+            SELECT
+                filename, title, format, reading_position, voice,
+                created_at,
+                COALESCE(updated_at, created_at) AS updated_at,
+                COALESCE(position_updated_at, created_at) AS position_updated_at,
+                COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
+                COALESCE(voice_updated_at, created_at) AS voice_updated_at
+            FROM files
+            WHERE owner_email = ?
+            ORDER BY created_at DESC
+            """,
+            (owner_n,),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT
+                filename, title, format, reading_position, voice,
+                created_at,
+                COALESCE(updated_at, created_at) AS updated_at,
+                COALESCE(position_updated_at, created_at) AS position_updated_at,
+                COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
+                COALESCE(voice_updated_at, created_at) AS voice_updated_at
+            FROM files
+            ORDER BY created_at DESC
+            """
+        )
     
     rows = cursor.fetchall()
     conn.close()
@@ -176,7 +379,7 @@ def get_files():
     return files
 
 
-def get_file_blob(file_id):
+def get_file_blob(file_id, owner_email=None):
     """Get the file blob data for a specific file by file_id.
     
     Args:
@@ -188,11 +391,25 @@ def get_file_blob(file_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    cursor.execute("""
-        SELECT file_data
-        FROM files
-        WHERE filename = ?
-    """, (file_id,))
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    if owner_n:
+        cursor.execute(
+            """
+            SELECT file_data
+            FROM files
+            WHERE filename = ? AND owner_email = ?
+            """,
+            (file_id, owner_n),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT file_data
+            FROM files
+            WHERE filename = ?
+            """,
+            (file_id,),
+        )
     
     row = cursor.fetchone()
     conn.close()
@@ -200,7 +417,7 @@ def get_file_blob(file_id):
     return row[0] if row else None
 
 
-def get_file_data(file_id):
+def get_file_data(file_id, owner_email=None):
     """Get file metadata by filename (file_id).
 
     Args:
@@ -213,27 +430,44 @@ def get_file_data(file_id):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        SELECT
-            filename, title, format, reading_position, voice,
-            created_at,
-            COALESCE(updated_at, created_at) AS updated_at,
-            COALESCE(position_updated_at, created_at) AS position_updated_at,
-            COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
-            COALESCE(voice_updated_at, created_at) AS voice_updated_at
-        FROM files
-        WHERE filename = ?
-        """,
-        (file_id,),
-    )
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    if owner_n:
+        cursor.execute(
+            """
+            SELECT
+                filename, title, format, reading_position, voice,
+                created_at,
+                COALESCE(updated_at, created_at) AS updated_at,
+                COALESCE(position_updated_at, created_at) AS position_updated_at,
+                COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
+                COALESCE(voice_updated_at, created_at) AS voice_updated_at
+            FROM files
+            WHERE filename = ? AND owner_email = ?
+            """,
+            (file_id, owner_n),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT
+                filename, title, format, reading_position, voice,
+                created_at,
+                COALESCE(updated_at, created_at) AS updated_at,
+                COALESCE(position_updated_at, created_at) AS position_updated_at,
+                COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
+                COALESCE(voice_updated_at, created_at) AS voice_updated_at
+            FROM files
+            WHERE filename = ?
+            """,
+            (file_id,),
+        )
 
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
 
 
-def file_exists(file_id):
+def file_exists(file_id, owner_email=None):
     """Check if a file exists by file_id (filename).
     
     Args:
@@ -245,9 +479,17 @@ def file_exists(file_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    cursor.execute("""
-        SELECT COUNT(*) FROM files WHERE filename = ?
-    """, (file_id,))
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    if owner_n:
+        cursor.execute(
+            """SELECT COUNT(*) FROM files WHERE filename = ? AND owner_email = ?""",
+            (file_id, owner_n),
+        )
+    else:
+        cursor.execute(
+            """SELECT COUNT(*) FROM files WHERE filename = ?""",
+            (file_id,),
+        )
     
     count = cursor.fetchone()[0]
     conn.close()
@@ -255,7 +497,7 @@ def file_exists(file_id):
     return count > 0
 
 
-def add_file_with_id(file_id, title, file_data, format, voice=None):
+def add_file_with_id(file_id, title, file_data, format, voice=None, owner_email=None):
     """Add or update a file in the database.
     
     Args:
@@ -277,12 +519,33 @@ def add_file_with_id(file_id, title, file_data, format, voice=None):
                 cursor = conn.cursor()
 
                 # Check if file already exists
-                cursor.execute("SELECT id FROM files WHERE filename = ?", (file_id,))
+                owner_n = _normalize_email(owner_email) if owner_email else None
+
+                if owner_n:
+                    cursor.execute("SELECT id FROM files WHERE filename = ? AND owner_email = ?", (file_id, owner_n))
+                else:
+                    cursor.execute("SELECT id FROM files WHERE filename = ?", (file_id,))
                 existing = cursor.fetchone()
 
                 if existing:
                     # Update existing file
-                    cursor.execute(
+                    if owner_n:
+                        cursor.execute(
+                            """
+                            UPDATE files
+                            SET
+                                title = ?,
+                                file_data = ?,
+                                format = ?,
+                                voice = COALESCE(?, voice),
+                                updated_at = ?,
+                                voice_updated_at = CASE WHEN ? IS NOT NULL THEN ? ELSE voice_updated_at END
+                            WHERE filename = ? AND owner_email = ?
+                            """,
+                            (title, file_data, format, voice, updated_at, voice, updated_at, file_id, owner_n),
+                        )
+                    else:
+                        cursor.execute(
                         """
                         UPDATE files
                         SET
@@ -302,9 +565,10 @@ def add_file_with_id(file_id, title, file_data, format, voice=None):
                         """
                         INSERT INTO files (
                             title, filename, format, file_data, reading_position, voice,
-                            created_at, updated_at, position_updated_at, highlights_updated_at, voice_updated_at
+                            created_at, updated_at, position_updated_at, highlights_updated_at, voice_updated_at,
+                            owner_email
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             title,
@@ -318,6 +582,7 @@ def add_file_with_id(file_id, title, file_data, format, voice=None):
                             updated_at,
                             updated_at,
                             updated_at,
+                            owner_n,
                         ),
                     )
 
@@ -331,7 +596,7 @@ def add_file_with_id(file_id, title, file_data, format, voice=None):
     return file_id
 
 
-def update_position_by_file_id(file_id, position):
+def update_position_by_file_id(file_id, position, owner_email=None):
     """Update the reading position for a file by file_id.
     
     Args:
@@ -347,14 +612,25 @@ def update_position_by_file_id(file_id, position):
         try:
             with sqlite3.connect(DB_PATH, timeout=30) as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE files
-                    SET reading_position = ?, updated_at = ?, position_updated_at = ?
-                    WHERE filename = ?
-                    """,
-                    (position, now, now, file_id),
-                )
+                owner_n = _normalize_email(owner_email) if owner_email else None
+                if owner_n:
+                    cursor.execute(
+                        """
+                        UPDATE files
+                        SET reading_position = ?, updated_at = ?, position_updated_at = ?
+                        WHERE filename = ? AND owner_email = ?
+                        """,
+                        (position, now, now, file_id, owner_n),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        UPDATE files
+                        SET reading_position = ?, updated_at = ?, position_updated_at = ?
+                        WHERE filename = ?
+                        """,
+                        (position, now, now, file_id),
+                    )
                 rows_affected = cursor.rowcount
             return rows_affected > 0
         except sqlite3.OperationalError as e:
@@ -364,7 +640,7 @@ def update_position_by_file_id(file_id, position):
             raise
 
 
-def update_voice_by_file_id(file_id, voice):
+def update_voice_by_file_id(file_id, voice, owner_email=None):
     """Update the voice for a file by file_id.
     
     Args:
@@ -380,14 +656,25 @@ def update_voice_by_file_id(file_id, voice):
         try:
             with sqlite3.connect(DB_PATH, timeout=30) as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE files
-                    SET voice = ?, updated_at = ?, voice_updated_at = ?
-                    WHERE filename = ?
-                    """,
-                    (voice, now, now, file_id),
-                )
+                owner_n = _normalize_email(owner_email) if owner_email else None
+                if owner_n:
+                    cursor.execute(
+                        """
+                        UPDATE files
+                        SET voice = ?, updated_at = ?, voice_updated_at = ?
+                        WHERE filename = ? AND owner_email = ?
+                        """,
+                        (voice, now, now, file_id, owner_n),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        UPDATE files
+                        SET voice = ?, updated_at = ?, voice_updated_at = ?
+                        WHERE filename = ?
+                        """,
+                        (voice, now, now, file_id),
+                    )
                 rows_affected = cursor.rowcount
             return rows_affected > 0
         except sqlite3.OperationalError as e:
@@ -397,7 +684,7 @@ def update_voice_by_file_id(file_id, voice):
             raise
 
 
-def update_highlights(file_id, highlights):
+def update_highlights(file_id, highlights, owner_email=None):
     """Update highlights for a file.
     
     Args:
@@ -427,8 +714,17 @@ def update_highlights(file_id, highlights):
             with sqlite3.connect(DB_PATH, timeout=30) as conn:
                 cursor = conn.cursor()
 
+                owner_n = _normalize_email(owner_email) if owner_email else None
+                scoped_file_id = f"{owner_n}::{file_id}" if owner_n else file_id
+
                 # Clear existing highlights for this file
-                cursor.execute("DELETE FROM highlights WHERE file_id = ?", (file_id,))
+                if owner_n:
+                    cursor.execute(
+                        "DELETE FROM highlights WHERE file_id = ? AND owner_email = ?",
+                        (scoped_file_id, owner_n),
+                    )
+                else:
+                    cursor.execute("DELETE FROM highlights WHERE file_id = ?", (scoped_file_id,))
 
                 count = 0
                 if highlights:
@@ -445,22 +741,32 @@ def update_highlights(file_id, highlights):
 
                         cursor.execute(
                             """
-                            INSERT INTO highlights (file_id, sentence_index, color, text, created_at)
-                            VALUES (?, ?, ?, ?, ?)
+                            INSERT INTO highlights (file_id, sentence_index, color, text, created_at, owner_email)
+                            VALUES (?, ?, ?, ?, ?, ?)
                             """,
-                            (file_id, sentence_index, color, text, created_at),
+                            (scoped_file_id, sentence_index, color, text, created_at, owner_n),
                         )
                         count += 1
 
                 # Touch file timestamps for highlight sync
-                cursor.execute(
-                    """
-                    UPDATE files
-                    SET updated_at = ?, highlights_updated_at = ?
-                    WHERE filename = ?
-                    """,
-                    (created_at, created_at, file_id),
-                )
+                if owner_n:
+                    cursor.execute(
+                        """
+                        UPDATE files
+                        SET updated_at = ?, highlights_updated_at = ?
+                        WHERE filename = ? AND owner_email = ?
+                        """,
+                        (created_at, created_at, file_id, owner_n),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        UPDATE files
+                        SET updated_at = ?, highlights_updated_at = ?
+                        WHERE filename = ?
+                        """,
+                        (created_at, created_at, file_id),
+                    )
 
             return count
         except sqlite3.OperationalError as e:
@@ -470,7 +776,7 @@ def update_highlights(file_id, highlights):
             raise
 
 
-def get_highlights(file_id):
+def get_highlights(file_id, owner_email=None):
     """Get highlights for a file.
     
     Args:
@@ -483,12 +789,28 @@ def get_highlights(file_id):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    cursor.execute("""
-        SELECT sentence_index, color, text
-        FROM highlights
-        WHERE file_id = ?
-        ORDER BY sentence_index
-    """, (file_id,))
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    scoped_file_id = f"{owner_n}::{file_id}" if owner_n else file_id
+    if owner_n:
+        cursor.execute(
+            """
+            SELECT sentence_index, color, text
+            FROM highlights
+            WHERE file_id = ? AND owner_email = ?
+            ORDER BY sentence_index
+            """,
+            (scoped_file_id, owner_n),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT sentence_index, color, text
+            FROM highlights
+            WHERE file_id = ?
+            ORDER BY sentence_index
+            """,
+            (scoped_file_id,),
+        )
     
     rows = cursor.fetchall()
     conn.close()

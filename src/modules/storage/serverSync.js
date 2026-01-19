@@ -29,6 +29,100 @@ export class ServerSync {
         }
     }
 
+    _setReloadSuppressionWindow(ms = 15000) {
+        // Some service-worker helpers (e.g. coi-serviceworker) may trigger reloads on certain
+        // update/degrade events; avoid reloading while an API call is in flight.
+        try {
+            if (typeof window === "undefined") return;
+            const suppressUntil = Date.now() + ms;
+            window.__localreaderSuppressReloadUntil = Math.max(
+                Number(window.__localreaderSuppressReloadUntil || 0),
+                suppressUntil,
+            );
+        } catch {
+            // ignore
+        }
+    }
+
+    _setAuthToken(token) {
+        try {
+            const value = (token || "").toString();
+            if (value) localStorage.setItem("localreaderAuthToken", value);
+            else localStorage.removeItem("localreaderAuthToken");
+        } catch {
+            // ignore
+        }
+    }
+
+    clearAuthToken() {
+        this._setAuthToken("");
+    }
+
+    async apiFetch(path, { method = "GET", body = null, withAuth = true } = {}) {
+        const serverUrl = this.getServerUrl();
+        if (!serverUrl) throw new Error("No server URL configured");
+
+        this._setReloadSuppressionWindow();
+
+        const headers = { "Content-Type": "application/json" };
+        const finalHeaders = withAuth ? this._withAuthHeaders(headers) : headers;
+
+        const res = await fetch(`${serverUrl}${path}`, {
+            method,
+            headers: finalHeaders,
+            body: body ? JSON.stringify(body) : undefined,
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            const msg = data?.error || `${res.status} ${res.statusText}`;
+            throw new Error(msg);
+        }
+        return data;
+    }
+
+    async authMe() {
+        return await this.apiFetch("/api/auth/me", { method: "GET", withAuth: true });
+    }
+
+    async authLogin(email, password, { persistToken = true } = {}) {
+        const data = await this.apiFetch("/api/auth/login", {
+            method: "POST",
+            body: { email, password },
+            withAuth: false,
+        });
+        if (persistToken && data?.token) this._setAuthToken(data.token);
+        return data;
+    }
+
+    async authSignup(email, password, { persistToken = true } = {}) {
+        const data = await this.apiFetch("/api/auth/signup", {
+            method: "POST",
+            body: { email, password },
+            withAuth: false,
+        });
+        if (persistToken && data?.token) this._setAuthToken(data.token);
+        return data;
+    }
+
+    async requestPasswordReset(email) {
+        return await this.apiFetch("/api/auth/request-password-reset", {
+            method: "POST",
+            body: { email },
+            withAuth: false,
+        });
+    }
+
+    async resetPassword(email, token, newPassword, { persistToken = true } = {}) {
+        const data = await this.apiFetch("/api/auth/reset-password", {
+            method: "POST",
+            body: { email, token, newPassword },
+            withAuth: false,
+        });
+        if (persistToken && data?.token) this._setAuthToken(data.token);
+        return data;
+    }
+
     _getAuthToken() {
         try {
             return localStorage.getItem("localreaderAuthToken") || "";

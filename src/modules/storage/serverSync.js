@@ -49,9 +49,7 @@ export class ServerSync {
             const value = (token || "").toString();
             if (value) localStorage.setItem("localreaderAuthToken", value);
             else localStorage.removeItem("localreaderAuthToken");
-        } catch {
-            // ignore
-        }
+        } catch {}
     }
 
     clearAuthToken() {
@@ -277,6 +275,14 @@ export class ServerSync {
             const data = await response.json();
             const serverFiles = data.files || [];
 
+            // Server tombstones (deleted/excluded) should purge local copies, not be downloaded.
+            const tombstones = serverFiles.filter((f) => f && f.deleted);
+            for (const t of tombstones) {
+                const actualName = this._extractActualFilename(t.filename);
+                const docType = t.format === "epub" ? "epub" : "pdf";
+                await this._purgeLocalByActualFilename(actualName, docType);
+            }
+
             const [localPdfKeys, localEpubKeys] = await Promise.all([
                 this.app.progressManager.listSavedPDFs(),
                 this.app.progressManager.listSavedEPUBs(),
@@ -449,7 +455,7 @@ export class ServerSync {
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000);
-            
+
             const startTime = Date.now();
             const response = await this._fetch(`${serverUrl}/api/ping`, {
                 method: "GET",
@@ -608,15 +614,18 @@ export class ServerSync {
                 }
             }
 
-            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/position`, {
-                method: "PUT",
-                headers: {
-                    "Content-Type": "application/json",
+            const response = await this._fetch(
+                `${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/position`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        position: sentenceIndex.toString(),
+                    }),
                 },
-                body: JSON.stringify({
-                    position: sentenceIndex.toString(),
-                }),
-            });
+            );
 
             if (response.ok) {
                 //console.log("[ServerSync] Position synced:", sentenceIndex);
@@ -652,15 +661,18 @@ export class ServerSync {
                 }
             }
 
-            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/voice`, {
-                method: "PUT",
-                headers: {
-                    "Content-Type": "application/json",
+            const response = await this._fetch(
+                `${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/voice`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        voice: voice,
+                    }),
                 },
-                body: JSON.stringify({
-                    voice: voice,
-                }),
-            });
+            );
 
             if (response.ok) {
                 //// console.log("[ServerSync] Voice synced:", voice);
@@ -711,15 +723,18 @@ export class ServerSync {
                 });
             }
 
-            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`, {
-                method: "PUT",
-                headers: {
-                    "Content-Type": "application/json",
+            const response = await this._fetch(
+                `${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        highlights: highlightsArray,
+                    }),
                 },
-                body: JSON.stringify({
-                    highlights: highlightsArray,
-                }),
-            });
+            );
 
             if (response.ok) {
                 // console.log("[ServerSync] syncHighlights: OK", {
@@ -759,10 +774,13 @@ export class ServerSync {
             }
 
             // Fetch file metadata (includes position and voice)
-            const metaResponse = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}`, {
-                method: "GET",
-                headers: { "Content-Type": "application/json" },
-            });
+            const metaResponse = await this._fetch(
+                `${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}`,
+                {
+                    method: "GET",
+                    headers: { "Content-Type": "application/json" },
+                },
+            );
 
             let position = null;
             let voice = null;
@@ -775,10 +793,13 @@ export class ServerSync {
             }
 
             // Fetch highlights
-            const highlightsResponse = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`, {
-                method: "GET",
-                headers: { "Content-Type": "application/json" },
-            });
+            const highlightsResponse = await this._fetch(
+                `${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`,
+                {
+                    method: "GET",
+                    headers: { "Content-Type": "application/json" },
+                },
+            );
 
             let highlights = null;
             if (highlightsResponse.ok) {
@@ -823,16 +844,16 @@ export class ServerSync {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
-            
+
             if (response.ok) {
                 const data = await response.json();
                 const serverFiles = data.files || [];
-                
+
                 // Find file by matching actual filename
-                const matchingFile = serverFiles.find(f => {
+                const matchingFile = serverFiles.find((f) => {
                     if (f && f.deleted) return false;
                     if (f.filename === localFileId) return true; // Exact match
-                    
+
                     // Check if actual filenames match
                     let serverActualName = f.filename;
                     if (f.filename.startsWith("file::")) {
@@ -843,13 +864,13 @@ export class ServerSync {
                     }
                     return serverActualName === actualFilename;
                 });
-                
+
                 return matchingFile ? matchingFile.filename : null;
             }
         } catch (error) {
             console.warn("[ServerSync] Failed to find file on server:", error);
         }
-        
+
         return null;
     }
 
@@ -879,16 +900,16 @@ export class ServerSync {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
-            
+
             if (response.ok) {
                 const data = await response.json();
                 const serverFiles = data.files || [];
-                
+
                 // Check if any server file matches the actual filename
-                const existingFile = serverFiles.find(f => {
+                const existingFile = serverFiles.find((f) => {
                     if (f && f.deleted) return false;
                     if (f.filename === fileId) return true; // Exact match
-                    
+
                     // Check if actual filenames match
                     let serverActualName = f.filename;
                     if (f.filename.startsWith("file::")) {
@@ -899,7 +920,7 @@ export class ServerSync {
                     }
                     return serverActualName === actualFilename;
                 });
-                
+
                 if (existingFile) {
                     // console.log("[ServerSync] File with same name already exists on server:", existingFile.filename);
                     return true;
@@ -1088,16 +1109,18 @@ export class ServerSync {
             }
 
             // Find missing files by comparing actual filenames
-            const missingFiles = serverFiles.filter(f => {
-                let serverActualName = f.filename;
-                if (f.filename.startsWith("file::")) {
-                    const parts = f.filename.split("::");
-                    if (parts.length >= 2) {
-                        serverActualName = parts[1];
+            const missingFiles = serverFiles
+                .filter((f) => f && !f.deleted)
+                .filter((f) => {
+                    let serverActualName = f.filename;
+                    if (f.filename.startsWith("file::")) {
+                        const parts = f.filename.split("::");
+                        if (parts.length >= 2) {
+                            serverActualName = parts[1];
+                        }
                     }
-                }
-                return !localActualFilenames.has(serverActualName);
-            });
+                    return !localActualFilenames.has(serverActualName);
+                });
 
             if (missingFiles.length === 0) {
                 // console.log("[ServerSync] All server files are already cached locally");
@@ -1112,9 +1135,11 @@ export class ServerSync {
             let downloaded = 0;
             for (const fileInfo of missingFiles) {
                 try {
-                    await this.downloadFile(fileInfo);
-                    downloaded++;
-                    this.app.ui?.showInfo?.(`Downloaded ${downloaded}/${missingFiles.length} files`);
+                    const ok = await this.downloadFile(fileInfo);
+                    if (ok) {
+                        downloaded++;
+                        this.app.ui?.showInfo?.(`Downloaded ${downloaded}/${missingFiles.length} files`);
+                    }
                 } catch (error) {
                     console.error(`[ServerSync] Failed to download ${fileInfo.filename}:`, error);
                 }
@@ -1123,38 +1148,41 @@ export class ServerSync {
             if (downloaded > 0) {
                 this.app.ui?.showInfo?.(`Downloaded ${downloaded} files from server`);
                 // console.log(`[ServerSync] Download complete: ${downloaded}/${missingFiles.length} files`);
-                
+
                 // Refresh the saved PDFs view to show new downloads
                 // console.log("[ServerSync] Refreshing library view with new downloads");
                 // console.log("[ServerSync] Current document type:", this.app.state.currentDocumentType);
                 // console.log("[ServerSync] App methods available:", {
-                    //showSavedPDFs: typeof this.app.showSavedPDFs,
-                   // pdfThumbnailCache: typeof this.app.pdfThumbnailCache,
-                   // showSavedPDFsOnCache: this.app.pdfThumbnailCache ? typeof this.app.pdfThumbnailCache.showSavedPDFs : 'undefined'
-               // });
-                
+                //showSavedPDFs: typeof this.app.showSavedPDFs,
+                // pdfThumbnailCache: typeof this.app.pdfThumbnailCache,
+                // showSavedPDFsOnCache: this.app.pdfThumbnailCache ? typeof this.app.pdfThumbnailCache.showSavedPDFs : 'undefined'
+                // });
+
                 setTimeout(() => {
                     try {
                         // console.log("[ServerSync] Attempting to refresh library...");
-                        
+
                         // Try to refresh the library view
-                        if (typeof this.app.showSavedPDFs === 'function') {
+                        if (typeof this.app.showSavedPDFs === "function") {
                             // console.log("[ServerSync] Calling app.showSavedPDFs()");
                             this.app.showSavedPDFs();
-                        } else if (this.app.pdfThumbnailCache && typeof this.app.pdfThumbnailCache.showSavedPDFs === 'function') {
+                        } else if (
+                            this.app.pdfThumbnailCache &&
+                            typeof this.app.pdfThumbnailCache.showSavedPDFs === "function"
+                        ) {
                             // console.log("[ServerSync] Calling pdfThumbnailCache.showSavedPDFs()");
                             this.app.pdfThumbnailCache.showSavedPDFs();
                         } else {
                             console.warn("[ServerSync] No method found to refresh library view");
                         }
-                        
+
                         // console.log("[ServerSync] Library view refresh initiated");
                     } catch (error) {
                         console.error("[ServerSync] Failed to refresh library view:", error);
                         console.error("[ServerSync] Error details:", {
                             name: error.name,
                             message: error.message,
-                            stack: error.stack
+                            stack: error.stack,
                         });
                     }
                 }, 1000);
@@ -1167,7 +1195,7 @@ export class ServerSync {
 
     async downloadFile(fileInfo) {
         const serverUrl = this.getServerUrl();
-        if (!serverUrl) return;
+        if (!serverUrl) return false;
 
         const { filename, title, format, reading_position, voice } = fileInfo;
 
@@ -1186,11 +1214,24 @@ export class ServerSync {
         });
 
         if (!response.ok) {
-            throw new Error(`Download failed: ${response.statusText}`);
+            if (response.status === 410) {
+                const docType = format === "epub" ? "epub" : "pdf";
+                await this._purgeLocalByActualFilename(actualFilename, docType);
+                // Not an error: the server intentionally removed/excluded this file.
+                return false;
+            }
+
+            if (response.status === 404) {
+                console.warn("[ServerSync] File not found on server; skipping download", { filename });
+                return false;
+            }
+
+            const details = await response.text().catch(() => "");
+            throw new Error(`Download failed (${response.status}): ${details || response.statusText}`);
         }
 
         const blob = await response.blob();
-        
+
         // Create a proper File object with correct type and name
         const fileType = format === "pdf" ? "application/pdf" : "application/epub+zip";
         const file = new File([blob], actualFilename, { type: fileType });
@@ -1213,7 +1254,7 @@ export class ServerSync {
         const progressMap = this.app.progressManager.getProgressMap();
         const docType = format === "epub" ? "epub" : "pdf";
         const compoundKey = `${docType}::${filename}`;
-        
+
         progressMap[compoundKey] = {
             sentenceIndex: parseInt(reading_position, 10) || 0,
             updated: Date.now(),
@@ -1221,7 +1262,7 @@ export class ServerSync {
             title: title || actualFilename,
             docType: docType,
         };
-        
+
         this.app.progressManager.setProgressMap(progressMap);
 
         // Pull highlights from server and persist locally so the device has an offline copy
@@ -1251,5 +1292,7 @@ export class ServerSync {
         }
 
         // console.log(`[ServerSync] Downloaded and cached: ${actualFilename}`);
+
+        return true;
     }
 }

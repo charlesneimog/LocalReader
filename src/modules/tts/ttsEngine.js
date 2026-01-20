@@ -19,6 +19,7 @@ export class TTSEngine {
         this.pendingVoiceId = null;
         this.initializingPromise = null;
         this._renderAheadPages = new Set();
+        this._restartAttemptedCount = 0;
 
         const scriptSrc = (document.currentScript && document.currentScript.src) || window.location.href;
         const scriptDir = scriptSrc.substring(0, scriptSrc.lastIndexOf("/"));
@@ -30,11 +31,23 @@ export class TTSEngine {
     }
 
     async getVoicesLists() {
-        this.voicesUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json";
-        this.huggingFaceRoot = "https://huggingface.co/rhasspy/piper-voices/resolve/main/";
-        const response = await fetch(this.voicesUrl);
-        if (!response.ok) throw new Error("Failed to fetch voices.json");
-        return await response.json();
+        const url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json";
+        const cache = await caches.open("piper-voices-v1");
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error("Network response not ok");
+            }
+            await cache.put(url, response.clone());
+            return await response.json();
+        } catch (err) {
+            const cached = await cache.match(url);
+            if (cached) {
+                return await cached.json();
+            }
+            throw new Error("Failed to fetch voices.json and no cache available");
+        }
     }
 
     async ensureAudioContext() {
@@ -114,7 +127,9 @@ export class TTSEngine {
             const MODEL_URL = this.huggingFaceRoot + modelFile;
             const CONFIG_URL = this.huggingFaceRoot + configFile;
 
-            const modelBuffer = await getCachedModel(modelFile, MODEL_URL);
+            const modelBuffer = await getCachedModel(modelFile, MODEL_URL, {
+                onProgress: (pct) => ui.showMessage(`Downloading model: ${pct.toFixed(2)}%`, 1200),
+            });
             const voiceConfig = await getCachedJSON(configFile, CONFIG_URL);
 
             const baseUrl = getWebsiteRoot();
@@ -153,7 +168,6 @@ export class TTSEngine {
             return state.piperInstance;
         } catch (err) {
             console.error("Failed to initialize Piper:", err);
-            alert("Piper init error: " + err.message);
             this.initialized = false;
             this.voiceId = null;
             state.piperInstance = null;
@@ -427,7 +441,13 @@ export class TTSEngine {
     async resetEngine({ clearCache = true, reason } = {}) {
         const { state } = this.app;
         console.warn("Restarting TTS engine", reason || "");
+        console.log(this._restartAttemptedCount);
+        if (this._restartAttemptedCount > 10) {
+            console.error("Max attempted reset engine");
+            return;
+        }
 
+        this._restartAttemptedCount += 1;
         if (this.app.audioManager?.stopPlayback) {
             try {
                 await this.app.audioManager.stopPlayback(false);

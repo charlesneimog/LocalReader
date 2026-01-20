@@ -120,6 +120,26 @@ export class UIService {
         }, 5000);
     }
 
+    showMessage(msg, duration = 5000) {
+        if (!this.infoBox) {
+            console.log(msg);
+            return;
+        }
+
+        this.infoBox.textContent = msg;
+        this.infoBox.style.display = "block";
+        this.isLoading = false;
+
+        clearTimeout(this.hideMessageTimeout);
+
+        const ms = Number.isFinite(duration) ? Math.max(0, duration) : 5000;
+        if (ms > 0) {
+            this.hideMessageTimeout = setTimeout(() => {
+                this.infoBox.style.display = "none";
+            }, ms);
+        }
+    }
+
     updatePlayButton(value) {
         const { state } = this.app;
         if (!this.playBarIcon) return;

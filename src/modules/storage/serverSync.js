@@ -1021,7 +1021,6 @@ export class ServerSync {
                 await this.syncFromServer();
             } else {
                 console.warn("[ServerSync] Server is not accessible");
-                this.app.ui?.showInfo?.("⚠️ Server is not accessible. Check your connection or server URL.");
             }
         }, 600);
     }

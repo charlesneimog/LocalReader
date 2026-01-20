@@ -185,16 +185,70 @@ function loadModel(key) {
         });
     });
 }
-async function getCachedModel(key, url) {
+async function getCachedModel(key, url, options) {
     let buffer = await loadModel(key);
     if (buffer) {
         // console.log("Loaded model from cache.");
         return buffer;
     }
     console.log("Fetching model from network...");
+
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Failed to load model: ${response.status}`);
-    buffer = await response.arrayBuffer();
+
+    const contentLengthHeader = response.headers.get("Content-Length");
+    const totalBytes = contentLengthHeader ? Number(contentLengthHeader) : NaN;
+
+    const onProgress =
+        typeof options === "function" ? options : options && typeof options.onProgress === "function" ? options.onProgress : null;
+
+    // If we can stream + know total size, report progress.
+    if (response.body && Number.isFinite(totalBytes) && totalBytes > 0) {
+        const reader = response.body.getReader();
+        const chunks = [];
+        let receivedBytes = 0;
+
+        let lastPctEmitted = -1;
+        let lastEmitAt = 0;
+        const emit = (pct) => {
+            if (!onProgress) return;
+            const now = performance.now ? performance.now() : Date.now();
+            const pctRounded = Math.max(0, Math.min(100, pct));
+
+            // Throttle UI updates to avoid spamming the message area.
+            const pctFloor = Math.floor(pctRounded);
+            if (pctFloor === lastPctEmitted && now - lastEmitAt < 250) return;
+
+            lastPctEmitted = pctFloor;
+            lastEmitAt = now;
+            onProgress(pctRounded);
+        };
+
+        emit(0);
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+                chunks.push(value);
+                receivedBytes += value.byteLength;
+                emit((receivedBytes / totalBytes) * 100);
+            }
+        }
+
+        const out = new Uint8Array(receivedBytes);
+        let offset = 0;
+        for (const chunk of chunks) {
+            out.set(chunk, offset);
+            offset += chunk.byteLength;
+        }
+        buffer = out.buffer;
+        emit(100);
+    } else {
+        if (onProgress) onProgress(0);
+        buffer = await response.arrayBuffer();
+        if (onProgress) onProgress(100);
+    }
+
     await saveModel(key, buffer);
     console.log("Model cached.");
     return buffer;

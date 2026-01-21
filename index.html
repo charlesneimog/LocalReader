@@ -889,7 +889,7 @@
                     try {
                         const email = document.getElementById("auth-reset-email").value;
                         await app.serverSync.requestPasswordReset(email);
-                        
+
                         //setAuthError("If the email exists, a reset code was sent.");
                     } catch (err) {
                         setAuthError(err.message || "Failed to request reset");

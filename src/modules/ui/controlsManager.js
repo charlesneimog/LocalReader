@@ -44,6 +44,9 @@ export class ControlsManager {
         this.controlsToolbar = document.getElementById("controls");
         this.lockBtn = document.getElementById("lock-screen");
 
+        // Translate
+        this.toggleTranslateBtn = document.getElementById("toggle-translate");
+
         // Default highlight color
         this.app.highlightManager?.setSelectedHighlightColor("#ffda76");
         const icon = this.saveHighlightBtn?.querySelector(".material-symbols-outlined");
@@ -92,6 +95,20 @@ export class ControlsManager {
         // Highlights
         on(this.saveHighlightBtn, "click", () => app.highlightManager.saveCurrentSentenceHighlight());
         on(this.exportHighlightsBtn, "click", () => app.exportManager.exportPdfWithHighlights());
+
+        // Translate toggle (auto translate every spoken sentence)
+        if (this.toggleTranslateBtn) {
+            // Initialize UI from persisted value (app will also load into state).
+            const raw = localStorage.getItem("config.autoTranslate");
+            const enabled = raw === "1" || raw === "true";
+            this.reflectAutoTranslateToggle(enabled);
+
+            on(this.toggleTranslateBtn, "click", () => {
+                const next = !app.isAutoTranslateEnabled?.();
+                app.setAutoTranslateEnabled?.(next);
+                this.showInfo(next ? "Auto-translate: ON" : "Auto-translate: OFF", 1500);
+            });
+        }
 
         if (this.highlightColorButtons?.length) {
             this.highlightColorButtons.forEach((btn) => {
@@ -249,6 +266,17 @@ export class ControlsManager {
                 }
             });
         }
+    }
+
+    reflectAutoTranslateToggle(enabled) {
+        if (!this.toggleTranslateBtn) return;
+
+        const active = !!enabled;
+        this.toggleTranslateBtn.setAttribute("aria-pressed", active ? "true" : "false");
+
+        // Match the styling used by other toggles (e.g. fullscreen).
+        this.toggleTranslateBtn.classList.toggle("bg-primary/10", active);
+        this.toggleTranslateBtn.classList.toggle("text-primary", active);
     }
 
     orientationChange() {

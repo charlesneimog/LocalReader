@@ -56,6 +56,9 @@ export class StateManager {
         this.autoHighlightEnabled = false;
         this.selectedHighlightColor = "#fff8b0";
 
+        // Translation
+        this.autoTranslateEnabled = false;
+
         // Layout Detection Cache
         this.layoutDetectionCache = new Map(); // pageNumber → { detections, validWordIndices, timestamp }
         this.layoutCacheVersion = 1; // increment to invalidate

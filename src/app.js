@@ -2,6 +2,7 @@ import { CONFIG } from "./config.js";
 import { EventBus } from "./core/eventBus.js";
 import { StateManager } from "./core/stateManager.js";
 import { CacheManager } from "./core/cacheManager.js";
+import { EVENTS } from "./constants/events.js";
 
 import * as helperFns from "./modules/utils/helpers.js";
 import { ensureAriaRegions } from "./modules/utils/ariaManager.js";
@@ -44,6 +45,12 @@ export class PDFTTSApp {
         this.eventBus = new EventBus();
         this.cache = new CacheManager(this.state);
 
+        // Runtime settings
+        this._autoTranslateInFlight = false;
+        this._pendingAutoTranslateIndex = null;
+        this._lastAutoTranslatedIndex = null;
+        this._loadRuntimeSettings();
+
         // Utilities
         this.helpers = helperFns;
         this.viewportManager = viewportHeightManager;
@@ -70,6 +77,8 @@ export class PDFTTSApp {
         this.audioManager = new AudioManager(this);
         this.ttsQueue = new TTSQueueManager(this);
         this.wordHighlighter = new WordHighlighter(this);
+
+        this._setupAutoTranslate();
 
         this.showSavedPDFs();
 
@@ -144,6 +153,64 @@ export class PDFTTSApp {
             target: result.target || "",
             detectedSource: result.detectedSource || "",
         });
+    }
+
+    _loadRuntimeSettings() {
+        const raw = localStorage.getItem("config.autoTranslate");
+        const enabled = raw === "1" || raw === "true";
+        this.state.autoTranslateEnabled = enabled;
+        this.controlsManager?.reflectAutoTranslateToggle?.(enabled);
+    }
+
+    setAutoTranslateEnabled(enabled) {
+        const value = !!enabled;
+        this.state.autoTranslateEnabled = value;
+        localStorage.setItem("config.autoTranslate", value ? "1" : "0");
+        this.controlsManager?.reflectAutoTranslateToggle?.(value);
+        if (!value) {
+            this._pendingAutoTranslateIndex = null;
+            this._lastAutoTranslatedIndex = null;
+        }
+    }
+
+    isAutoTranslateEnabled() {
+        return !!this.state.autoTranslateEnabled;
+    }
+
+    _setupAutoTranslate() {
+        this.eventBus.on(EVENTS.AUDIO_PLAYBACK_START, ({ index } = {}) => {
+            if (!this.isAutoTranslateEnabled()) return;
+            if (!Number.isFinite(index)) return;
+            this._triggerAutoTranslate(index);
+        });
+    }
+
+    _triggerAutoTranslate(index) {
+        this._pendingAutoTranslateIndex = index;
+        if (this._autoTranslateInFlight) return;
+
+        this._autoTranslateInFlight = true;
+        (async () => {
+            try {
+                while (Number.isFinite(this._pendingAutoTranslateIndex) && this.isAutoTranslateEnabled()) {
+                    const idx = this._pendingAutoTranslateIndex;
+                    this._pendingAutoTranslateIndex = null;
+
+                    // Avoid re-translating the same sentence on restarts.
+                    if (idx === this._lastAutoTranslatedIndex) continue;
+                    this._lastAutoTranslatedIndex = idx;
+
+                    try {
+                        await this.translateCurrentSentence();
+                    } catch (e) {
+                        // Keep auto-mode alive even if a single translation fails.
+                        console.warn("[autoTranslate] translateCurrentSentence failed", e);
+                    }
+                }
+            } finally {
+                this._autoTranslateInFlight = false;
+            }
+        })();
     }
 
     _getTotalPageCount() {

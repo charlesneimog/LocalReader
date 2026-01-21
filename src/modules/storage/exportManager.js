@@ -6,7 +6,7 @@ export class ExportManager {
     }
 
     async exportPdfWithHighlights() {
-        const { state } = this.app;
+        const { state, config } = this.app;
         if (!state.currentPdfDescriptor || state.savedHighlights.size === 0) {
             alert("No highlights to export or no PDF loaded.");
             return;
@@ -30,6 +30,11 @@ export class ExportManager {
             const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
             const pages = pdfDoc.getPages();
             const { PDFName, PDFString, PDFNumber, PDFArray } = PDFLib;
+
+            const clamp01 = (n) => Math.min(1, Math.max(0, n));
+            const highlightOpacity = clamp01(
+                Number.isFinite(config?.EXPORT_HIGHLIGHT_OPACITY) ? config.EXPORT_HIGHLIGHT_OPACITY : 0.35
+            );
 
             // For each saved highlight (by sentence index), create a single Highlight annotation
             for (const [sentenceIndex, highlightData] of state.savedHighlights.entries()) {
@@ -143,7 +148,7 @@ export class ExportManager {
                     QuadPoints: pdfDoc.context.obj(quadPoints),
                     C: pdfDoc.context.obj(colorArray),
                     F: PDFNumber.of(4),
-                    CA: PDFNumber.of(1),
+                    CA: PDFNumber.of(highlightOpacity),
                     NM: PDFString.of(uniqueId),
                     T: PDFString.of(annotationAuthor),
                     Contents: PDFString.of(annotationContents),

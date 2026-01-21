@@ -3,7 +3,7 @@ export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 9,
     VERSION_PATCH: 0,
-    VERSION_BUILD: 5,
+    VERSION_BUILD: 6,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -31,7 +31,7 @@ export const CONFIG = {
     // (e.g. multi-column layouts). Using a relative threshold keeps sentence splitting consistent across
     // devices, zoom levels, and different BASE_WIDTH_CSS scales.
     WORD_GAP_THRESHOLD_EM: 2.5,
-    SENTENCE_END: [".", "?", "!", ".\"", ":\""],
+    SENTENCE_END: [".", ":", "?", "!", ".\"", ":\""],
 
     // TTS
     PREFETCH_AHEAD: 10,
@@ -59,6 +59,10 @@ export const CONFIG = {
     VIEW_MODE_STORAGE_KEY: "pdfViewMode",
     PROGRESS_STORAGE_KEY: "charlesneimog.github.io/pdfReaderProgressMap",
     HIGHLIGHTS_STORAGE_KEY: "charlesneimog.github.io/pdfReaderHighlightsMap",
+
+    // Export
+    // 0..1 (lower = more transparent). Helps keep highlighted text readable in exported PDFs.
+    EXPORT_HIGHLIGHT_OPACITY: 0.35,
 
     // UI dynamic computed
     BASE_WIDTH_CSS: () => Math.max(360, Math.min(window.innerWidth, 1400)),

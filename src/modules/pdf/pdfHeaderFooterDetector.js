@@ -281,6 +281,29 @@ export class PDFHeaderFooterDetector {
         return { readableBoxes, ignoreBoxes };
     }
 
+    // Public helper: returns readable/ignored layout boxes in viewport coordinates.
+    // This lets other modules (e.g. SentenceParser) use layout regions for ordering/splitting.
+    async getLayoutRegions(pageNumber, { force = false } = {}) {
+        const { state } = this.app;
+        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+        if (!viewportDisplay) return { readableBoxes: [], ignoreBoxes: [] };
+
+        const detections = await this.detectHeadersAndFooters(pageNumber, 1);
+        // If we have no detections, return empty regions (caller can fall back to heuristics).
+        if (!Array.isArray(detections) || detections.length === 0) {
+            return { readableBoxes: [], ignoreBoxes: [] };
+        }
+
+        // Optionally force readability cache refresh to keep regions consistent.
+        if (force) {
+            try {
+                await this.ensureReadabilityForPage(pageNumber, { force: true });
+            } catch {}
+        }
+
+        return this._buildRegionsFromDetections(detections, viewportDisplay);
+    }
+
     ensureReadabilityForPage(pageNumber, { force = false } = {}) {
         const { state } = this.app;
 

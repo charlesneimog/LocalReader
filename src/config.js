@@ -3,7 +3,7 @@ export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 9,
     VERSION_PATCH: 0,
-    VERSION_BUILD: 3,
+    VERSION_BUILD: 4,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -21,8 +21,11 @@ export const CONFIG = {
     AUDIO_CONTEXT_OPTIONS: { latencyHint: "playback" },
 
     // Sentence processing
+    // Prefer using document layout detection regions (columns/blocks) to decide where sentences split.
+    // The gap/threshold heuristics below remain as a fallback when layout data isn't available.
+    USE_LAYOUT_DETECTION_FOR_SENTENCE_SPLIT: true,
     BREAK_ON_LINE: false,
-    SPLIT_ON_LINE_GAP: true,
+    SPLIT_ON_LINE_GAP: false,
     LINE_GAP_THRESHOLD: 2,
     // Multiplier applied to the current line height (in PDF unscaled units) to detect large horizontal gaps
     // (e.g. multi-column layouts). Using a relative threshold keeps sentence splitting consistent across

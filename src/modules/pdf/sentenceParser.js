@@ -39,6 +39,18 @@ export class SentenceParser {
         const abbreviations = ["Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "e.g", "i.e.", "etc", "Fig", "p", "al"];
         let sentenceIndex = state.sentences.length; // Continue from existing sentences
 
+        const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const sentenceEndings = Array.isArray(config.SENTENCE_END) ? config.SENTENCE_END.filter(Boolean) : [".", "?", "!"];
+        const explicitAlt = sentenceEndings.length ? sentenceEndings.map(escapeRegExp).join("|") : "";
+            const closingPunct = "[\\\"'”’»›\\)\\]\\}]";
+            const genericEnd = `(?:[.!?…]+(?:${closingPunct}+)?|[:;]+(?:${closingPunct}+))`;
+        const sentenceEndRegex = explicitAlt
+            ? new RegExp(`(?:${explicitAlt}|${genericEnd})$`)
+            : new RegExp(`(?:${genericEnd})$`);
+        const abbreviationSet = new Set(
+            abbreviations.map((a) => String(a).replace(/[.!?…]+$/g, "").trim().toLowerCase()).filter(Boolean)
+        );
+
         const useLayoutSplit =
             !!config.USE_LAYOUT_DETECTION_FOR_SENTENCE_SPLIT &&
             !!state.generationEnabled &&
@@ -64,12 +76,11 @@ export class SentenceParser {
         };
 
         function isSentenceEnd(wordStr, nextWordStr) {
-            const endings = config.SENTENCE_END.map((c) => `\\${c}`).join("");
-            const sentenceEndRegex = new RegExp(`[${endings}]+$`);
-            const w = wordStr.replace(sentenceEndRegex, "");
-            if (abbreviations.includes(w)) return false;
+            const token = String(wordStr || "").trim();
+            const w = token.replace(sentenceEndRegex, "");
+            if (abbreviationSet.has(String(w).replace(/[.!?…]+$/g, "").trim().toLowerCase())) return false;
             if (nextWordStr && /^[0-9)]/.test(nextWordStr)) return false;
-            return sentenceEndRegex.test(wordStr);
+            return sentenceEndRegex.test(token);
         }
 
         // CRITICAL: Filter words by layout BEFORE creating sentences

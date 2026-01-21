@@ -3,7 +3,7 @@ export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 9,
     VERSION_PATCH: 0,
-    VERSION_BUILD: 4,
+    VERSION_BUILD: 5,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -31,7 +31,7 @@ export const CONFIG = {
     // (e.g. multi-column layouts). Using a relative threshold keeps sentence splitting consistent across
     // devices, zoom levels, and different BASE_WIDTH_CSS scales.
     WORD_GAP_THRESHOLD_EM: 2.5,
-    SENTENCE_END: [".", "?", "!", ":", ".\""],
+    SENTENCE_END: [".", "?", "!", ".\"", ":\""],
 
     // TTS
     PREFETCH_AHEAD: 10,

@@ -46,9 +46,8 @@ export class PDFTTSApp {
         this.cache = new CacheManager(this.state);
 
         // Runtime settings
-        this._autoTranslateInFlight = false;
-        this._pendingAutoTranslateIndex = null;
-        this._lastAutoTranslatedIndex = null;
+        this._autoTranslateCache = new Map();
+        this._autoTranslateInFlight = new Set();
         this._loadRuntimeSettings();
 
         // Utilities
@@ -167,10 +166,8 @@ export class PDFTTSApp {
         this.state.autoTranslateEnabled = value;
         localStorage.setItem("config.autoTranslate", value ? "1" : "0");
         this.controlsManager?.reflectAutoTranslateToggle?.(value);
-        if (!value) {
-            this._pendingAutoTranslateIndex = null;
-            this._lastAutoTranslatedIndex = null;
-        }
+        if (!value) this._resetAutoTranslateCache();
+        if (value) this._kickAutoTranslatePrefetch();
     }
 
     isAutoTranslateEnabled() {
@@ -178,37 +175,92 @@ export class PDFTTSApp {
     }
 
     _setupAutoTranslate() {
+        const resetOnDocChange = () => {
+            this._resetAutoTranslateCache();
+            if (this.isAutoTranslateEnabled()) this._kickAutoTranslatePrefetch();
+        };
+
+        this.eventBus.on(EVENTS.PDF_LOADED, resetOnDocChange);
+        this.eventBus.on(EVENTS.EPUB_LOADED, resetOnDocChange);
+        this.eventBus.on(EVENTS.SENTENCES_PARSED, resetOnDocChange);
+
         this.eventBus.on(EVENTS.AUDIO_PLAYBACK_START, ({ index } = {}) => {
             if (!this.isAutoTranslateEnabled()) return;
             if (!Number.isFinite(index)) return;
-            this._triggerAutoTranslate(index);
+            this._handleAutoTranslatePlaybackStart(index);
         });
     }
 
-    _triggerAutoTranslate(index) {
-        this._pendingAutoTranslateIndex = index;
-        if (this._autoTranslateInFlight) return;
+    _resetAutoTranslateCache() {
+        this._autoTranslateCache.clear();
+        this._autoTranslateInFlight.clear();
+    }
 
-        this._autoTranslateInFlight = true;
+    _kickAutoTranslatePrefetch() {
+        const { state } = this;
+        const baseIdx =
+            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+        if (!Number.isFinite(baseIdx) || baseIdx < 0) return;
+
+        const nextIdx = this._getNextTranslatableSentenceIndex(baseIdx);
+        if (Number.isFinite(nextIdx)) this._prefetchSentenceTranslation(nextIdx);
+    }
+
+    _handleAutoTranslatePlaybackStart(index) {
+        // Show cached translation for the sentence that just started.
+        const cached = this._autoTranslateCache.get(index);
+        if (cached) {
+            this.ui?.showTranslatePopup?.(cached).catch(() => {});
+        }
+
+        // Prefetch translation for the *next* sentence.
+        const nextIdx = this._getNextTranslatableSentenceIndex(index);
+        if (Number.isFinite(nextIdx)) this._prefetchSentenceTranslation(nextIdx);
+    }
+
+    _getNextTranslatableSentenceIndex(fromIndex) {
+        const { state } = this;
+        const start = Math.max(-1, Number(fromIndex));
+        const list = state?.sentences || [];
+        for (let i = start + 1; i < list.length; i++) {
+            const s = list[i];
+            const text = (s?.text || "").trim();
+            if (!text) continue;
+            // PDF readability filter (EPUB sentences won't have this flag).
+            if (s && s.isTextToRead === false) continue;
+            return i;
+        }
+        return null;
+    }
+
+    _prefetchSentenceTranslation(index) {
+        if (!this.isAutoTranslateEnabled()) return;
+        if (!Number.isFinite(index) || index < 0) return;
+        if (this._autoTranslateCache.has(index)) return;
+        if (this._autoTranslateInFlight.has(index)) return;
+        if (!this.serverSync?.isEnabled?.()) return;
+
+        const sentence = this.state?.sentences?.[index];
+        const text = (sentence?.text || "").trim();
+        if (!text) return;
+
+        this._autoTranslateInFlight.add(index);
         (async () => {
             try {
-                while (Number.isFinite(this._pendingAutoTranslateIndex) && this.isAutoTranslateEnabled()) {
-                    const idx = this._pendingAutoTranslateIndex;
-                    this._pendingAutoTranslateIndex = null;
-
-                    // Avoid re-translating the same sentence on restarts.
-                    if (idx === this._lastAutoTranslatedIndex) continue;
-                    this._lastAutoTranslatedIndex = idx;
-
-                    try {
-                        await this.translateCurrentSentence();
-                    } catch (e) {
-                        // Keep auto-mode alive even if a single translation fails.
-                        console.warn("[autoTranslate] translateCurrentSentence failed", e);
-                    }
-                }
+                const result = await this.serverSync.translateText(text);
+                if (!result) return;
+                this._autoTranslateCache.set(index, {
+                    originalText: text,
+                    translatedText: result.translatedText || "",
+                    target: result.target || "",
+                    detectedSource: result.detectedSource || "",
+                });
+            } catch (e) {
+                console.warn("[autoTranslate] prefetch failed", e);
             } finally {
-                this._autoTranslateInFlight = false;
+                this._autoTranslateInFlight.delete(index);
             }
         })();
     }

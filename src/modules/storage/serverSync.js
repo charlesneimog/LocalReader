@@ -405,6 +405,7 @@ export class ServerSync {
                                         highlightsMap.set(sentenceIndex, {
                                             color: h.color,
                                             text: h.text || "",
+                                            comment: typeof h.comment === "string" ? h.comment : "",
                                         });
                                     }
                                 }
@@ -729,6 +730,7 @@ export class ServerSync {
                     sentenceIndex,
                     color: data.color || "#ffda76",
                     text: data.text || data.sentenceText || "",
+                    comment: typeof data.comment === "string" ? data.comment : "",
                 });
             }
 

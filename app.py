@@ -53,6 +53,7 @@ def init_db():
             sentence_index INTEGER NOT NULL,
             color TEXT NOT NULL,
             text TEXT,
+            comment TEXT,
             created_at TEXT NOT NULL,
             UNIQUE(file_id, sentence_index)
         )
@@ -103,6 +104,7 @@ def init_db():
     _ensure_column("files", "actual_filename", "TEXT")
 
     _ensure_column("highlights", "owner_email", "TEXT")
+    _ensure_column("highlights", "comment", "TEXT")
 
     cursor.execute(
         """
@@ -891,7 +893,7 @@ def update_highlights(file_id, highlights, owner_email=None):
     
     Args:
         file_id: The file identifier (filename)
-        highlights: List of dicts with sentenceIndex, color, text
+        highlights: List of dicts with sentenceIndex, color, text, comment
         
     Returns:
         Number of highlights updated
@@ -937,16 +939,18 @@ def update_highlights(file_id, highlights, owner_email=None):
 
                         color = "#ffda76"
                         text = ""
+                        comment = ""
                         if isinstance(highlight, dict):
                             color = highlight.get("color", color)
                             text = highlight.get("text", text)
+                            comment = highlight.get("comment", comment)
 
                         cursor.execute(
                             """
-                            INSERT INTO highlights (file_id, sentence_index, color, text, created_at, owner_email)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO highlights (file_id, sentence_index, color, text, comment, created_at, owner_email)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
                             """,
-                            (scoped_file_id, sentence_index, color, text, created_at, owner_n),
+                            (scoped_file_id, sentence_index, color, text, comment, created_at, owner_n),
                         )
                         count += 1
 
@@ -998,7 +1002,7 @@ def get_highlights(file_id, owner_email=None):
     if owner_n:
         cursor.execute(
             """
-            SELECT sentence_index, color, text
+            SELECT sentence_index, color, text, comment
             FROM highlights
             WHERE file_id = ? AND owner_email = ?
             ORDER BY sentence_index
@@ -1008,7 +1012,7 @@ def get_highlights(file_id, owner_email=None):
     else:
         cursor.execute(
             """
-            SELECT sentence_index, color, text
+            SELECT sentence_index, color, text, comment
             FROM highlights
             WHERE file_id = ?
             ORDER BY sentence_index

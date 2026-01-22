@@ -36,6 +36,7 @@ export class ControlsManager {
         this.bntFullScreen = document.getElementById("toggle-fullscreen");
 
         this.saveHighlightBtn = document.getElementById("save-highlight");
+        this.saveCommentBtn = document.getElementById("save-comment");
         this.exportHighlightsBtn = document.getElementById("export-highlights");
         this.highlightColorButtons = Array.from(document.querySelectorAll(".highlight-color-option"));
         this.infoBox = document.getElementById("info-box");
@@ -94,6 +95,7 @@ export class ControlsManager {
 
         // Highlights
         on(this.saveHighlightBtn, "click", () => app.highlightManager.saveCurrentSentenceHighlight());
+        on(this.saveCommentBtn, "click", () => app.highlightManager.editCurrentSentenceComment());
         on(this.exportHighlightsBtn, "click", () => app.exportManager.exportPdfWithHighlights());
 
         // Translate toggle (auto translate every spoken sentence)
@@ -171,6 +173,11 @@ export class ControlsManager {
                     ArrowRight: () => app.nextSentence(true),
                     ArrowLeft: () => app.prevSentence(true),
                     KeyH: () => app.saveCurrentSentenceHighlight(),
+                    KeyC: async () => {
+                        e.preventDefault();
+                        const didSelection = await app.interactionHandler?.promptCommentForSelection?.();
+                        if (!didSelection) await app.highlightManager?.editCurrentSentenceComment?.();
+                    },
                     KeyT: () => app.translateCurrentSentence?.(),
                     KeyF: () => this.toggleFullscreen(),
                     Digit1: () => this._selectHighlightIndex(0),

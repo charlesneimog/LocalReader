@@ -303,6 +303,46 @@ input[type="color"]:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.14);
 }
 
+.pdf-comment-marker {
+    position: absolute;
+    transform: translate(6px, -6px);
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(20, 20, 24, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+    z-index: 60;
+    pointer-events: auto;
+    cursor: default;
+}
+
+.pdf-comment-marker .material-symbols-outlined {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.pdf-comment-tooltip {
+    position: fixed;
+    max-width: min(360px, 92vw);
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(20, 20, 24, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 99999;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 13px;
+}
+
 .highlight-color-option {
     border: 2px solid transparent;
     outline: none;

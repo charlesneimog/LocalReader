@@ -738,6 +738,7 @@ export class PDFRenderer {
         const container = document.getElementById("pdf-doc-container");
         if (!container) return;
         container.querySelectorAll(".persistent-highlight").forEach((n) => n.remove());
+        container.querySelectorAll(".pdf-comment-marker").forEach((n) => n.remove());
 
         for (const [sentenceIndex, highlightData] of state.savedHighlights.entries()) {
             const sentence = state.sentences[sentenceIndex];
@@ -777,6 +778,9 @@ export class PDFRenderer {
             const lineRects = this.getMergedLineRects(wordsToRender, sentence.pageNumber);
             if (!lineRects.length) continue;
 
+            const hasComment = typeof highlightData?.comment === "string" && highlightData.comment.trim().length > 0;
+            let firstMarkerRect = null;
+
             for (const rect of lineRects) {
                 const div = document.createElement("div");
                 div.className = "persistent-highlight";
@@ -796,8 +800,78 @@ export class PDFRenderer {
                 div.style.borderRadius = "2px";
                 div.title = `Highlighted: ${sentence.text.substring(0, 50)}...`;
                 wrapper.appendChild(div);
+
+                if (!firstMarkerRect) firstMarkerRect = rect;
+            }
+
+            if (hasComment && firstMarkerRect) {
+                const marker = document.createElement("div");
+                marker.className = "pdf-comment-marker";
+                marker.style.left =
+                    offsetLeft + (firstMarkerRect.x + firstMarkerRect.width) * scaleX + "px";
+                marker.style.top = offsetTop + firstMarkerRect.y * scaleY + "px";
+                marker.dataset.sentenceIndex = String(sentenceIndex);
+                marker.dataset.comment = String(highlightData.comment);
+                marker.innerHTML = `<span class="material-symbols-outlined">comment</span>`;
+
+                const show = (e) => {
+                    this._showCommentTooltip(marker.dataset.comment || "", e);
+                };
+                const move = (e) => {
+                    this._moveCommentTooltip(e);
+                };
+                const hide = () => {
+                    this._hideCommentTooltip();
+                };
+
+                marker.addEventListener("mouseenter", show);
+                marker.addEventListener("mousemove", move);
+                marker.addEventListener("mouseleave", hide);
+
+                wrapper.appendChild(marker);
             }
         }
+    }
+
+    _ensureCommentTooltipEl() {
+        if (this._commentTooltipEl && document.body.contains(this._commentTooltipEl)) return;
+        const el = document.createElement("div");
+        el.className = "pdf-comment-tooltip";
+        el.style.display = "none";
+        document.body.appendChild(el);
+        this._commentTooltipEl = el;
+    }
+
+    _showCommentTooltip(text, e) {
+        this._ensureCommentTooltipEl();
+        if (!this._commentTooltipEl) return;
+        const safeText = typeof text === "string" ? text.trim() : "";
+        if (!safeText) return;
+        this._commentTooltipEl.textContent = safeText;
+        this._commentTooltipEl.style.display = "block";
+        this._moveCommentTooltip(e);
+    }
+
+    _moveCommentTooltip(e) {
+        if (!this._commentTooltipEl || this._commentTooltipEl.style.display === "none") return;
+        const clientX = e?.clientX ?? 0;
+        const clientY = e?.clientY ?? 0;
+        const pad = 12;
+
+        // Position near cursor, clamp inside viewport.
+        const rect = this._commentTooltipEl.getBoundingClientRect();
+        let x = clientX + pad;
+        let y = clientY + pad;
+        if (x + rect.width + 8 > window.innerWidth) x = Math.max(8, window.innerWidth - rect.width - 8);
+        if (y + rect.height + 8 > window.innerHeight) y = Math.max(8, window.innerHeight - rect.height - 8);
+        this._commentTooltipEl.style.left = `${x}px`;
+        this._commentTooltipEl.style.top = `${y}px`;
+    }
+
+    _hideCommentTooltip() {
+        if (!this._commentTooltipEl) return;
+        this._commentTooltipEl.style.display = "none";
+        this._commentTooltipEl.textContent = "";
     }
 
     renderHoverHighlightFullDoc() {

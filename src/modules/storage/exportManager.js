@@ -134,7 +134,12 @@ export class ExportManager {
 
                 const createdAt = highlightData?.timestamp ? new Date(highlightData.timestamp) : new Date();
                 const modifiedAt = new Date();
-                const annotationContents = sentence?.text ? sentence.text.slice(0, 1024) : "";
+                const hasComment = typeof highlightData?.comment === "string" && highlightData.comment.trim().length > 0;
+                const annotationContents = hasComment
+                    ? highlightData.comment.trim().slice(0, 2048)
+                    : sentence?.text
+                        ? sentence.text.slice(0, 1024)
+                        : "";
 
                 // TODO: Add login userName or identifier here
                 const annotationAuthor = "LocalReader";
@@ -152,7 +157,7 @@ export class ExportManager {
                     NM: PDFString.of(uniqueId),
                     T: PDFString.of(annotationAuthor),
                     Contents: PDFString.of(annotationContents),
-                    Subj: PDFString.of("Highlight"),
+                    Subj: PDFString.of(hasComment ? "Comment" : "Highlight"),
                     Border: pdfDoc.context.obj([0, 0, 0]),
                     CreationDate: PDFString.fromDate(createdAt),
                     M: PDFString.fromDate(modifiedAt),

@@ -299,8 +299,20 @@ export class InteractionHandler {
             this._hideSelectionMenu();
         });
 
+        const commentBtn = document.createElement("button");
+        commentBtn.type = "button";
+        commentBtn.className = "pdf-selection-menu-btn";
+        commentBtn.textContent = "Comment";
+        commentBtn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await this.promptCommentForSelection(sentenceIndices);
+            this._hideSelectionMenu();
+        });
+
         menu.appendChild(copyBtn);
         menu.appendChild(highlightBtn);
+        menu.appendChild(commentBtn);
         document.body.appendChild(menu);
         this._selectionMenuEl = menu;
 
@@ -322,6 +334,65 @@ export class InteractionHandler {
             window.removeEventListener("keydown", onKey);
             window.removeEventListener("scroll", onScroll, { capture: true });
         };
+    }
+
+    async promptCommentForSelection(sentenceIndicesOverride = null) {
+        const { state } = this.app;
+        if (state.currentDocumentType !== "pdf") return false;
+        if (state.viewMode !== "full") return false;
+
+        const sentenceIndices = Array.isArray(sentenceIndicesOverride)
+            ? sentenceIndicesOverride
+            : Array.isArray(this._textSelect?.selectedSentenceIndices)
+                ? this._textSelect.selectedSentenceIndices
+                : [];
+
+        if (!sentenceIndices.length) return false;
+
+        const unique = new Set(sentenceIndices);
+        const firstIdx = unique.values().next().value;
+        const existing = typeof firstIdx === "number" ? state.savedHighlights.get(firstIdx) : null;
+        const existingComment = typeof existing?.comment === "string" ? existing.comment : "";
+        const res = await this.app.ui?.showCommentPopup?.({
+            title: "Comment",
+            initialText: existingComment,
+            allowRemove: existingComment.trim().length > 0,
+        });
+        if (!res) return true; // cancelled but handled
+
+        const comment = res.action === "save" ? String(res.text || "").trim() : "";
+
+        const color = state.selectedHighlightColor || "#FFF176";
+        const now = Date.now();
+
+        for (const idx of unique) {
+            if (typeof idx !== "number" || idx < 0 || idx >= state.sentences.length) continue;
+            const sentenceText = state.sentences[idx]?.text || "";
+            const prev = state.savedHighlights.get(idx) || {};
+
+            if (res.action === "remove" || !comment) {
+                if (prev && typeof prev === "object" && "comment" in prev) {
+                    const next = { ...prev };
+                    delete next.comment;
+                    if (next.color) state.savedHighlights.set(idx, next);
+                }
+                continue;
+            }
+
+            state.savedHighlights.set(idx, {
+                ...prev,
+                color: prev.color || color,
+                timestamp: prev.timestamp || now,
+                text: prev.text || sentenceText,
+                sentenceText: prev.sentenceText || sentenceText,
+                comment,
+            });
+        }
+
+        this.app.highlightsStorage?.saveHighlightsForPdf?.();
+        this.app.pdfRenderer?.updateHighlightFullDoc?.();
+        this.app.ui?.showInfo?.(comment ? "Comment Saved" : "Comment Removed");
+        return true;
     }
 
     setHoveredSentence(idx) {

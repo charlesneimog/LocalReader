@@ -382,15 +382,6 @@
                 <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
                 <div class="flex items-center gap-2">
                     <button
-                        id="auth-button"
-                        class="flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/60 dark:bg-black/20 px-3 py-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:border-primary/60"
-                        title="Login / Account"
-                        type="button"
-                    >
-                        <span class="material-symbols-outlined text-base">person</span>
-                        <span id="auth-button-label">Account</span>
-                    </button>
-                    <button
                         id="config-menu-close"
                         class="p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary"
                         type="button"
@@ -634,22 +625,10 @@
                 <button
                     id="save-comment"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
-                    title="Add/Edit comment for current sentence"
+                    title="Login / Account"
                 >
-                    <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300">comment</span>
+                    <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300">person</span>
                 </button>
-
-                <!-- Highlight Color Menu -->
-                <div class="relative">
-                    <button
-                        id="highlight-button"
-                        class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
-                    >
-                        <span class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300"
-                            >palette</span
-                        >
-                    </button>
-                </div>
 
                 <!-- Settings Menu -->
                 <div class="relative">
@@ -702,7 +681,7 @@
                 const highlightMenu = document.getElementById("highlight-menu");
 
                 const homeBtn = document.getElementById("home-btn");
-                const authButton = document.getElementById("auth-button");
+                const authButton = document.getElementById("save-comment");
 
                 const authOverlay = document.getElementById("auth-overlay");
                 const authClose = document.getElementById("auth-close");
@@ -782,21 +761,27 @@
                 const refreshAuthState = async () => {
                     setAuthError("");
                     authStatus.textContent = "";
-                    const authButtonLabel = document.getElementById("auth-button-label");
                     const token = localStorage.getItem("localreaderAuthToken") || "";
                     if (!token) {
                         authStatus.textContent = "Not authenticated";
-                        if (authButtonLabel) authButtonLabel.textContent = "Account";
+                        if (authButton) {
+                            const icon = authButton.querySelector(".material-symbols-outlined");
+                            if (icon) icon.textContent = "person";
+                            authButton.title = "Login / Account";
+                            authButton.setAttribute("aria-label", "Login / Account");
+                        }
                         return { authenticated: false };
                     }
                     try {
                         const me = await app.serverSync.authMe();
                         if (me?.authenticated) {
                             authEmailText.textContent = me.email || "";
-                            if (authButtonLabel) {
+                            if (authButton) {
+                                const icon = authButton.querySelector(".material-symbols-outlined");
+                                if (icon) icon.textContent = "person_check";
                                 const email = (me.email || "").trim();
-                                const username = email.includes("@") ? email.split("@", 1)[0] : email;
-                                authButtonLabel.textContent = username || "Account";
+                                authButton.title = email ? `Account: ${email}` : "Account";
+                                authButton.setAttribute("aria-label", authButton.title);
                             }
                             loggedInPanel.classList.remove("hidden");
                             loginForm.classList.add("hidden");
@@ -810,7 +795,12 @@
                     }
                     app.serverSync?.clearAuthToken?.();
                     authStatus.textContent = "Not authenticated";
-                    if (authButtonLabel) authButtonLabel.textContent = "Account";
+                    if (authButton) {
+                        const icon = authButton.querySelector(".material-symbols-outlined");
+                        if (icon) icon.textContent = "person";
+                        authButton.title = "Login / Account";
+                        authButton.setAttribute("aria-label", "Login / Account");
+                    }
                     return { authenticated: false };
                 };
 
@@ -970,22 +960,18 @@
                     app.showSavedPDFs();
                 });
 
-                highlightBtn.addEventListener("click", () => {
-                    highlightMenu.classList.toggle("hidden");
-                });
+                if (highlightBtn && highlightMenu) {
+                    highlightBtn.addEventListener("click", () => {
+                        highlightMenu.classList.toggle("hidden");
+                    });
 
-                document.addEventListener("click", (e) => {
-                    if (!highlightMenu.contains(e.target) && !highlightBtn.contains(e.target)) {
-                        highlightMenu.classList.add("hidden");
-                    }
-                });
-
-                // Close menus when clicking outside
-                document.addEventListener("click", (e) => {
-                    if (!highlightMenu.contains(e.target) && !highlightBtn.contains(e.target)) {
-                        highlightMenu.classList.add("hidden");
-                    }
-                });
+                    // Close menus when clicking outside
+                    document.addEventListener("click", (e) => {
+                        if (!highlightMenu.contains(e.target) && !highlightBtn.contains(e.target)) {
+                            highlightMenu.classList.add("hidden");
+                        }
+                    });
+                }
 
                 // App starts normally; auth modal opens only when requested.
                 setTab("login");

@@ -94,7 +94,7 @@ export class ControlsManager {
         });
 
         // Highlights
-        on(this.saveHighlightBtn, "click", () => app.highlightManager.saveCurrentSentenceHighlight());
+        on(this.saveHighlightBtn, "click", () => app.ui?.showHighlightPopup?.());
         on(this.saveCommentBtn, "click", () => app.highlightManager.editCurrentSentenceComment());
         on(this.exportHighlightsBtn, "click", () => app.exportManager.exportPdfWithHighlights());
 

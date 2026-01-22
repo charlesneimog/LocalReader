@@ -13,6 +13,9 @@ export class UIService {
 
         this._commentPopupEl = null;
         this._commentPopupCleanup = null;
+
+        this._highlightPopupEl = null;
+        this._highlightPopupCleanup = null;
     }
 
     _hideTranslatePopup() {
@@ -35,6 +38,314 @@ export class UIService {
             this._commentPopupCleanup();
             this._commentPopupCleanup = null;
         }
+    }
+
+    _hideHighlightPopup() {
+        if (this._highlightPopupEl) {
+            this._highlightPopupEl.remove();
+            this._highlightPopupEl = null;
+        }
+        if (typeof this._highlightPopupCleanup === "function") {
+            this._highlightPopupCleanup();
+            this._highlightPopupCleanup = null;
+        }
+    }
+
+    showHighlightPopup() {
+        this._hideHighlightPopup();
+
+        const { app } = this;
+        const { state } = app;
+        if (!state?.sentences?.length) {
+            this.showInfo?.("Load a document first");
+            return;
+        }
+
+        const getActiveIndex = () =>
+            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+
+        const idx = getActiveIndex();
+        if (!Number.isFinite(idx) || idx < 0 || idx >= state.sentences.length) return;
+
+        const getCurrent = () => (state.savedHighlights?.get?.(idx) ? state.savedHighlights.get(idx) : null);
+        const hasHighlight = () => !!getCurrent()?.color;
+        const currentComment = () => {
+            const c = getCurrent()?.comment;
+            return typeof c === "string" ? c : "";
+        };
+
+        const persistAndRefresh = ({ allowEmpty = true } = {}) => {
+            try {
+                app.highlightsStorage?.saveHighlightsForPdf?.({ allowEmpty });
+            } catch {}
+            try {
+                if (state.currentDocumentType === "epub") {
+                    app.epubRenderer?.updateHighlightDisplay?.();
+                } else {
+                    app.pdfRenderer?.updateHighlightFullDoc?.();
+                }
+            } catch {}
+        };
+
+        const wrap = document.createElement("div");
+        wrap.className =
+            "fixed z-50 bottom-20 left-1/2 -translate-x-1/2 w-[92vw] max-w-md rounded-lg " +
+            "bg-background-light dark:bg-background-dark bg-opacity-100 " +
+            "px-3 py-2 shadow-lg border border-slate-200 dark:border-slate-700";
+        wrap.style.zIndex = "10000";
+
+        const header = document.createElement("div");
+        header.className = "flex items-center justify-between gap-2 mb-2";
+
+        const left = document.createElement("div");
+        left.className = "flex items-center gap-2 min-w-0";
+
+        const hiIcon = document.createElement("span");
+        hiIcon.className = "material-symbols-outlined";
+        hiIcon.textContent = "format_ink_highlighter";
+        hiIcon.style.color = state.selectedHighlightColor || getCurrent()?.color || "#ffda76";
+
+        const title = document.createElement("div");
+        title.className = "text-sm font-semibold text-slate-800 dark:text-slate-100 truncate";
+        title.textContent = `Highlight · Sentence ${idx + 1}`;
+
+        left.appendChild(hiIcon);
+        left.appendChild(title);
+
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className =
+            "p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary";
+        const closeIcon = document.createElement("span");
+        closeIcon.className = "material-symbols-outlined";
+        closeIcon.textContent = "close";
+        closeBtn.appendChild(closeIcon);
+
+        header.appendChild(left);
+        header.appendChild(closeBtn);
+
+        const body = document.createElement("div");
+        body.className = "space-y-2";
+
+        const colorRow = document.createElement("div");
+        colorRow.className = "flex items-center justify-between gap-2";
+
+        const presets = ["#ffda76", "#F44336", "#81C784", "#4FC3F7"];
+        const presetWrap = document.createElement("div");
+        presetWrap.className = "flex items-center gap-2";
+
+        const setColor = (color) => {
+            const c = String(color || "").trim();
+            if (!c) return;
+
+            // Update selected color (and icon tint)
+            try {
+                app.highlightManager?.setSelectedHighlightColor?.(c);
+            } catch {
+                state.selectedHighlightColor = c;
+            }
+            hiIcon.style.color = c;
+
+            // If already highlighted, also recolor the existing highlight
+            const cur = getCurrent();
+            if (cur?.color) {
+                state.savedHighlights.set(idx, { ...cur, color: c });
+                persistAndRefresh();
+            }
+        };
+
+        for (const p of presets) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "h-6 w-6 rounded-full border border-slate-300 dark:border-slate-600";
+            b.style.backgroundColor = p;
+            b.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setColor(p);
+                colorPicker.value = p;
+            });
+            presetWrap.appendChild(b);
+        }
+
+        const colorPicker = document.createElement("input");
+        colorPicker.type = "color";
+        colorPicker.className = "h-8 w-10 bg-transparent";
+        colorPicker.value = state.selectedHighlightColor || getCurrent()?.color || "#ffda76";
+        colorPicker.addEventListener("input", () => setColor(colorPicker.value));
+
+        colorRow.appendChild(presetWrap);
+        colorRow.appendChild(colorPicker);
+
+        const actions = document.createElement("div");
+        actions.className = "flex items-center justify-between gap-2";
+
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className =
+            "rounded-md px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 " +
+            "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5";
+
+        const status = document.createElement("div");
+        status.className = "text-xs text-slate-500 dark:text-slate-400";
+
+        const syncUI = () => {
+            const on = hasHighlight();
+            toggleBtn.textContent = on ? "Remove highlight" : "Add highlight";
+            status.textContent = on ? "Highlighted" : "Not highlighted";
+
+            const c = currentComment().trim();
+            commentArea.value = c;
+            removeCommentBtn.disabled = !c;
+        };
+
+        toggleBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const sentenceText = state.sentences[idx]?.text || "";
+            const cur = getCurrent() || {};
+            if (hasHighlight()) {
+                state.savedHighlights.delete(idx);
+                persistAndRefresh({ allowEmpty: true });
+            } else {
+                const color = state.selectedHighlightColor || colorPicker.value || "#ffda76";
+                state.savedHighlights.set(idx, {
+                    ...cur,
+                    color,
+                    timestamp: cur.timestamp || Date.now(),
+                    text: cur.text || sentenceText,
+                    sentenceText: cur.sentenceText || sentenceText,
+                    comment: typeof cur.comment === "string" ? cur.comment : undefined,
+                });
+                persistAndRefresh();
+            }
+            syncUI();
+        });
+
+        actions.appendChild(toggleBtn);
+        actions.appendChild(status);
+
+        const commentArea = document.createElement("textarea");
+        commentArea.className =
+            "w-full min-h-[64px] rounded-md border border-slate-200 dark:border-slate-700 " +
+            "bg-white/80 dark:bg-black/20 text-slate-900 dark:text-slate-100 " +
+            "px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary";
+        commentArea.placeholder = "Comment (optional)…";
+
+        const commentActions = document.createElement("div");
+        commentActions.className = "flex items-center justify-between gap-2";
+
+        const removeCommentBtn = document.createElement("button");
+        removeCommentBtn.type = "button";
+        removeCommentBtn.className =
+            "rounded-md px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 " +
+            "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5";
+        removeCommentBtn.textContent = "Remove comment";
+
+        const saveCommentBtn = document.createElement("button");
+        saveCommentBtn.type = "button";
+        saveCommentBtn.className = "rounded-md px-3 py-2 text-sm bg-primary text-white hover:opacity-95";
+        saveCommentBtn.textContent = "Save comment";
+
+        const upsertComment = (nextComment) => {
+            const sentenceText = state.sentences[idx]?.text || "";
+            const cur = getCurrent() || {};
+            const color = cur.color || state.selectedHighlightColor || colorPicker.value || "#ffda76";
+
+            const next = {
+                ...cur,
+                color,
+                timestamp: cur.timestamp || Date.now(),
+                text: cur.text || sentenceText,
+                sentenceText: cur.sentenceText || sentenceText,
+            };
+
+            if (nextComment) {
+                next.comment = nextComment;
+            } else {
+                delete next.comment;
+            }
+
+            state.savedHighlights.set(idx, next);
+            persistAndRefresh();
+        };
+
+        saveCommentBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const next = String(commentArea.value || "").trim();
+            if (!next) return;
+            upsertComment(next);
+            syncUI();
+        });
+
+        removeCommentBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const cur = getCurrent();
+            if (!cur) return;
+            const next = { ...cur };
+            delete next.comment;
+            if (next.color) {
+                state.savedHighlights.set(idx, next);
+            }
+            persistAndRefresh({ allowEmpty: true });
+            syncUI();
+        });
+
+        commentActions.appendChild(removeCommentBtn);
+        commentActions.appendChild(saveCommentBtn);
+
+        body.appendChild(colorRow);
+        body.appendChild(actions);
+        body.appendChild(commentArea);
+        body.appendChild(commentActions);
+
+        wrap.appendChild(header);
+        wrap.appendChild(body);
+        document.body.appendChild(wrap);
+        this._highlightPopupEl = wrap;
+
+        const close = () => this._hideHighlightPopup();
+        closeBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            close();
+        });
+
+        const onKey = (e) => {
+            if (e.key === "Escape") close();
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                const next = String(commentArea.value || "").trim();
+                if (next) {
+                    upsertComment(next);
+                    syncUI();
+                }
+            }
+        };
+        const onDown = (e) => {
+            if (!this._highlightPopupEl) return;
+            if (e.target === this._highlightPopupEl || this._highlightPopupEl.contains(e.target)) return;
+            close();
+        };
+
+        window.addEventListener("keydown", onKey, { passive: true });
+        window.addEventListener("mousedown", onDown, { capture: true });
+        this._highlightPopupCleanup = () => {
+            window.removeEventListener("keydown", onKey);
+            window.removeEventListener("mousedown", onDown, { capture: true });
+        };
+
+        syncUI();
+
+        setTimeout(() => {
+            try {
+                commentArea.focus();
+            } catch {}
+        }, 0);
     }
 
     async showCommentPopup({

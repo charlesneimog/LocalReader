@@ -565,21 +565,30 @@ html {
 
 @media (max-width: 768px) {
     /* Compress floating toolbar on mobile */
-    .fixed.bottom-4.inset-x-0 > div {
-        flex-wrap: wrap;
+    .fixed.bottom-1.inset-x-0 > div {
+        flex-wrap: nowrap;
         gap: 0.25rem;
-        padding: 0.5rem;
-        max-width: 95vw;
+        padding: 0.4rem 0.5rem;
+        max-width: 98vw;
         margin: 0 auto;
     }
 
-    .fixed.bottom-4.inset-x-0 button {
-        padding: 0.4rem;
+    .fixed.bottom-1.inset-x-0 button {
+        padding: 0.35rem;
     }
 
-    .fixed.bottom-4.inset-x-0 .material-symbols-outlined {
-        font-size: 1.25rem !important;
+    .fixed.bottom-1.inset-x-0 .material-symbols-outlined {
+        font-size: 1.15rem !important;
     }
+}
+
+/* Keep playbar on a single line */
+.fixed.bottom-1.inset-x-0 {
+    flex-wrap: nowrap;
+}
+.fixed.bottom-1.inset-x-0 > div {
+    flex-wrap: nowrap;
+    max-width: 100%;
 }
 
 /*

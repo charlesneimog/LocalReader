@@ -147,25 +147,40 @@ class APIHandler(BaseHTTPRequestHandler):
         "http://127.0.0.1:8080,https://charlesneimog.github.io,http://localhost:8080"
     ).split(",")
     
+    # def _set_cors_headers(self):
+    #     """Set CORS headers to allow browser requests."""
+    #     origin = self.headers.get("Origin", "")
+    #     
+    #     # Check if origin is allowed
+    #     allowed = False
+    #     for allowed_origin in self.ALLOWED_ORIGINS:
+    #         if origin.startswith(allowed_origin):
+    #             allowed = True
+    #             break
+    #     
+    #     if allowed:
+    #         self.send_header("Access-Control-Allow-Origin", origin)
+    #     else:
+    #         self.send_header("Access-Control-Allow-Origin", self.ALLOWED_ORIGINS[0])
+    #     
+    #     self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+    #     self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    #     self.send_header("Access-Control-Allow-Credentials", "true")
+
     def _set_cors_headers(self):
-        """Set CORS headers to allow browser requests."""
-        origin = self.headers.get("Origin", "")
-        
-        # Check if origin is allowed
-        allowed = False
-        for allowed_origin in self.ALLOWED_ORIGINS:
-            if origin.startswith(allowed_origin):
-                allowed = True
-                break
-        
-        if allowed:
+        origin = self.headers.get("Origin")
+        if origin:
             self.send_header("Access-Control-Allow-Origin", origin)
         else:
-            self.send_header("Access-Control-Allow-Origin", self.ALLOWED_ORIGINS[0])
-        
+            self.send_header("Access-Control-Allow-Origin", "*")
+
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization"
+        )
         self.send_header("Access-Control-Allow-Credentials", "true")
+
 
     def _get_auth_email(self):
         auth = self.headers.get("Authorization", "")

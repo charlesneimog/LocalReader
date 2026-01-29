@@ -1,9 +1,38 @@
 // Centralized configuration constants extracted from original render.js
+
+// Default API base used when no server link is configured via the UI.
+// Must be HTTPS for PWAs served over HTTPS. Update to your production API.
+export const API_BASE = "https://api.example.com";
+
+// Resolve API base at runtime. Preference order:
+// 1. `#server-link` input value (if present in DOM)
+// 2. localStorage `config.serverLink`
+// 3. `API_BASE` fallback
+export const getApiBase = () => {
+    try {
+        // Prefer the DOM input when available (user-editable in the UI)
+        if (typeof document !== "undefined") {
+            const el = document.getElementById("server-link");
+            const val = (el && el.value) || (typeof localStorage !== "undefined" && localStorage.getItem("config.serverLink")) || API_BASE || "";
+            return (val || "").toString().trim().replace(/\/$/, "");
+        }
+    } catch (e) {
+        // ignore
+    }
+
+    try {
+        const val = (typeof localStorage !== "undefined" && localStorage.getItem("config.serverLink")) || API_BASE || "";
+        return (val || "").toString().trim().replace(/\/$/, "");
+    } catch (e) {
+        return API_BASE;
+    }
+};
+
 export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 9,
     VERSION_PATCH: 1,
-    VERSION_BUILD: 1,
+    VERSION_BUILD: 4,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,

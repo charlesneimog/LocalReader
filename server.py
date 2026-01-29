@@ -209,12 +209,18 @@ class APIHandler(BaseHTTPRequestHandler):
         """Send error response."""
         self._send_json(status_code, {"error": message})
     
+    # def do_OPTIONS(self):
+    #     """Handle preflight requests."""
+    #     logger.debug("CORS preflight: path=%s origin=%s", self.path, self.headers.get("Origin", ""))
+    #     self.send_response(200)
+    #     self._set_cors_headers()
+    #     self.end_headers()
     def do_OPTIONS(self):
-        """Handle preflight requests."""
-        logger.debug("CORS preflight: path=%s origin=%s", self.path, self.headers.get("Origin", ""))
         self.send_response(200)
         self._set_cors_headers()
+        self.send_header("Content-Length", "0")
         self.end_headers()
+
     
     def do_GET(self):
         """Handle GET requests."""

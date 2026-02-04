@@ -173,7 +173,31 @@ export class ServerSync {
         if (typeof key !== "string") return key;
         if (!key.startsWith("file::")) return key;
         const parts = key.split("::");
-        return parts.length >= 2 ? parts[1] : key;
+        const name = parts.length >= 2 ? parts[1] : key;
+        return this._normalizeActualFilename(name);
+    }
+
+    _normalizeActualFilename(name) {
+        if (typeof name !== "string") return "";
+        return name
+            .replace(/[\r\n\t]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    _sanitizeFileIdForUrl(fileId) {
+        if (typeof fileId !== "string") return "";
+        // Avoid control characters in URL paths (often blocked by proxies / WAFs).
+        // Keep semantics intact: only normalize whitespace/control chars.
+        return fileId
+            .replace(/[\u0000-\u001F\u007F]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    _encodeFileIdForUrl(fileId) {
+        const safe = this._sanitizeFileIdForUrl(fileId);
+        return encodeURIComponent(safe);
     }
 
     _parseFileKeyParts(key) {
@@ -391,7 +415,7 @@ export class ServerSync {
                 if (serverHlMs > localServerHlMs) {
                     try {
                         const hlResp = await this._fetch(
-                            `${serverUrl}/api/files/${encodeURIComponent(serverKey)}/highlights`,
+                            `${serverUrl}/api/files/${this._encodeFileIdForUrl(serverKey)}/highlights`,
                             { method: "GET", headers: { "Content-Type": "application/json" } },
                         );
                         if (hlResp.ok) {
@@ -434,7 +458,7 @@ export class ServerSync {
         if (!serverUrl || !fileId) return false;
 
         try {
-            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(fileId)}`, {
+            const response = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(fileId)}`, {
                 method: "DELETE",
             });
 
@@ -630,7 +654,7 @@ export class ServerSync {
                 }
             }
 
-            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/position`, {
+            const response = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/position`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -674,7 +698,7 @@ export class ServerSync {
                 }
             }
 
-            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/voice`, {
+            const response = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/voice`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -734,7 +758,7 @@ export class ServerSync {
                 });
             }
 
-            const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`, {
+            const response = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/highlights`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -782,7 +806,7 @@ export class ServerSync {
             }
 
             // Fetch file metadata (includes position and voice)
-            const metaResponse = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}`, {
+            const metaResponse = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}`, {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
@@ -798,7 +822,7 @@ export class ServerSync {
             }
 
             // Fetch highlights
-            const highlightsResponse = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(actualFileIdOnServer)}/highlights`, {
+            const highlightsResponse = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/highlights`, {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
@@ -840,6 +864,7 @@ export class ServerSync {
                 actualFilename = parts[1];
             }
         }
+        actualFilename = this._normalizeActualFilename(actualFilename);
 
         try {
             const response = await this._fetch(`${serverUrl}/api/files`, {
@@ -852,7 +877,7 @@ export class ServerSync {
                 const serverFiles = data.files || [];
                 
                 // Find file by matching actual filename
-                const matchingFile = serverFiles.find(f => {
+                const matchingFile = serverFiles.find((f) => {
                     if (f && f.deleted) return false;
                     if (f.filename === localFileId) return true; // Exact match
                     
@@ -864,7 +889,7 @@ export class ServerSync {
                             serverActualName = parts[1];
                         }
                     }
-                    return serverActualName === actualFilename;
+                    return this._normalizeActualFilename(serverActualName) === actualFilename;
                 });
                 
                 return matchingFile ? matchingFile.filename : null;
@@ -894,6 +919,7 @@ export class ServerSync {
                 actualFilename = parts[1];
             }
         }
+        actualFilename = this._normalizeActualFilename(actualFilename);
 
         // First check if a file with the same actual filename already exists
         const serverUrl = this.getServerUrl();
@@ -908,7 +934,7 @@ export class ServerSync {
                 const serverFiles = data.files || [];
                 
                 // Check if any server file matches the actual filename
-                const existingFile = serverFiles.find(f => {
+                const existingFile = serverFiles.find((f) => {
                     if (f && f.deleted) return false;
                     if (f.filename === fileId) return true; // Exact match
                     
@@ -920,7 +946,7 @@ export class ServerSync {
                             serverActualName = parts[1];
                         }
                     }
-                    return serverActualName === actualFilename;
+                    return this._normalizeActualFilename(serverActualName) === actualFilename;
                 });
                 
                 if (existingFile) {
@@ -1162,11 +1188,13 @@ export class ServerSync {
                         actualName = parts[1];
                     }
                 }
-                localActualFilenames.add(actualName);
+                localActualFilenames.add(this._normalizeActualFilename(actualName));
             }
 
             // Find missing files by comparing actual filenames
-            const missingFiles = serverFiles.filter((f) => f && !f.deleted).filter(f => {
+            const missingFiles = serverFiles
+                .filter((f) => f && !f.deleted)
+                .filter((f) => {
                 let serverActualName = f.filename;
                 if (f.filename.startsWith("file::")) {
                     const parts = f.filename.split("::");
@@ -1174,7 +1202,7 @@ export class ServerSync {
                         serverActualName = parts[1];
                     }
                 }
-                return !localActualFilenames.has(serverActualName);
+                return !localActualFilenames.has(this._normalizeActualFilename(serverActualName));
             });
 
             if (missingFiles.length === 0) {
@@ -1250,6 +1278,7 @@ export class ServerSync {
         if (!serverUrl) return false;
 
         const { filename, title, format, reading_position, voice } = fileInfo;
+        const safeFileId = this._sanitizeFileIdForUrl(filename);
 
         // Extract actual filename from file_id format (file::actualname::size::timestamp)
         let actualFilename = filename;
@@ -1259,9 +1288,10 @@ export class ServerSync {
                 actualFilename = parts[1]; // Get the actual filename without prefix
             }
         }
+        actualFilename = this._normalizeActualFilename(actualFilename);
 
         // Download file blob
-        const response = await this._fetch(`${serverUrl}/api/files/${encodeURIComponent(filename)}/download`, {
+        const response = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(safeFileId)}/download`, {
             method: "GET",
         });
 
@@ -1291,21 +1321,21 @@ export class ServerSync {
         // Save to IndexedDB using the full filename key from server.
         // Avoid duplicates: if it already exists under this key, don't save again.
         if (format === "pdf") {
-            const existing = await this.app.progressManager.loadPdfFromIndexedDB(filename);
+            const existing = await this.app.progressManager.loadPdfFromIndexedDB(safeFileId);
             if (!existing) {
-                await this.app.progressManager.savePdfToIndexedDB(file, filename);
+                await this.app.progressManager.savePdfToIndexedDB(file, safeFileId);
             }
         } else if (format === "epub") {
-            const existing = await this.app.progressManager.loadEpubFromIndexedDB(filename);
+            const existing = await this.app.progressManager.loadEpubFromIndexedDB(safeFileId);
             if (!existing) {
-                await this.app.progressManager.saveEpubToIndexedDB(file, filename);
+                await this.app.progressManager.saveEpubToIndexedDB(file, safeFileId);
             }
         }
 
         // Restore progress if available
         const progressMap = this.app.progressManager.getProgressMap();
         const docType = format === "epub" ? "epub" : "pdf";
-        const compoundKey = `${docType}::${filename}`;
+        const compoundKey = `${docType}::${safeFileId}`;
         
         progressMap[compoundKey] = {
             sentenceIndex: parseInt(reading_position, 10) || 0,
@@ -1321,7 +1351,7 @@ export class ServerSync {
         // without needing to open the document.
         try {
             const highlightsResponse = await this._fetch(
-                `${serverUrl}/api/files/${encodeURIComponent(filename)}/highlights`,
+                `${serverUrl}/api/files/${this._encodeFileIdForUrl(safeFileId)}/highlights`,
                 { method: "GET", headers: { "Content-Type": "application/json" } },
             );
             if (highlightsResponse.ok) {
@@ -1336,7 +1366,7 @@ export class ServerSync {
                             });
                         }
                     }
-                    this.app.highlightsStorage?.saveHighlights?.(filename, highlightsMap);
+                    this.app.highlightsStorage?.saveHighlights?.(safeFileId, highlightsMap);
                 }
             }
         } catch (e) {

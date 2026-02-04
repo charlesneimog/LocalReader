@@ -1,4 +1,4 @@
-const APP_VERSION = "0.9.1+5";
+const APP_VERSION = "0.9.1+6";
 const cacheName = `LocalReader-v${APP_VERSION}`;
 const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
 
@@ -381,6 +381,22 @@ const fetchHandler = async (e) => {
             try {
                 const urlObj = new URL(url);
 
+                const isSameOrigin = urlObj.origin === self.location.origin;
+
+                // For generic cross-origin requests (e.g. downloads from your server domain),
+                // do not fall back to index.html. Always return a real Response.
+                if (!isSameOrigin && !shouldCacheExternally(url)) {
+                    try {
+                        return await fetch(request);
+                    } catch (err) {
+                        return new Response("Upstream resource unavailable", {
+                            status: 504,
+                            statusText: "Gateway Timeout",
+                            headers: { "Content-Type": "text/plain" },
+                        });
+                    }
+                }
+
                 // Never let the SW interfere with cross-origin API calls.
                 // If the network fails, return a real Response (not undefined).
                 if (urlObj.origin !== self.location.origin && urlObj.pathname.startsWith("/api/")) {
@@ -462,7 +478,14 @@ const fetchHandler = async (e) => {
                     // Last resort: return offline page for navigation requests
                     if (request.mode === "navigate") {
                         const offlinePage = await caches.match(resolvePath("/index.html"));
-                        return offlinePage;
+                        return (
+                            offlinePage ||
+                            new Response("Offline", {
+                                status: 503,
+                                statusText: "Service Unavailable",
+                                headers: { "Content-Type": "text/plain" },
+                            })
+                        );
                     }
 
                     throw networkError;

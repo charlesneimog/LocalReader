@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import secrets
 import logging
+import re
 
 DB_PATH = "data/database.db"
 
@@ -16,13 +17,117 @@ class FileDeletedError(RuntimeError):
     pass
 
 
+_CONTROL_CHARS_RE = re.compile(r"[\u0000-\u001F\u007F]+")
+_WS_RE = re.compile(r"\s+")
+
+
+def _normalize_text_key(value: str) -> str:
+    """Normalize text used as identifier keys.
+
+    Removes ASCII control chars (incl. CR/LF/TAB), collapses whitespace to single spaces,
+    and trims ends.
+    """
+    if not isinstance(value, str):
+        return ""
+    s = _CONTROL_CHARS_RE.sub(" ", value)
+    s = _WS_RE.sub(" ", s)
+    return s.strip()
+
+
 def _extract_actual_filename(file_id: str) -> str:
     if not isinstance(file_id, str):
         return ""
     if not file_id.startswith("file::"):
-        return file_id
+        return _normalize_text_key(file_id)
     parts = file_id.split("::")
-    return parts[1] if len(parts) >= 2 else file_id
+    actual = parts[1] if len(parts) >= 2 else file_id
+    return _normalize_text_key(actual)
+
+
+def _resolve_canonical_filename(file_id: str, owner_email: str | None) -> str | None:
+    """Resolve an incoming file identifier to the stored `files.filename`.
+
+    The browser client sanitizes control characters before putting file_id in URLs;
+    older DB rows may contain folded header artifacts (e.g. \r\n) in `filename`.
+
+    Strategy:
+      1) exact match on filename
+      2) match by (normalized) actual_filename
+    """
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    requested_raw = (file_id or "").strip()
+    if not requested_raw:
+        return None
+
+    requested_norm = _normalize_text_key(requested_raw)
+    actual_norm = _extract_actual_filename(requested_norm if requested_norm.startswith("file::") else requested_raw)
+
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        cursor = conn.cursor()
+
+        # 1) exact match (raw, then normalized)
+        if owner_n:
+            cursor.execute(
+                "SELECT filename FROM files WHERE filename = ? AND owner_email = ? LIMIT 1",
+                (requested_raw, owner_n),
+            )
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            if requested_norm and requested_norm != requested_raw:
+                cursor.execute(
+                    "SELECT filename FROM files WHERE filename = ? AND owner_email = ? LIMIT 1",
+                    (requested_norm, owner_n),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+        else:
+            cursor.execute(
+                "SELECT filename FROM files WHERE filename = ? LIMIT 1",
+                (requested_raw,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            if requested_norm and requested_norm != requested_raw:
+                cursor.execute(
+                    "SELECT filename FROM files WHERE filename = ? LIMIT 1",
+                    (requested_norm,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+
+        # 2) match by normalized actual filename
+        if actual_norm:
+            if owner_n:
+                cursor.execute(
+                    """
+                    SELECT filename
+                    FROM files
+                    WHERE owner_email = ? AND actual_filename = ?
+                    ORDER BY COALESCE(updated_at, created_at) DESC
+                    LIMIT 1
+                    """,
+                    (owner_n, actual_norm),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT filename
+                    FROM files
+                    WHERE actual_filename = ?
+                    ORDER BY COALESCE(updated_at, created_at) DESC
+                    LIMIT 1
+                    """,
+                    (actual_norm,),
+                )
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+
+    return None
 
 
 def init_db():
@@ -151,6 +256,43 @@ def init_db():
             (actual, file_row_id),
         )
 
+    # Normalize stored actual filenames (handles legacy rows with control chars).
+    cursor.execute(
+        """
+        SELECT id, actual_filename
+        FROM files
+        WHERE actual_filename IS NOT NULL
+        """
+    )
+    rows = cursor.fetchall()
+    for file_row_id, actual_filename in rows:
+        norm = _normalize_text_key(actual_filename or "")
+        if norm and norm != actual_filename:
+            cursor.execute(
+                "UPDATE files SET actual_filename = ? WHERE id = ?",
+                (norm, file_row_id),
+            )
+
+    # Normalize tombstones for consistent matching.
+    cursor.execute(
+        """
+        SELECT id, actual_filename
+        FROM deleted_files
+        """
+    )
+    rows = cursor.fetchall()
+    for row_id, actual_filename in rows:
+        norm = _normalize_text_key(actual_filename or "")
+        if norm and norm != actual_filename:
+            try:
+                cursor.execute(
+                    "UPDATE deleted_files SET actual_filename = ? WHERE id = ?",
+                    (norm, row_id),
+                )
+            except sqlite3.IntegrityError:
+                # If normalization causes a unique collision, keep the newest tombstone.
+                cursor.execute("DELETE FROM deleted_files WHERE id = ?", (row_id,))
+
     conn.commit()
     conn.close()
     logger.info("init_db: done")
@@ -160,7 +302,7 @@ def _is_actual_filename_deleted(actual_filename: str, owner_email: str | None) -
     owner_n = _normalize_email(owner_email) if owner_email else None
     if not owner_n:
         return False
-    actual = (actual_filename or "").strip()
+    actual = _normalize_text_key(actual_filename or "")
     if not actual:
         return False
     with sqlite3.connect(DB_PATH, timeout=30) as conn:
@@ -196,7 +338,7 @@ def is_file_deleted(file_id: str, owner_email: str | None = None) -> bool:
     owner_n = _normalize_email(owner_email) if owner_email else None
     if not owner_n:
         return False
-    actual = _extract_actual_filename((file_id or "").strip())
+    actual = _extract_actual_filename(_normalize_text_key((file_id or "").strip()))
     return _is_actual_filename_deleted(actual, owner_n)
 
 
@@ -205,7 +347,7 @@ def mark_file_deleted(file_id: str, owner_email: str | None = None) -> bool:
     if not owner_n:
         return False
 
-    target = (file_id or "").strip()
+    target = _normalize_text_key((file_id or "").strip())
     if not target:
         return False
 
@@ -551,6 +693,10 @@ def get_files(owner_email=None):
     conn.close()
     
     files = [dict(row) for row in rows]
+    # Avoid emitting control characters in API responses.
+    for f in files:
+        if isinstance(f.get("filename"), str):
+            f["filename"] = _normalize_text_key(f["filename"])
     logger.info("get_files: owner=%s count=%d", owner_n or "*", len(files))
     return files
 
@@ -564,32 +710,33 @@ def get_file_blob(file_id, owner_email=None):
     Returns:
         Binary file data or None if not found
     """
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    canonical = _resolve_canonical_filename(file_id, owner_n)
+    if not canonical:
+        logger.info("get_file_blob: owner=%s file_id=%s hit=%s", owner_n or "*", file_id, False)
+        return None
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
-    owner_n = _normalize_email(owner_email) if owner_email else None
     if owner_n:
         cursor.execute(
-            """
-            SELECT file_data
-            FROM files
-            WHERE filename = ? AND owner_email = ?
-            """,
-            (file_id, owner_n),
+            "SELECT file_data FROM files WHERE filename = ? AND owner_email = ?",
+            (canonical, owner_n),
         )
     else:
         cursor.execute(
-            """
-            SELECT file_data
-            FROM files
-            WHERE filename = ?
-            """,
-            (file_id,),
+            "SELECT file_data FROM files WHERE filename = ?",
+            (canonical,),
         )
-    
     row = cursor.fetchone()
     conn.close()
-    logger.info("get_file_blob: owner=%s file_id=%s hit=%s", owner_n or "*", file_id, bool(row))
+    logger.info(
+        "get_file_blob: owner=%s file_id=%s canonical=%s hit=%s",
+        owner_n or "*",
+        file_id,
+        canonical,
+        bool(row),
+    )
     return row[0] if row else None
 
 
@@ -607,6 +754,11 @@ def get_file_data(file_id, owner_email=None):
     cursor = conn.cursor()
 
     owner_n = _normalize_email(owner_email) if owner_email else None
+    canonical = _resolve_canonical_filename(file_id, owner_n)
+    if not canonical:
+        logger.debug("get_file_data: owner=%s file_id=%s hit=%s", owner_n or "*", file_id, False)
+        return None
+
     if owner_n:
         cursor.execute(
             """
@@ -620,7 +772,7 @@ def get_file_data(file_id, owner_email=None):
             FROM files
             WHERE filename = ? AND owner_email = ?
             """,
-            (file_id, owner_n),
+            (canonical, owner_n),
         )
     else:
         cursor.execute(
@@ -635,12 +787,18 @@ def get_file_data(file_id, owner_email=None):
             FROM files
             WHERE filename = ?
             """,
-            (file_id,),
+            (canonical,),
         )
 
     row = cursor.fetchone()
     conn.close()
-    logger.debug("get_file_data: owner=%s file_id=%s hit=%s", owner_n or "*", file_id, bool(row))
+    logger.debug(
+        "get_file_data: owner=%s file_id=%s canonical=%s hit=%s",
+        owner_n or "*",
+        file_id,
+        canonical,
+        bool(row),
+    )
     return dict(row) if row else None
 
 
@@ -653,25 +811,11 @@ def file_exists(file_id, owner_email=None):
     Returns:
         True if file exists, False otherwise
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     owner_n = _normalize_email(owner_email) if owner_email else None
-    if owner_n:
-        cursor.execute(
-            """SELECT COUNT(*) FROM files WHERE filename = ? AND owner_email = ?""",
-            (file_id, owner_n),
-        )
-    else:
-        cursor.execute(
-            """SELECT COUNT(*) FROM files WHERE filename = ?""",
-            (file_id,),
-        )
-    
-    count = cursor.fetchone()[0]
-    conn.close()
-    logger.debug("file_exists: owner=%s file_id=%s exists=%s", owner_n or "*", file_id, count > 0)
-    return count > 0
+    canonical = _resolve_canonical_filename(file_id, owner_n)
+    exists = canonical is not None
+    logger.debug("file_exists: owner=%s file_id=%s canonical=%s exists=%s", owner_n or "*", file_id, canonical, exists)
+    return exists
 
 
 def add_file_with_id(file_id, title, file_data, format, voice=None, owner_email=None):
@@ -691,6 +835,9 @@ def add_file_with_id(file_id, title, file_data, format, voice=None, owner_email=
     updated_at = created_at
 
     owner_n = _normalize_email(owner_email) if owner_email else None
+    # Normalize inbound identifiers to avoid storing control characters.
+    file_id = _normalize_text_key(file_id)
+    title = _normalize_text_key(title)
     actual_filename = _extract_actual_filename(file_id)
 
     if owner_n and _is_actual_filename_deleted(actual_filename, owner_n):
@@ -805,12 +952,16 @@ def update_position_by_file_id(file_id, position, owner_email=None):
         True if update was successful, False if file not found
     """
     now = datetime.utcnow().isoformat()
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    canonical = _resolve_canonical_filename(file_id, owner_n)
+    if not canonical:
+        logger.info("update_position: owner=%s file_id=%s ok=%s", owner_n or "*", file_id, False)
+        return False
 
     for attempt in range(4):
         try:
             with sqlite3.connect(DB_PATH, timeout=30) as conn:
                 cursor = conn.cursor()
-                owner_n = _normalize_email(owner_email) if owner_email else None
                 if owner_n:
                     cursor.execute(
                         """
@@ -818,7 +969,7 @@ def update_position_by_file_id(file_id, position, owner_email=None):
                         SET reading_position = ?, updated_at = ?, position_updated_at = ?
                         WHERE filename = ? AND owner_email = ?
                         """,
-                        (position, now, now, file_id, owner_n),
+                        (position, now, now, canonical, owner_n),
                     )
                 else:
                     cursor.execute(
@@ -827,11 +978,17 @@ def update_position_by_file_id(file_id, position, owner_email=None):
                         SET reading_position = ?, updated_at = ?, position_updated_at = ?
                         WHERE filename = ?
                         """,
-                        (position, now, now, file_id),
+                        (position, now, now, canonical),
                     )
                 rows_affected = cursor.rowcount
             ok = rows_affected > 0
-            logger.info("update_position: owner=%s file_id=%s ok=%s", owner_n or "*", file_id, ok)
+            logger.info(
+                "update_position: owner=%s file_id=%s canonical=%s ok=%s",
+                owner_n or "*",
+                file_id,
+                canonical,
+                ok,
+            )
             return ok
         except sqlite3.OperationalError as e:
             if "locked" in str(e).lower() and attempt < 3:
@@ -852,12 +1009,16 @@ def update_voice_by_file_id(file_id, voice, owner_email=None):
         True if update was successful, False if file not found
     """
     now = datetime.utcnow().isoformat()
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    canonical = _resolve_canonical_filename(file_id, owner_n)
+    if not canonical:
+        logger.info("update_voice: owner=%s file_id=%s ok=%s", owner_n or "*", file_id, False)
+        return False
 
     for attempt in range(4):
         try:
             with sqlite3.connect(DB_PATH, timeout=30) as conn:
                 cursor = conn.cursor()
-                owner_n = _normalize_email(owner_email) if owner_email else None
                 if owner_n:
                     cursor.execute(
                         """
@@ -865,7 +1026,7 @@ def update_voice_by_file_id(file_id, voice, owner_email=None):
                         SET voice = ?, updated_at = ?, voice_updated_at = ?
                         WHERE filename = ? AND owner_email = ?
                         """,
-                        (voice, now, now, file_id, owner_n),
+                        (voice, now, now, canonical, owner_n),
                     )
                 else:
                     cursor.execute(
@@ -874,11 +1035,17 @@ def update_voice_by_file_id(file_id, voice, owner_email=None):
                         SET voice = ?, updated_at = ?, voice_updated_at = ?
                         WHERE filename = ?
                         """,
-                        (voice, now, now, file_id),
+                        (voice, now, now, canonical),
                     )
                 rows_affected = cursor.rowcount
             ok = rows_affected > 0
-            logger.info("update_voice: owner=%s file_id=%s ok=%s", owner_n or "*", file_id, ok)
+            logger.info(
+                "update_voice: owner=%s file_id=%s canonical=%s ok=%s",
+                owner_n or "*",
+                file_id,
+                canonical,
+                ok,
+            )
             return ok
         except sqlite3.OperationalError as e:
             if "locked" in str(e).lower() and attempt < 3:
@@ -899,6 +1066,11 @@ def update_highlights(file_id, highlights, owner_email=None):
         Number of highlights updated
     """
     created_at = datetime.utcnow().isoformat()
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    canonical = _resolve_canonical_filename(file_id, owner_n)
+    if not canonical:
+        logger.info("update_highlights: owner=%s file_id=%s written=%d", owner_n or "*", file_id, 0)
+        return 0
 
     def _coerce_sentence_index(h):
         if not isinstance(h, dict):
@@ -918,8 +1090,7 @@ def update_highlights(file_id, highlights, owner_email=None):
             with sqlite3.connect(DB_PATH, timeout=30) as conn:
                 cursor = conn.cursor()
 
-                owner_n = _normalize_email(owner_email) if owner_email else None
-                scoped_file_id = f"{owner_n}::{file_id}" if owner_n else file_id
+                scoped_file_id = f"{owner_n}::{canonical}" if owner_n else canonical
 
                 # Clear existing highlights for this file
                 if owner_n:
@@ -962,7 +1133,7 @@ def update_highlights(file_id, highlights, owner_email=None):
                         SET updated_at = ?, highlights_updated_at = ?
                         WHERE filename = ? AND owner_email = ?
                         """,
-                        (created_at, created_at, file_id, owner_n),
+                        (created_at, created_at, canonical, owner_n),
                     )
                 else:
                     cursor.execute(
@@ -971,7 +1142,7 @@ def update_highlights(file_id, highlights, owner_email=None):
                         SET updated_at = ?, highlights_updated_at = ?
                         WHERE filename = ?
                         """,
-                        (created_at, created_at, file_id),
+                        (created_at, created_at, canonical),
                     )
 
             return count
@@ -998,7 +1169,12 @@ def get_highlights(file_id, owner_email=None):
     cursor = conn.cursor()
     
     owner_n = _normalize_email(owner_email) if owner_email else None
-    scoped_file_id = f"{owner_n}::{file_id}" if owner_n else file_id
+    canonical = _resolve_canonical_filename(file_id, owner_n)
+    if not canonical:
+        logger.info("get_highlights: owner=%s file_id=%s count=%d", owner_n or "*", file_id, 0)
+        return []
+
+    scoped_file_id = f"{owner_n}::{canonical}" if owner_n else canonical
     if owner_n:
         cursor.execute(
             """
@@ -1024,7 +1200,13 @@ def get_highlights(file_id, owner_email=None):
     conn.close()
 
     out = [dict(row) for row in rows]
-    logger.info("get_highlights: owner=%s file_id=%s count=%d", owner_n or "*", file_id, len(out))
+    logger.info(
+        "get_highlights: owner=%s file_id=%s canonical=%s count=%d",
+        owner_n or "*",
+        file_id,
+        canonical,
+        len(out),
+    )
     return out
 
 

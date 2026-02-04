@@ -34,6 +34,22 @@ logging.basicConfig(
 logger = logging.getLogger("localreader.server")
 
 
+_CONTROL_CHARS_RE = re.compile(r"[\u0000-\u001F\u007F]+")
+
+
+def _normalize_file_id(value: str) -> str:
+    """Normalize file identifiers coming from URLs/forms.
+
+    Removes ASCII control chars (incl. CR/LF/TAB) and trims.
+    Collapses whitespace so that folded header artifacts do not break lookups.
+    """
+    if not isinstance(value, str):
+        return ""
+    s = _CONTROL_CHARS_RE.sub(" ", value)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+
 def _b64url_encode(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
@@ -269,7 +285,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # GET /api/files/{file_id}/download
         match = re.match(r'^/api/files/(.+)/download$', path)
         if match:
-            file_id = unquote(match.group(1))
+            file_id = _normalize_file_id(unquote(match.group(1)))
             logger.info("Download request: owner=%s file_id=%s", user_email, file_id)
 
             if app.is_file_deleted(file_id, owner_email=user_email):
@@ -299,7 +315,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # GET /api/files/{file_id}/highlights
         match = re.match(r'^/api/files/(.+)/highlights$', path)
         if match:
-            file_id = unquote(match.group(1))
+            file_id = _normalize_file_id(unquote(match.group(1)))
             logger.info("Get highlights: owner=%s file_id=%s", user_email, file_id)
             
             highlights = app.get_highlights(file_id, owner_email=user_email)
@@ -312,7 +328,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # GET /api/files/{file_id}
         match = re.match(r'^/api/files/(.+)$', path)
         if match:
-            file_id = unquote(match.group(1))
+            file_id = _normalize_file_id(unquote(match.group(1)))
             logger.debug("Check file exists: owner=%s file_id=%s", user_email, file_id)
             
             # Get file metadata
@@ -569,8 +585,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 body = self.rfile.read(content_length) if content_length else b""
                 fields, files = _parse_multipart_form_data(content_type, body)
 
-                file_id = (fields.get("file_id") or "").strip()
-                title = (fields.get("title") or "").strip()
+                file_id = _normalize_file_id(fields.get("file_id") or "")
+                title = _normalize_file_id(fields.get("title") or "")
                 format_type = (fields.get("format") or "").strip()
                 voice = (fields.get("voice") or "").strip() or None
 
@@ -632,7 +648,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # DELETE /api/files/{file_id}
         match = re.match(r'^/api/files/(.+)$', path)
         if match:
-            file_id = unquote(match.group(1))
+            file_id = _normalize_file_id(unquote(match.group(1)))
             logger.info("Delete request: owner=%s file_id=%s", user_email, file_id)
 
             ok = app.mark_file_deleted(file_id, owner_email=user_email)
@@ -665,7 +681,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # PUT /api/files/{file_id}/position
         match = re.match(r'^/api/files/(.+)/position$', path)
         if match:
-            file_id = unquote(match.group(1))
+            file_id = _normalize_file_id(unquote(match.group(1)))
             position = data.get("position")
 
             logger.info(
@@ -690,7 +706,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # PUT /api/files/{file_id}/voice
         match = re.match(r'^/api/files/(.+)/voice$', path)
         if match:
-            file_id = unquote(match.group(1))
+            file_id = _normalize_file_id(unquote(match.group(1)))
             voice = data.get("voice")
 
             logger.info(
@@ -715,7 +731,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # PUT /api/files/{file_id}/highlights
         match = re.match(r'^/api/files/(.+)/highlights$', path)
         if match:
-            file_id = unquote(match.group(1))
+            file_id = _normalize_file_id(unquote(match.group(1)))
             highlights = data.get("highlights")
 
             logger.info(

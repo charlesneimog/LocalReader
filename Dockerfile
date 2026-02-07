@@ -2,8 +2,17 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY app.py .
-COPY server.py .
+COPY app.py ./
+COPY server.py ./
+
+# Web UI
+COPY index.html ./
+COPY manifest.webmanifest ./
+COPY sw.js ./
+COPY threads.js ./
+COPY assets ./assets
+COPY src ./src
+COPY thirdparty ./thirdparty
 
 RUN pip install --no-cache-dir googletrans
 

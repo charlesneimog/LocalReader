@@ -10,6 +10,8 @@ import hmac
 import secrets
 import smtplib
 import logging
+import mimetypes
+from copy import deepcopy
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
@@ -32,6 +34,100 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger("localreader.server")
+
+
+STATIC_ROOT = os.path.dirname(os.path.abspath(__file__))
+PUBLIC_APP_URL = (os.environ.get("PUBLIC_APP_URL") or "").strip()
+
+
+def _guess_content_type(path: str) -> str:
+    ct, _ = mimetypes.guess_type(path)
+    if ct:
+        return ct
+    # Better defaults for common web assets
+    if path.endswith(".js"):
+        return "text/javascript"
+    if path.endswith(".wasm"):
+        return "application/wasm"
+    if path.endswith(".css"):
+        return "text/css"
+    if path.endswith(".webmanifest"):
+        return "application/manifest+json"
+    if path.endswith(".mjs"):
+        return "text/javascript"
+    return "application/octet-stream"
+
+
+def _safe_static_path(url_path: str) -> str | None:
+    """Map a URL path to a file under STATIC_ROOT, preventing path traversal."""
+    if not url_path:
+        return None
+
+    # Strip query/fragment if passed accidentally
+    path = url_path.split("?", 1)[0].split("#", 1)[0]
+
+    # Allow hosting under /LocalReader/ (GitHub Pages) as well as at root.
+    if path.startswith("/LocalReader/"):
+        path = path[len("/LocalReader") :]
+    elif path == "/LocalReader":
+        path = "/"
+
+    if path in {"", "/"}:
+        path = "/index.html"
+
+    # Normalize and ensure it's within STATIC_ROOT
+    rel = path.lstrip("/")
+    # Avoid backslash on Windows-like paths
+    rel = rel.replace("\\", "/")
+    full = os.path.abspath(os.path.join(STATIC_ROOT, rel))
+    if not full.startswith(os.path.abspath(STATIC_ROOT) + os.sep):
+        return None
+    return full
+
+
+def _normalize_public_app_url(value: str) -> str:
+    s = (value or "").strip()
+    if not s:
+        return ""
+    # Ensure trailing slash for consistent joins
+    return s if s.endswith("/") else (s + "/")
+
+
+def _rewrite_manifest(manifest: dict, public_app_url: str) -> dict:
+    """Rewrite the manifest for a self-hosted base URL.
+
+    Notes:
+      - PWA manifests are same-origin; this rewrite mainly updates paths/scope so
+        the manifest matches the served location.
+      - The original project uses /LocalReader/ for GitHub Pages; for self-host
+        we commonly serve at /.
+    """
+    url = _normalize_public_app_url(public_app_url)
+    if not url:
+        return manifest
+
+    parsed = urlparse(url)
+    base_path = parsed.path or "/"
+    if not base_path.endswith("/"):
+        base_path += "/"
+    start_url = base_path + "index.html"
+
+    out = deepcopy(manifest)
+    # Keep a stable id within the same origin, but aligned to the base path.
+    out["id"] = start_url
+    out["start_url"] = start_url
+    out["scope"] = base_path
+
+    # Optional: replace the scope extension origin if present.
+    try:
+        if isinstance(out.get("scope_extensions"), list) and out["scope_extensions"]:
+            first = out["scope_extensions"][0]
+            if isinstance(first, dict) and first.get("type") == "origin":
+                first["origin"] = url
+    except Exception:
+        pass
+
+    return out
 
 
 _CONTROL_CHARS_RE = re.compile(r"[\u0000-\u001F\u007F]+")
@@ -243,6 +339,11 @@ class APIHandler(BaseHTTPRequestHandler):
         path = parsed.path
 
         logger.debug("GET %s ip=%s", path, self.client_address[0])
+
+        # Serve the web UI + static assets (anything not under /api/*)
+        if not path.startswith("/api/") and path not in {"/api"}:
+            self._serve_static(path)
+            return
         
         # GET /api/ping - Simple health check
         if path == "/api/ping":
@@ -377,6 +478,64 @@ class APIHandler(BaseHTTPRequestHandler):
             return
         
         self._send_error(404, "Not found")
+
+    def _serve_static(self, url_path: str) -> None:
+        full_path = _safe_static_path(url_path)
+        if not full_path:
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"Not found")
+            return
+
+        if not os.path.exists(full_path) or not os.path.isfile(full_path):
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"Not found")
+            return
+
+        try:
+            # Rewrite manifest dynamically if PUBLIC_APP_URL is set.
+            if full_path.endswith("manifest.webmanifest"):
+                with open(full_path, "rb") as f:
+                    raw = f.read()
+                try:
+                    manifest = json.loads(raw.decode("utf-8"))
+                except Exception:
+                    manifest = None
+
+                if isinstance(manifest, dict) and PUBLIC_APP_URL:
+                    manifest = _rewrite_manifest(manifest, PUBLIC_APP_URL)
+                    data = json.dumps(manifest, ensure_ascii=False, indent=4).encode("utf-8")
+                else:
+                    data = raw
+                content_type = "application/manifest+json"
+            else:
+                content_type = _guess_content_type(full_path)
+                with open(full_path, "rb") as f:
+                    data = f.read()
+
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            # Keep SW/HTML always fresh; cache static assets a bit.
+            if full_path.endswith(("index.html", "sw.js", "threads.js", "manifest.webmanifest")):
+                self.send_header("Cache-Control", "no-cache")
+            else:
+                self.send_header("Cache-Control", "public, max-age=3600")
+
+            # Allow service worker to control the whole origin even if installed from /LocalReader/
+            if url_path.startswith("/LocalReader/") and full_path.endswith("sw.js"):
+                self.send_header("Service-Worker-Allowed", "/")
+
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:
+            logger.exception("Static file serve failed: path=%s", url_path)
+            self.send_response(500)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(f"Internal server error: {e}".encode("utf-8"))
     
     def do_POST(self):
         """Handle POST requests."""

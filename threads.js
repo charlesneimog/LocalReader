@@ -41,6 +41,13 @@ if (typeof window === "undefined") {
                     }
 
                     const newHeaders = new Headers(response.headers);
+                    // When re-wrapping a Response, avoid keeping transport-level headers.
+                    // Some proxies (nginx/cdn) gzip on the wire; fetch() may transparently
+                    // decode while leaving headers, and reusing them can trigger
+                    // NS_ERROR_CORRUPTED_CONTENT (double-decode / length mismatch).
+                    newHeaders.delete("content-encoding");
+                    newHeaders.delete("content-length");
+                    newHeaders.delete("transfer-encoding");
                     newHeaders.set(
                         "Cross-Origin-Embedder-Policy",
                         coepCredentialless ? "credentialless" : "require-corp",
@@ -57,8 +64,6 @@ if (typeof window === "undefined") {
                     });
                 })
                 .catch((e) => {
-                    // If fetch() is blocked (e.g. CORS / Private Network Access) it rejects.
-                    // respondWith() must always resolve to a Response.
                     console.error(e);
                     return Response.error();
                 }),

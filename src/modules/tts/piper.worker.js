@@ -30,8 +30,25 @@ function respondError(id, op, error) {
     self.postMessage({ id, type: "error", op, error: message });
 }
 
+function normalizeAssetUrl(url) {
+    if (!url) return url;
+    try {
+        const u = new URL(String(url), self.location && self.location.href ? self.location.href : undefined);
+        if (u.pathname.includes("/index.html/")) {
+            u.pathname = u.pathname.replace("/index.html/", "/");
+        }
+        return u.href;
+    } catch (_) {
+        // If it's not a valid URL, best-effort string fix.
+        return String(url).replace("/index.html/", "/");
+    }
+}
+
 async function loadOrt(ortJsUrl, wasmRoot, logLevel = "error") {
     if (ortLoaded) return;
+
+    ortJsUrl = normalizeAssetUrl(ortJsUrl);
+    wasmRoot = normalizeAssetUrl(wasmRoot);
 
     // Load ORT script in the worker
     importScripts(ortJsUrl);
@@ -51,6 +68,7 @@ async function loadOrt(ortJsUrl, wasmRoot, logLevel = "error") {
 }
 
 async function loadPhonemizerJS(phonemizerJsUrl) {
+    phonemizerJsUrl = normalizeAssetUrl(phonemizerJsUrl);
     // The ESM file exports createPiperPhonemize. We patch it into the worker global.
     const resp = await fetch(phonemizerJsUrl);
     if (!resp.ok) throw new Error(`Failed to fetch phonemizer JS: ${resp.status}`);
@@ -77,6 +95,9 @@ async function loadPhonemizerJS(phonemizerJsUrl) {
 
 async function ensurePhonemizer(phonemizerWasmUrl, phonemizerDataUrl) {
     if (phonemizerModule) return;
+
+    phonemizerWasmUrl = normalizeAssetUrl(phonemizerWasmUrl);
+    phonemizerDataUrl = normalizeAssetUrl(phonemizerDataUrl);
 
     if (!createPiperPhonemizeWorker) {
         throw new Error("Phonemizer JS has not been loaded");

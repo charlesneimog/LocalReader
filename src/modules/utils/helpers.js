@@ -90,11 +90,18 @@ export function isMobile() {
 
 export function getWebsiteRoot() {
     const { protocol, hostname, port, pathname } = window.location;
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-        return `${protocol}//${hostname}${port ? `:${port}` : ""}/`;
-    }
+    const origin = `${protocol}//${hostname}${port ? `:${port}` : ""}`;
+
+    // If we are at the domain root ("/") or a file-like first segment ("index.html"),
+    // the website root is the origin root.
     const pathSegments = pathname.split("/").filter(Boolean);
-    const repoSegment = pathSegments[0] || "";
-    return `${protocol}//${hostname}/${repoSegment}/`;
+    const firstSegment = pathSegments[0] || "";
+    if (!firstSegment || firstSegment.includes(".")) {
+        return `${origin}/`;
+    }
+
+    // GitHub Pages style: https://user.github.io/<repo>/...
+    // Keep the first segment as the app root.
+    return `${origin}/${firstSegment}/`;
 }
 

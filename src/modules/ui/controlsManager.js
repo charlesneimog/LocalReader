@@ -48,6 +48,9 @@ export class ControlsManager {
         // Translate
         this.toggleTranslateBtn = document.getElementById("toggle-translate");
 
+        // Read translation (use translated sentence for TTS)
+        this.toggleReadTranslationBtn = document.getElementById("toggle-read-translation");
+
         // Default highlight color
         this.app.highlightManager?.setSelectedHighlightColor("#ffda76");
         const icon = this.saveHighlightBtn?.querySelector(".material-symbols-outlined");
@@ -109,6 +112,19 @@ export class ControlsManager {
                 const next = !app.isAutoTranslateEnabled?.();
                 app.setAutoTranslateEnabled?.(next);
                 this.showInfo(next ? "Auto-translate: ON" : "Auto-translate: OFF", 1500);
+            });
+        }
+
+        // Read translation toggle (replace spoken text with translated text)
+        if (this.toggleReadTranslationBtn) {
+            const raw = localStorage.getItem("config.readTranslation");
+            const enabled = raw === "1" || raw === "true";
+            this.reflectReadTranslationToggle(enabled);
+
+            on(this.toggleReadTranslationBtn, "click", () => {
+                const next = !app.isReadTranslationEnabled?.();
+                app.setReadTranslationEnabled?.(next);
+                this.showInfo(next ? "Read translation: ON" : "Read translation: OFF", 1500);
             });
         }
 
@@ -284,6 +300,14 @@ export class ControlsManager {
         // Match the styling used by other toggles (e.g. fullscreen).
         this.toggleTranslateBtn.classList.toggle("bg-primary/10", active);
         this.toggleTranslateBtn.classList.toggle("text-primary", active);
+    }
+
+    reflectReadTranslationToggle(enabled) {
+        if (!this.toggleReadTranslationBtn) return;
+        const active = !!enabled;
+        this.toggleReadTranslationBtn.setAttribute("aria-pressed", active ? "true" : "false");
+        this.toggleReadTranslationBtn.classList.toggle("bg-primary/10", active);
+        this.toggleReadTranslationBtn.classList.toggle("text-primary", active);
     }
 
     orientationChange() {

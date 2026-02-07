@@ -300,12 +300,17 @@ export class TTSEngine {
         }
         const voiceSelect = document.getElementById("voice-select");
         const voice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-        if (s.audioReady && s.lastVoice === voice && s.lastSpeed === state.CURRENT_SPEED) return;
         if (s.audioInProgress) return;
 
-        const sourceText = s.readableText && s.readableText.trim().length ? s.readableText : s.text;
-        if (!sourceText || !sourceText.trim().length) {
+        const baseText = s.readableText && s.readableText.trim().length ? s.readableText : s.text;
+        if (!baseText || !baseText.trim().length) {
             s.audioError = new Error("No readable text available for synthesis");
+            return;
+        }
+
+        const sourceText = await this.app.getSentenceSpeechText?.(idx, baseText);
+        if (!sourceText || !sourceText.trim().length) {
+            s.audioError = new Error("No speech text available for synthesis");
             return;
         }
 
@@ -315,6 +320,17 @@ export class TTSEngine {
         }
 
         const norm = normalizeText(sourceText);
+
+        if (
+            s.audioReady &&
+            s.lastVoice === voice &&
+            s.lastSpeed === state.CURRENT_SPEED &&
+            typeof s.normalizedText === "string" &&
+            s.normalizedText === norm
+        ) {
+            return;
+        }
+
         s.normalizedText = norm;
         const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;
         if (state.audioCache.has(cacheKey)) {
@@ -380,6 +396,11 @@ export class TTSEngine {
         const base = state.currentSentenceIndex;
         for (let i = base + 1; i <= base + config.PREFETCH_AHEAD && i < state.sentences.length; i++) {
             this.app.ttsQueue.add(i);
+            this.app.prefetchSentenceTranslationForTTS?.(i);
+        }
+
+        if (state.currentSentenceIndex >= 0) {
+            this.app.prefetchSentenceTranslationForTTS?.(state.currentSentenceIndex);
         }
 
         if (indices.length) {

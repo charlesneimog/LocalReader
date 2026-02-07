@@ -48,6 +48,11 @@ export class PDFTTSApp {
         // Runtime settings
         this._autoTranslateCache = new Map();
         this._autoTranslateInFlight = new Set();
+
+        // Runtime: sentence translations used for TTS substitution
+        this._readTranslationCache = new Map();
+        this._readTranslationInFlight = new Map();
+        this._lastTranslationWarningAt = 0;
         this._loadRuntimeSettings();
 
         // Utilities
@@ -78,6 +83,7 @@ export class PDFTTSApp {
         this.wordHighlighter = new WordHighlighter(this);
 
         this._setupAutoTranslate();
+        this._setupReadTranslation();
 
         this.showSavedPDFs();
 
@@ -159,6 +165,11 @@ export class PDFTTSApp {
         const enabled = raw === "1" || raw === "true";
         this.state.autoTranslateEnabled = enabled;
         this.controlsManager?.reflectAutoTranslateToggle?.(enabled);
+
+        const rawReadTranslation = localStorage.getItem("config.readTranslation");
+        const readTranslationEnabled = rawReadTranslation === "1" || rawReadTranslation === "true";
+        this.state.readTranslationEnabled = readTranslationEnabled;
+        this.controlsManager?.reflectReadTranslationToggle?.(readTranslationEnabled);
     }
 
     setAutoTranslateEnabled(enabled) {
@@ -172,6 +183,18 @@ export class PDFTTSApp {
 
     isAutoTranslateEnabled() {
         return !!this.state.autoTranslateEnabled;
+    }
+
+    setReadTranslationEnabled(enabled) {
+        const value = !!enabled;
+        this.state.readTranslationEnabled = value;
+        localStorage.setItem("config.readTranslation", value ? "1" : "0");
+        this.controlsManager?.reflectReadTranslationToggle?.(value);
+        if (!value) this._resetReadTranslationCache();
+    }
+
+    isReadTranslationEnabled() {
+        return !!this.state.readTranslationEnabled;
     }
 
     _setupAutoTranslate() {
@@ -194,6 +217,104 @@ export class PDFTTSApp {
     _resetAutoTranslateCache() {
         this._autoTranslateCache.clear();
         this._autoTranslateInFlight.clear();
+    }
+
+    _setupReadTranslation() {
+        const resetOnDocChange = () => {
+            this._resetReadTranslationCache();
+        };
+
+        this.eventBus.on(EVENTS.PDF_LOADED, resetOnDocChange);
+        this.eventBus.on(EVENTS.EPUB_LOADED, resetOnDocChange);
+        this.eventBus.on(EVENTS.SENTENCES_PARSED, resetOnDocChange);
+    }
+
+    _resetReadTranslationCache() {
+        this._readTranslationCache.clear();
+        this._readTranslationInFlight.clear();
+    }
+
+    _getReadTranslationKey(index) {
+        const { state } = this;
+        const docType = state.currentDocumentType || "pdf";
+        const docKey = docType === "epub" ? state.currentEpubKey : state.currentPdfKey;
+        return `${docType}::${docKey || ""}::${index}`;
+    }
+
+    prefetchSentenceTranslationForTTS(index) {
+        if (!this.isReadTranslationEnabled()) return;
+        if (!Number.isFinite(index) || index < 0) return;
+        const sentence = this.state?.sentences?.[index];
+        const text = (sentence?.readableText || sentence?.text || "").trim();
+        if (!text) return;
+
+        const key = this._getReadTranslationKey(index);
+        if (this._readTranslationCache.has(key)) return;
+        if (this._readTranslationInFlight.has(key)) return;
+        if (!this.serverSync?.isEnabled?.()) return;
+
+        const p = Promise.resolve()
+            .then(async () => {
+                const result = await this.serverSync.translateText(text);
+                const translatedText = (result?.translatedText || "").trim();
+                if (translatedText) {
+                    this._readTranslationCache.set(key, translatedText);
+                }
+            })
+            .catch(() => {})
+            .finally(() => {
+                this._readTranslationInFlight.delete(key);
+            });
+
+        this._readTranslationInFlight.set(key, p);
+    }
+
+    async getSentenceSpeechText(index, fallbackText) {
+        const base = (fallbackText || "").trim();
+        if (!base) return "";
+        if (!this.isReadTranslationEnabled()) return base;
+
+        if (!this.serverSync?.isEnabled?.()) {
+            const now = Date.now();
+            if (now - this._lastTranslationWarningAt > 15000) {
+                this._lastTranslationWarningAt = now;
+                this.ui?.showInfo?.("⚠️ Configure Server Link to translate");
+            }
+            return base;
+        }
+
+        const key = this._getReadTranslationKey(index);
+        const cached = this._readTranslationCache.get(key);
+        if (typeof cached === "string" && cached.trim()) return cached.trim();
+
+        const inFlight = this._readTranslationInFlight.get(key);
+        if (inFlight) {
+            try {
+                await inFlight;
+            } catch {}
+            const after = this._readTranslationCache.get(key);
+            if (typeof after === "string" && after.trim()) return after.trim();
+            return base;
+        }
+
+        const p = (async () => {
+            const result = await this.serverSync.translateText(base);
+            const translatedText = (result?.translatedText || "").trim();
+            if (translatedText) {
+                this._readTranslationCache.set(key, translatedText);
+            }
+        })()
+            .catch(() => {})
+            .finally(() => {
+                this._readTranslationInFlight.delete(key);
+            });
+
+        this._readTranslationInFlight.set(key, p);
+        await p;
+
+        const final = this._readTranslationCache.get(key);
+        if (typeof final === "string" && final.trim()) return final.trim();
+        return base;
     }
 
     _kickAutoTranslatePrefetch() {

@@ -40,7 +40,8 @@ mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/javascript", ".mjs")
 
 
-STATIC_ROOT = os.path.dirname(os.path.abspath(__file__))
+STATIC_ROOT = os.environ.get("STATIC_ROOT") or os.path.dirname(os.path.abspath(__file__))
+STATIC_ROOT = os.path.abspath(STATIC_ROOT)
 PUBLIC_APP_URL = (os.environ.get("PUBLIC_APP_URL") or "").strip()
 
 
@@ -84,7 +85,7 @@ def _safe_static_path(url_path: str) -> str | None:
     # Avoid backslash on Windows-like paths
     rel = rel.replace("\\", "/")
     full = os.path.abspath(os.path.join(STATIC_ROOT, rel))
-    if not full.startswith(os.path.abspath(STATIC_ROOT) + os.sep):
+    if not full.startswith(STATIC_ROOT + os.sep):
         return None
     return full
 
@@ -493,6 +494,7 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         if not os.path.exists(full_path) or not os.path.isfile(full_path):
+            logger.info("Static 404: url_path=%s resolved=%s", url_path, full_path)
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
@@ -954,6 +956,13 @@ def main():
     # Start server
     server = HTTPServer((HOST, PORT), APIHandler)
     logger.info("Server running on http://%s:%s", HOST, PORT)
+    logger.info("Static root: %s", STATIC_ROOT)
+    # Helpful for diagnosing missing static files in container builds
+    try:
+        probe = os.path.join(STATIC_ROOT, "thirdparty", "foliate-js", "epubcfi.js")
+        logger.info("Static probe: %s exists=%s", probe, os.path.exists(probe))
+    except Exception:
+        pass
     logger.info("CORS allowed origins: %s", ",".join([o.strip() for o in APIHandler.ALLOWED_ORIGINS if o.strip()]))
     logger.debug("API endpoints: GET /api/files, GET /api/files/{file_id}, GET /api/files/{file_id}/download, GET /api/files/{file_id}/highlights")
     logger.debug("API endpoints: POST /api/files, DELETE /api/files/{file_id}, PUT /api/files/{file_id}/position|voice|highlights")

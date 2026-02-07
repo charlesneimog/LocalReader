@@ -35,6 +35,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("localreader.server")
 
+# Ensure proper JS MIME types (important for ES modules)
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/javascript", ".mjs")
+
 
 STATIC_ROOT = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_APP_URL = (os.environ.get("PUBLIC_APP_URL") or "").strip()
@@ -46,7 +50,7 @@ def _guess_content_type(path: str) -> str:
         return ct
     # Better defaults for common web assets
     if path.endswith(".js"):
-        return "text/javascript"
+        return "application/javascript"
     if path.endswith(".wasm"):
         return "application/wasm"
     if path.endswith(".css"):
@@ -54,7 +58,7 @@ def _guess_content_type(path: str) -> str:
     if path.endswith(".webmanifest"):
         return "application/manifest+json"
     if path.endswith(".mjs"):
-        return "text/javascript"
+        return "application/javascript"
     return "application/octet-stream"
 
 

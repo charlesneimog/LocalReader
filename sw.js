@@ -383,6 +383,27 @@ const fetchHandler = async (e) => {
 
                 const isSameOrigin = urlObj.origin === self.location.origin;
 
+                // ES modules must receive valid JS responses.
+                // Avoid serving offline fallbacks / cached non-JS content for these.
+                const isJsModuleRequest =
+                    request.method === "GET" &&
+                    isSameOrigin &&
+                    (request.destination === "script" ||
+                        urlObj.pathname.endsWith(".js") ||
+                        urlObj.pathname.endsWith(".mjs"));
+
+                if (isJsModuleRequest && urlObj.pathname.startsWith("/thirdparty/")) {
+                    try {
+                        const res = await fetch(request);
+                        // If server responds with an error, propagate it as-is.
+                        // Do not replace with offline index.html.
+                        return res;
+                    } catch (err) {
+                        // Must always return a Response.
+                        return Response.error();
+                    }
+                }
+
                 // For generic cross-origin requests (e.g. downloads from your server domain),
                 // do not fall back to index.html. Always return a real Response.
                 if (!isSameOrigin && !shouldCacheExternally(url)) {
@@ -486,6 +507,11 @@ const fetchHandler = async (e) => {
                                 headers: { "Content-Type": "text/plain" },
                             })
                         );
+                    }
+
+                    // For module/script requests, never return index.html.
+                    if (isJsModuleRequest) {
+                        return Response.error();
                     }
 
                     throw networkError;

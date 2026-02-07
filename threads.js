@@ -56,7 +56,12 @@ if (typeof window === "undefined") {
                         headers: newHeaders,
                     });
                 })
-                .catch((e) => console.error(e)),
+                .catch((e) => {
+                    // If fetch() is blocked (e.g. CORS / Private Network Access) it rejects.
+                    // respondWith() must always resolve to a Response.
+                    console.error(e);
+                    return Response.error();
+                }),
         );
     });
 } else {

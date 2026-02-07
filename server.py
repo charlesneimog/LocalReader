@@ -163,25 +163,44 @@ class APIHandler(BaseHTTPRequestHandler):
         "http://127.0.0.1:8080,https://charlesneimog.github.io,http://localhost:8080"
     ).split(",")
     
-    def _set_cors_headers(self):
-        """Set CORS headers to allow browser requests."""
-        origin = self.headers.get("Origin", "")
-        
-        # Check if origin is allowed
-        allowed = False
+    def _is_origin_allowed(self, origin: str) -> bool:
+        if not origin:
+            return False
         for allowed_origin in self.ALLOWED_ORIGINS:
+            allowed_origin = (allowed_origin or "").strip()
+            if not allowed_origin:
+                continue
+            # Historically we used prefix-matching (startswith). Keep that behavior
+            # for compatibility with older deployments.
             if origin.startswith(allowed_origin):
-                allowed = True
-                break
-        
-        if allowed:
+                return True
+        return False
+
+    def _set_cors_headers(self):
+        """Set CORS headers to allow browser requests.
+
+        Also supports Chrome's Private Network Access ("local address space")
+        preflight by returning `Access-Control-Allow-Private-Network: true`.
+        """
+        origin = (self.headers.get("Origin") or "").strip()
+        if self._is_origin_allowed(origin):
             self.send_header("Access-Control-Allow-Origin", origin)
-        else:
-            self.send_header("Access-Control-Allow-Origin", self.ALLOWED_ORIGINS[0])
-        
+            self.send_header("Vary", "Origin")
+
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization, Access-Control-Request-Private-Network",
+        )
         self.send_header("Access-Control-Allow-Credentials", "true")
+        # Cache preflight for a bit to reduce OPTIONS spam
+        self.send_header("Access-Control-Max-Age", "600")
+
+        # Chrome Private Network Access (PNA)
+        # If the browser is trying to reach a private/local IP behind this hostname,
+        # it will send a preflight request with this header.
+        if (self.headers.get("Access-Control-Request-Private-Network") or "").strip().lower() == "true":
+            self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def _get_auth_email(self):
         auth = self.headers.get("Authorization", "")
@@ -213,7 +232,8 @@ class APIHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         """Handle preflight requests."""
         logger.debug("CORS preflight: path=%s origin=%s", self.path, self.headers.get("Origin", ""))
-        self.send_response(200)
+        # 204 is typical for preflight and avoids implying a body
+        self.send_response(204)
         self._set_cors_headers()
         self.end_headers()
     

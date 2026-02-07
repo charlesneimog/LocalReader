@@ -90,11 +90,22 @@ export function isMobile() {
 
 export function getWebsiteRoot() {
     const { protocol, hostname, port, pathname } = window.location;
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-        return `${protocol}//${hostname}${port ? `:${port}` : ""}/`;
+    const origin = `${protocol}//${hostname}${port ? `:${port}` : ""}`;
+
+    // GitHub Pages: /<repo>/...
+    // Self-host root: /index.html (do NOT treat index.html as a folder)
+    const segments = String(pathname || "")
+        .split("/")
+        .filter(Boolean);
+
+    // If first segment looks like a file (contains a dot), serve from origin root.
+    // Example: /index.html -> origin/
+    const first = segments[0] || "";
+    if (!first || first.includes(".")) {
+        return `${origin}/`;
     }
-    const pathSegments = pathname.split("/").filter(Boolean);
-    const repoSegment = pathSegments[0] || "";
-    return `${protocol}//${hostname}/${repoSegment}/`;
+
+    // Preserve the original behavior for GitHub Pages (first segment is repo name).
+    return `${origin}/${first}/`;
 }
 

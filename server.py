@@ -39,6 +39,12 @@ logger = logging.getLogger("localreader.server")
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/javascript", ".mjs")
 
+# Webfonts (Android PWAs can be picky about MIME types)
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
+mimetypes.add_type("font/ttf", ".ttf")
+mimetypes.add_type("font/otf", ".otf")
+
 
 STATIC_ROOT = os.environ.get("STATIC_ROOT") or os.path.dirname(os.path.abspath(__file__))
 STATIC_ROOT = os.path.abspath(STATIC_ROOT)

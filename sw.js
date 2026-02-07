@@ -1,4 +1,4 @@
-const APP_VERSION = "0.9.6+0";
+const APP_VERSION = "0.9.7+0";
 const PRECACHE = `LocalReader-v${APP_VERSION}`;
 const RUNTIME = `LocalReader-runtime-v${APP_VERSION}`;
 
@@ -252,7 +252,10 @@ self.addEventListener("fetch", (event) => {
 
             if (isTypedAsset || urlObj.pathname.startsWith("/thirdparty/")) {
                 const cache = await caches.open(PRECACHE);
-                const cached = await cache.match(request, { ignoreSearch: false, ignoreVary: false });
+                // Some hosts add `Vary: Accept-Encoding` (or similar) which can make
+                // Cache.match() miss a valid precached response on some Android WebView/Chrome builds.
+                // For static assets (fonts/icons/wasm/css/js), ignoring Vary is safe and more reliable.
+                const cached = await cache.match(request, { ignoreSearch: false, ignoreVary: true });
                 if (cached) return cached;
 
                 try {
@@ -273,7 +276,7 @@ self.addEventListener("fetch", (event) => {
 
             // Other same-origin GET (images, json, etc.): cache-first with network fallback
             const cache = await caches.open(PRECACHE);
-            const cached = await cache.match(request, { ignoreSearch: false, ignoreVary: false });
+            const cached = await cache.match(request, { ignoreSearch: false, ignoreVary: true });
             if (cached) return cached;
             try {
                 const res = await fetch(request);

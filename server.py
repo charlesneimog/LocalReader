@@ -3,6 +3,7 @@ import json
 import re
 import os
 import asyncio
+import threading
 import inspect
 import base64
 import hashlib
@@ -18,15 +19,19 @@ from email.parser import BytesParser
 from email.policy import default
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
+from http.server import HTTPServer
+from socketserver import ThreadingMixIn
+
 import app
+
+
+MAX_THREADS = 4
 
 HOST = "0.0.0.0"
 PORT = 8000
 
-
 AUTH_SECRET = os.environ.get("AUTH_SECRET") or secrets.token_urlsafe(32)
 AUTH_TOKEN_TTL_SECONDS = int(os.environ.get("AUTH_TOKEN_TTL_SECONDS", "604800"))  # 7 days
-
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
 logging.basicConfig(
@@ -45,11 +50,32 @@ mimetypes.add_type("font/woff", ".woff")
 mimetypes.add_type("font/ttf", ".ttf")
 mimetypes.add_type("font/otf", ".otf")
 
-
 STATIC_ROOT = os.environ.get("STATIC_ROOT") or os.path.dirname(os.path.abspath(__file__))
 STATIC_ROOT = os.path.abspath(STATIC_ROOT)
 PUBLIC_APP_URL = (os.environ.get("PUBLIC_APP_URL") or "").strip()
 
+
+
+class LimitedThreadHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._semaphore = threading.Semaphore(MAX_THREADS)
+
+    def process_request(self, request, client_address):
+        self._semaphore.acquire()
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._semaphore.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._semaphore.release()
 
 def _guess_content_type(path: str) -> str:
     ct, _ = mimetypes.guess_type(path)
@@ -958,26 +984,70 @@ def main():
     # Initialize database
     app.init_db()
     logger.info("Database initialized at %s", app.DB_PATH)
-    
-    # Start server
-    server = HTTPServer((HOST, PORT), APIHandler)
+
+    # Start server (limited to 4 threads)
+    server = LimitedThreadHTTPServer((HOST, PORT), APIHandler)
     logger.info("Server running on http://%s:%s", HOST, PORT)
     logger.info("Static root: %s", STATIC_ROOT)
+
     # Helpful for diagnosing missing static files in container builds
     try:
-        probe = os.path.join(STATIC_ROOT, "thirdparty", "foliate-js", "epubcfi.js")
+        probe = os.path.join(
+            STATIC_ROOT, "thirdparty", "foliate-js", "epubcfi.js"
+        )
         logger.info("Static probe: %s exists=%s", probe, os.path.exists(probe))
     except Exception:
         pass
-    logger.info("CORS allowed origins: %s", ",".join([o.strip() for o in APIHandler.ALLOWED_ORIGINS if o.strip()]))
-    logger.debug("API endpoints: GET /api/files, GET /api/files/{file_id}, GET /api/files/{file_id}/download, GET /api/files/{file_id}/highlights")
-    logger.debug("API endpoints: POST /api/files, DELETE /api/files/{file_id}, PUT /api/files/{file_id}/position|voice|highlights")
-    
+
+    logger.info(
+        "CORS allowed origins: %s",
+        ",".join(o.strip() for o in APIHandler.ALLOWED_ORIGINS if o.strip()),
+    )
+
+    logger.debug(
+        "API endpoints: "
+        "GET /api/files, "
+        "GET /api/files/{file_id}, "
+        "GET /api/files/{file_id}/download, "
+        "GET /api/files/{file_id}/highlights"
+    )
+    logger.debug(
+        "API endpoints: "
+        "POST /api/files, "
+        "DELETE /api/files/{file_id}, "
+        "PUT /api/files/{file_id}/position|voice|highlights"
+    )
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         logger.info("Shutting down server...")
         server.shutdown()
+
+# def main():
+#     # Initialize database
+#     app.init_db()
+#     logger.info("Database initialized at %s", app.DB_PATH)
+#     
+#     # Start server
+#     server = HTTPServer((HOST, PORT), APIHandler)
+#     logger.info("Server running on http://%s:%s", HOST, PORT)
+#     logger.info("Static root: %s", STATIC_ROOT)
+#     # Helpful for diagnosing missing static files in container builds
+#     try:
+#         probe = os.path.join(STATIC_ROOT, "thirdparty", "foliate-js", "epubcfi.js")
+#         logger.info("Static probe: %s exists=%s", probe, os.path.exists(probe))
+#     except Exception:
+#         pass
+#     logger.info("CORS allowed origins: %s", ",".join([o.strip() for o in APIHandler.ALLOWED_ORIGINS if o.strip()]))
+#     logger.debug("API endpoints: GET /api/files, GET /api/files/{file_id}, GET /api/files/{file_id}/download, GET /api/files/{file_id}/highlights")
+#     logger.debug("API endpoints: POST /api/files, DELETE /api/files/{file_id}, PUT /api/files/{file_id}/position|voice|highlights")
+#     
+#     try:
+#         server.serve_forever()
+#     except KeyboardInterrupt:
+#         logger.info("Shutting down server...")
+#         server.shutdown()
 
 
 if __name__ == "__main__":

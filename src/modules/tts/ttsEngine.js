@@ -6,6 +6,7 @@ import {
     formatTextToSpeech,
     hasUsableSpeechText,
 } from "../utils/helpers.js";
+
 import { EVENTS } from "../../constants/events.js";
 import { PiperWorkerClient } from "./piper-client.js";
 
@@ -462,7 +463,7 @@ export class TTSEngine {
     async resetEngine({ clearCache = true, reason } = {}) {
         const { state } = this.app;
         console.warn("Restarting TTS engine", reason || "");
-        console.log(this._restartAttemptedCount);
+        // console.log(this._restartAttemptedCount);
         if (this._restartAttemptedCount > 10) {
             console.error("Max attempted reset engine");
             return;

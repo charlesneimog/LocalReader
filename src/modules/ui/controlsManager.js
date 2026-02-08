@@ -190,6 +190,8 @@ export class ControlsManager {
                     ArrowLeft: () => app.prevSentence(true),
                     KeyH: () => app.saveCurrentSentenceHighlight(),
                     KeyC: async () => {
+                        // Don't hijack common browser/system shortcuts like Ctrl+C / Cmd+C.
+                        if (e.ctrlKey || e.metaKey || e.altKey) return;
                         e.preventDefault();
                         const didSelection = await app.interactionHandler?.promptCommentForSelection?.();
                         if (!didSelection) await app.highlightManager?.editCurrentSentenceComment?.();

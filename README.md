@@ -37,6 +37,7 @@ It runs entirely in your browser and can be installed as a **Progressive Web App
 | ------- | -------------------------- |
 | `Space` | Play / Pause TTS           |
 | `h`     | Highlight current sentence |
+| `c`     | Comment current sentence   |
 | `t`     | Translate current sentence |
 | `f`     | Toggle fullscreen          |
 
@@ -86,13 +87,17 @@ Please:
 ## Privacy
 
 * 100% client-side; no network requests or remote analytics.
+* Self host for sync between devices + translation.
 * Documents, highlights, and progress are stored locally (IndexedDB).
 * Users have full control of their data.
-* Selfhosted
 
 ---
 
 ## How to Selfhost
+
+Copy `.env.default` to `.env`. Edit `.env`.
+
+then run:
 
 ```
 docker-compose build --no-cache
@@ -104,8 +109,6 @@ If you will host the site in another domain than [charlesneimog.github.io](charl
 If you want the same server to also serve the web UI (so you can open `http(s)://<server>:8997/` and get the app), set:
 
 `PUBLIC_APP_URL=http://192.168.15.10:8997/`
-
-When `PUBLIC_APP_URL` is set, the server will **dynamically rewrite** `manifest.webmanifest` so the PWA manifest matches your self-hosted URL (otherwise the manifest is served unchanged).
 
 You can configure the target translation language (used by `t`) with `TRANSLATE_TARGET_LANG` in `compose.yml` (example: `pt`, `es`, `fr`).
 

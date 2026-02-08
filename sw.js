@@ -1,4 +1,4 @@
-const APP_VERSION = "0.9.8+0";
+const APP_VERSION = "0.9.8+1";
 const PRECACHE = `LocalReader-v${APP_VERSION}`;
 const RUNTIME = `LocalReader-runtime-v${APP_VERSION}`;
 
@@ -72,10 +72,10 @@ const PRECACHE_URLS = [
     "/src/modules/utils/viewport.js",
 
     // Third-party (core)
-    "/thirdparty/ort.js",
-    "/thirdparty/ort-wasm-simd.wasm",
-    "/thirdparty/ort-wasm-simd-threaded.jsep.mjs",
-    "/thirdparty/ort-wasm-simd-threaded.jsep.wasm",
+    "/thirdparty/ort/ort.js",
+    "/thirdparty/ort/ort-wasm-simd.wasm",
+    "/thirdparty/ort/ort-wasm-simd-threaded.jsep.mjs",
+    "/thirdparty/ort/ort-wasm-simd-threaded.jsep.wasm",
     "/thirdparty/pdf/pdf.js",
     "/thirdparty/pdf/pdf.worker.js",
     "/thirdparty/pdf/pdf-lib.js",

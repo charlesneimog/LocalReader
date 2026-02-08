@@ -14,6 +14,9 @@ COPY assets ./assets
 COPY src ./src
 COPY thirdparty ./thirdparty
 
+# Sanity check: ensure foliate-js assets were copied into the image
+RUN test -f /app/thirdparty/foliate-js/reader.js
+
 RUN pip install --no-cache-dir  googletrans==4.0.2
 
 VOLUME ["/app/data"]

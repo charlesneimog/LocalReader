@@ -117,6 +117,14 @@ export class ControlsManager {
             let longPressTimer = null;
             let longPressTriggered = false;
 
+            // Avoid text selection / callout on long-press (mobile).
+            try {
+                this.saveHighlightBtn.style.userSelect = "none";
+                this.saveHighlightBtn.style.webkitUserSelect = "none";
+                this.saveHighlightBtn.style.webkitTouchCallout = "none";
+                this.saveHighlightBtn.style.touchAction = "manipulation";
+            } catch {}
+
             const clearLongPress = () => {
                 if (longPressTimer) {
                     clearTimeout(longPressTimer);
@@ -141,9 +149,11 @@ export class ControlsManager {
                     (e) => {
                         if (!isTouchLikeDevice()) return;
                         if (e.pointerType && e.pointerType !== "touch" && e.pointerType !== "pen") return;
+                        // Prevent long-press text selection / callout.
+                        e.preventDefault();
                         startLongPress();
                     },
-                    { passive: true },
+                    { passive: false },
                 );
                 this.saveHighlightBtn.addEventListener(
                     "pointerup",
@@ -165,11 +175,13 @@ export class ControlsManager {
                 // Fallback for older mobile browsers
                 this.saveHighlightBtn.addEventListener(
                     "touchstart",
-                    () => {
+                    (e) => {
                         if (!isTouchLikeDevice()) return;
+                        // Prevent long-press text selection / callout.
+                        e.preventDefault();
                         startLongPress();
                     },
-                    { passive: true },
+                    { passive: false },
                 );
                 this.saveHighlightBtn.addEventListener(
                     "touchend",

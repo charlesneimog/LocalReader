@@ -70,6 +70,21 @@ export class ControlsManager {
     _setupEventListeners() {
         const { app } = this;
         const on = (el, type, fn) => el && el.addEventListener(type, fn, { passive: true });
+        const isAuthButton = (el) => {
+            if (!el) return false;
+            const label = (el.getAttribute("aria-label") || el.title || "").toLowerCase();
+            return label.includes("login") || label.includes("account") || label.includes("auth");
+        };
+        const isTouchLikeDevice = () => {
+            try {
+                return (
+                    (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+                    (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0)
+                );
+            } catch {
+                return false;
+            }
+        };
         const stopAndResetAudio = () => {
             app.audioManager.stopPlayback(true);
             app.state.autoAdvanceActive = false;
@@ -97,8 +112,103 @@ export class ControlsManager {
         });
 
         // Highlights
-        on(this.saveHighlightBtn, "click", () => app.ui?.showHighlightPopup?.());
-        on(this.saveCommentBtn, "click", () => app.highlightManager.editCurrentSentenceComment());
+        if (this.saveHighlightBtn) {
+            const LONG_PRESS_MS = 350;
+            let longPressTimer = null;
+            let longPressTriggered = false;
+
+            const clearLongPress = () => {
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            };
+
+            const startLongPress = () => {
+                longPressTriggered = false;
+                clearLongPress();
+                longPressTimer = setTimeout(() => {
+                    longPressTriggered = true;
+                    // Use current highlight configuration (selected color etc.)
+                    app.saveCurrentSentenceHighlight?.();
+                }, LONG_PRESS_MS);
+            };
+
+            // Touch-only long press.
+            if ("PointerEvent" in window) {
+                this.saveHighlightBtn.addEventListener(
+                    "pointerdown",
+                    (e) => {
+                        if (!isTouchLikeDevice()) return;
+                        if (e.pointerType && e.pointerType !== "touch" && e.pointerType !== "pen") return;
+                        startLongPress();
+                    },
+                    { passive: true },
+                );
+                this.saveHighlightBtn.addEventListener(
+                    "pointerup",
+                    () => {
+                        if (!isTouchLikeDevice()) return;
+                        clearLongPress();
+                    },
+                    { passive: true },
+                );
+                this.saveHighlightBtn.addEventListener(
+                    "pointercancel",
+                    () => {
+                        if (!isTouchLikeDevice()) return;
+                        clearLongPress();
+                    },
+                    { passive: true },
+                );
+            } else {
+                // Fallback for older mobile browsers
+                this.saveHighlightBtn.addEventListener(
+                    "touchstart",
+                    () => {
+                        if (!isTouchLikeDevice()) return;
+                        startLongPress();
+                    },
+                    { passive: true },
+                );
+                this.saveHighlightBtn.addEventListener(
+                    "touchend",
+                    () => {
+                        if (!isTouchLikeDevice()) return;
+                        clearLongPress();
+                    },
+                    { passive: true },
+                );
+                this.saveHighlightBtn.addEventListener(
+                    "touchcancel",
+                    () => {
+                        if (!isTouchLikeDevice()) return;
+                        clearLongPress();
+                    },
+                    { passive: true },
+                );
+            }
+
+            // Short tap opens the menu; long press applies highlight and suppresses the click.
+            this.saveHighlightBtn.addEventListener(
+                "click",
+                (e) => {
+                    if (isTouchLikeDevice() && longPressTriggered) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        longPressTriggered = false;
+                        return;
+                    }
+                    app.ui?.showHighlightPopup?.();
+                },
+                { passive: false },
+            );
+        }
+        // Note: the toolbar "person" button is used for Login/Account in index.html
+        // (it currently reuses id="save-comment"). Avoid also opening comment UI on click.
+        if (this.saveCommentBtn && !isAuthButton(this.saveCommentBtn)) {
+            on(this.saveCommentBtn, "click", () => app.highlightManager.editCurrentSentenceComment());
+        }
         on(this.exportHighlightsBtn, "click", () => app.exportManager.exportPdfWithHighlights());
 
         // Translate toggle (auto translate every spoken sentence)

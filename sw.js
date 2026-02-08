@@ -1,19 +1,31 @@
 const APP_VERSION = "0.9.10+0";
-const PRECACHE = `LocalReader-v${APP_VERSION}`;
-const RUNTIME = `LocalReader-runtime-v${APP_VERSION}`;
+const cacheName = `LocalReader-v${APP_VERSION}`;
+const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
 
-// Base path helper (supports GitHub Pages /LocalReader/ and self-hosted /)
-const getBasePath = () => (self.location.pathname.includes("/LocalReader/") ? "/LocalReader" : "");
+// Determine the base path (works for both root and subpath deployments)
+const getBasePath = () => {
+    const path = self.location.pathname;
+    // If hosted in subdirectory like /LocalReader/
+    if (path.includes("/LocalReader/")) {
+        return "/LocalReader";
+    }
+    return "";
+};
+
 const BASE_PATH = getBasePath();
-const resolvePath = (path) => (path.startsWith("http") ? path : BASE_PATH + path);
 
-// Same-origin assets to precache (no redirects, no opaque)
-const PRECACHE_URLS = [
+// Helper to resolve paths
+const resolvePath = (path) => {
+    if (path.startsWith("http")) return path;
+    return BASE_PATH + path;
+};
+
+// routes to cache
+const staticFiles = [
     "/",
     "/index.html",
     "/manifest.webmanifest",
     "/threads.js",
-    "/sw.js",
 
     // Assets
     "/assets/icons/favicon-16x16.png",
@@ -35,7 +47,7 @@ const PRECACHE_URLS = [
     "/src/css/input.css",
     "/src/css/output.css",
 
-    // JS (core)
+    // JS principais
     "/src/app.js",
     "/src/config.js",
     "/src/constants/cacheManager.js",
@@ -45,7 +57,7 @@ const PRECACHE_URLS = [
     "/src/core/stateManager.js",
     "/src/modules/index.js",
 
-    // Modules
+    // Módulos (principais)
     "/src/modules/login/auth.js",
     "/src/modules/pdf/pdfLoader.js",
     "/src/modules/pdf/pdfRenderer.js",
@@ -71,11 +83,11 @@ const PRECACHE_URLS = [
     "/src/modules/utils/responsive.js",
     "/src/modules/utils/viewport.js",
 
-    // Third-party (core)
-    "/thirdparty/ort/ort.js",
-    "/thirdparty/ort/ort-wasm-simd.wasm",
-    "/thirdparty/ort/ort-wasm-simd-threaded.jsep.mjs",
-    "/thirdparty/ort/ort-wasm-simd-threaded.jsep.wasm",
+    // Third-party
+    "/thirdparty/ort.js",
+    "/thirdparty/ort-wasm-simd.wasm",
+    "/thirdparty/ort-wasm-simd-threaded.jsep.mjs",
+    "/thirdparty/ort-wasm-simd-threaded.jsep.wasm",
     "/thirdparty/pdf/pdf.js",
     "/thirdparty/pdf/pdf.worker.js",
     "/thirdparty/pdf/pdf-lib.js",
@@ -96,203 +108,424 @@ const PRECACHE_URLS = [
     "/thirdparty/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2",
     "/thirdparty/fonts/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2",
     "/thirdparty/fonts/font.woff2",
-].map(resolvePath);
+];
 
-// Explicitly allowed cross-origin runtime cache
-const EXTERNAL_CACHE_PREFIXES = [
+// External resources to cache (fonts, CDN dependencies)
+const externalResources = [
+    // Kinde Auth (optional - will fail gracefully if offline)
+    "https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.esm.js",
+];
+
+// Patterns for runtime caching
+const EXTERNAL_CACHE_PATTERNS = [
     "https://fonts.googleapis.com",
     "https://fonts.gstatic.com",
     "https://cdn.jsdelivr.net/npm/@huggingface/transformers",
     "https://huggingface.co/",
-    "https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/",
 ];
-const isAllowedExternal = (url) => EXTERNAL_CACHE_PREFIXES.some((p) => url.startsWith(p));
 
-const textResponse = (status, statusText, body) =>
-    new Response(body || "", {
-        status,
-        statusText,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
+// Check if URL matches any cache pattern
+const shouldCacheExternally = (url) => {
+    return EXTERNAL_CACHE_PATTERNS.some((pattern) => url.startsWith(pattern));
+};
+
+const routes = ["/"];
+const resolvedStaticFiles = staticFiles.map(resolvePath);
+const filesToCache = [...routes, ...resolvedStaticFiles];
+const requestsToRetryWhenOffline = [];
+
+//╭─────────────────────────────────────╮
+//│              IDBConfig              │
+//╰─────────────────────────────────────╯
+const IDBConfig = {
+    name: "web-app-db",
+    version: APP_VERSION,
+    stores: {
+        requestStore: {
+            name: `request-store`,
+            keyPath: "timestamp",
+        },
+    },
+};
+
+//╭─────────────────────────────────────╮
+//│            For requests             │
+//╰─────────────────────────────────────╯
+const isOffline = () => !self.navigator.onLine;
+const isRequestEligibleForRetry = ({ url, method }) => {
+    return ["POST", "PUT", "DELETE"].includes(method) || requestsToRetryWhenOffline.includes(url);
+};
+
+const createIndexedDB = ({ name, stores }) => {
+    const request = self.indexedDB.open(name, 1);
+    return new Promise((resolve, reject) => {
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            Object.keys(stores).forEach((store) => {
+                const { name, keyPath } = stores[store];
+                if (!db.objectStoreNames.contains(name)) {
+                    db.createObjectStore(name, { keyPath });
+                    console.log("create objectstore", name);
+                }
+            });
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+const getStoreFactory =
+    (dbName) =>
+    ({ name }, mode = "readonly") => {
+        return new Promise((resolve, reject) => {
+            const request = self.indexedDB.open(dbName, IDB_VERSION);
+            request.onsuccess = (e) => {
+                const db = request.result;
+                const transaction = db.transaction(name, mode);
+                const store = transaction.objectStore(name);
+                const storeProxy = new Proxy(store, {
+                    get(target, prop) {
+                        if (typeof target[prop] === "function") {
+                            return (...args) =>
+                                new Promise((resolve, reject) => {
+                                    const req = target[prop].apply(target, args);
+                                    req.onsuccess = () => resolve(req.result);
+                                    req.onerror = (err) => reject(err);
+                                });
+                        }
+                        return target[prop];
+                    },
+                });
+                return resolve(storeProxy);
+            };
+            request.onerror = (_) => reject(request.error);
+        });
+    };
+
+const openStore = getStoreFactory(IDBConfig.name);
+
+const serializeHeaders = (headers) =>
+    [...headers.entries()].reduce(
+        (acc, [key, value]) => ({
+            ...acc,
+            [key]: value,
+        }),
+        {},
+    );
+
+const storeRequest = async ({ url, method, body, headers, mode, credentials }) => {
+    const serializedHeaders = serializeHeaders(headers);
+    try {
+        let storedBody = body;
+        if (body && body instanceof ReadableStream) {
+            const clonedBody = body.tee()[0];
+            storedBody = await new Response(clonedBody).arrayBuffer();
+        }
+
+        const timestamp = Date.now();
+        const store = await openStore(IDBConfig.stores.requestStore, "readwrite");
+
+        await store.add({
+            timestamp,
+            url,
+            method,
+            ...(storedBody && { body: storedBody }),
+            headers: serializedHeaders,
+            mode,
+            credentials,
+        });
+
+        if ("sync" in self.registration) {
+            console.log("register sync for retry request");
+            await self.registration.sync.register(`retry-request`);
+        }
+    } catch (error) {
+        console.log("idb error", error);
+    }
+};
+
+const getCacheStorageNames = async () => {
+    const cacheNames = (await caches.keys()) || [];
+    const outdatedCacheNames = cacheNames.filter((name) => !name.includes(cacheName));
+    const latestCacheName = cacheNames.find((name) => name.includes(cacheName));
+    return { latestCacheName, outdatedCacheNames };
+};
+
+const updateLastCache = async () => {
+    const { latestCacheName, outdatedCacheNames } = await getCacheStorageNames();
+    if (!latestCacheName || !outdatedCacheNames?.length) {
+        return null;
+    }
+    const latestCache = await caches.open(latestCacheName);
+    const latestCacheEntries = (await latestCache?.keys())?.map((c) => c.url) || [];
+    for (const outdatedCacheName of outdatedCacheNames) {
+        const outdatedCache = await caches.open(outdatedCacheName);
+        for (const entry of latestCacheEntries) {
+            const latestCacheResponse = await latestCache.match(entry);
+            await outdatedCache.put(entry, latestCacheResponse.clone());
+        }
+    }
+};
+
+const getRequests = async () => {
+    try {
+        const store = await openStore(IDBConfig.stores.requestStore, "readwrite");
+        return await store.getAll();
+    } catch (err) {
+        return err;
+    }
+};
+
+const retryRequests = async () => {
+    const reqs = await getRequests();
+    const requests = reqs.map(({ url, method, headers: serializedHeaders, body, mode, credentials }) => {
+        const headers = new Headers(serializedHeaders);
+        return fetch(url, { method, headers, body, mode, credentials });
     });
 
-const isWasmRequest = (request, urlObj) =>
-    request.destination === "wasm" || urlObj.pathname.endsWith(".wasm");
+    const responses = await Promise.allSettled(requests);
+    const requestStore = await openStore(IDBConfig.stores.requestStore, "readwrite");
+    const { keyPath } = IDBConfig.stores.requestStore;
 
-const isBinaryAsset = (request, urlObj) =>
-    isWasmRequest(request, urlObj) ||
-    request.destination === "font" ||
-    request.destination === "worker" ||
-    urlObj.pathname.endsWith(".woff2") ||
-    urlObj.pathname.endsWith(".woff") ||
-    urlObj.pathname.endsWith(".ttf") ||
-    urlObj.pathname.endsWith(".otf");
+    responses.forEach((response, index) => {
+        const key = reqs[index][keyPath];
 
-// ─────────────────────────────────────────────────────────────
-// Install/activate
-// ─────────────────────────────────────────────────────────────
-self.addEventListener("install", (event) => {
-    event.waitUntil(
-        (async () => {
-            const cache = await caches.open(PRECACHE);
-            // Precache uses addAll() with cache:"reload" and redirect:"error".
-            // If any single URL fails, fall back to a resilient per-request add.
-            const requests = PRECACHE_URLS.map(
-                (u) => new Request(u, { cache: "reload", redirect: "error" }),
-            );
-            try {
-                await cache.addAll(requests);
-            } catch (err) {
-                // Resilient mode: don't fail install due to one missing asset
-                await Promise.allSettled(
-                    requests.map(async (req) => {
-                        const res = await fetch(req);
-                        if (res.ok && res.type !== "opaque" && !res.redirected) {
-                            await cache.put(req, res);
-                        }
-                    }),
-                );
-            }
-            await self.skipWaiting();
-        })(),
+        // remove the request from IndexedDB if the response was successful
+        if (response.status === "fulfilled") {
+            requestStore.delete(key);
+        } else {
+            console.log(`retrying response with ${keyPath} ${key} failed: ${response.reason}`);
+        }
+    });
+};
+
+const installHandler = (e) => {
+    console.log("[SW] Installing service worker v" + APP_VERSION);
+    e.waitUntil(
+        Promise.all([
+            // Cache local files
+            caches
+                .open(cacheName)
+                .then((cache) => cache.addAll(filesToCache.map((file) => new Request(file, { cache: "reload" })))),
+            // Cache external resources with proper error handling
+            caches.open(cacheName).then((cache) =>
+                Promise.allSettled(
+                    externalResources.map((url) =>
+                        fetch(url, { mode: "cors", cache: "no-cache" })
+                            .then((response) => {
+                                if (response.ok) {
+                                    return cache.put(url, response);
+                                }
+                                console.warn(`[SW] Failed to cache external: ${url}`);
+                            })
+                            .catch((err) => {
+                                console.warn(`[SW] Error caching external ${url}:`, err);
+                            }),
+                    ),
+                ),
+            ),
+            // Create IndexedDB
+            createIndexedDB(IDBConfig),
+            // Open runtime cache
+            caches.open(runtimeCache),
+        ])
+            .then(() => {
+                console.log("[SW] Installation complete");
+                return self.skipWaiting(); // Activate immediately
+            })
+            .catch((err) => console.error("[SW] Install error:", err)),
     );
-});
+};
 
-self.addEventListener("activate", (event) => {
-    event.waitUntil(
-        (async () => {
-            const names = await caches.keys();
-            await Promise.all(
-                names
-                    .filter((n) => n !== PRECACHE && n !== RUNTIME)
-                    .map((n) => caches.delete(n)),
-            );
-            await self.clients.claim();
-        })(),
+// delete any outdated caches when the Service Worker is activated
+const activateHandler = (e) => {
+    console.log("[SW] Activating service worker v" + APP_VERSION);
+    e.waitUntil(
+        Promise.all([
+            // Clean up old caches
+            caches.keys().then((names) =>
+                Promise.all(
+                    names
+                        .filter((name) => name !== cacheName && name !== runtimeCache)
+                        .map((name) => {
+                            console.log("[SW] Deleting old cache:", name);
+                            return caches.delete(name);
+                        }),
+                ),
+            ),
+            // Take control of all clients immediately
+            self.clients.claim(),
+        ]).then(() => {
+            console.log("[SW] Activation complete, controlling all clients");
+        }),
     );
-});
+};
 
-// ─────────────────────────────────────────────────────────────
-// Fetch strategies
-//
-// - navigate  -> network-first, offline HTML fallback
-// - script/worker/style/font/wasm -> cache-first (exact match)
-// - API or non-GET -> network-only
-// - cross-origin -> pass-through unless explicitly whitelisted (then SWR)
-// ─────────────────────────────────────────────────────────────
-self.addEventListener("fetch", (event) => {
-    const request = event.request;
+const cleanRedirect = async (response) => {
+    const clonedResponse = response.clone();
+    const { headers, status, statusText } = clonedResponse;
+
+    return new Response(clonedResponse.body, {
+        headers,
+        status,
+        statusText,
+    });
+};
+
+const fetchHandler = async (e) => {
+    const { request } = e;
     const url = request.url;
 
-    event.respondWith(
+    e.respondWith(
         (async () => {
-            const urlObj = new URL(url);
-            const isSameOrigin = urlObj.origin === self.location.origin;
+            try {
+                const urlObj = new URL(url);
 
-            // API / non-GET: never cache, never fallback to HTML
-            if (request.method !== "GET" || urlObj.pathname.startsWith("/api/")) {
-                try {
-                    return await fetch(request);
-                } catch {
-                    return textResponse(502, "Bad Gateway", "Network error");
-                }
-            }
-
-            // Cross-origin: pass-through unless explicitly allowed
-            if (!isSameOrigin) {
-                if (!isAllowedExternal(url)) {
+                // Never let the SW interfere with cross-origin API calls.
+                // If the network fails, return a real Response (not undefined).
+                if (urlObj.origin !== self.location.origin && urlObj.pathname.startsWith("/api/")) {
                     try {
                         return await fetch(request);
-                    } catch {
-                        return textResponse(504, "Gateway Timeout", "Upstream unavailable");
+                    } catch (err) {
+                        return new Response("Upstream API unavailable", {
+                            status: 502,
+                            statusText: "Bad Gateway",
+                            headers: { "Content-Type": "text/plain" },
+                        });
                     }
                 }
 
-                // Allowed external: stale-while-revalidate, cache only ok responses
-                const cache = await caches.open(RUNTIME);
-                const cached = await cache.match(request);
-                const update = fetch(request)
-                    .then((res) => {
-                        if (res && res.ok) cache.put(request, res.clone());
-                        return res;
+                // Handle offline retry for important requests
+                if (isOffline() && isRequestEligibleForRetry(request)) {
+                    await storeRequest(request);
+                    const cachedResponse = await caches.match(resolvePath("/index.html"));
+                    return cachedResponse || new Response("Offline", { status: 503 });
+                }
+
+                // Strategy 1: Cache First for local assets
+                if (url.startsWith(self.location.origin)) {
+                    const cachedResponse = await caches.match(request, { ignoreVary: true, ignoreSearch: false });
+                    if (cachedResponse) {
+                        return cachedResponse.redirected ? cleanRedirect(cachedResponse) : cachedResponse;
+                    }
+                }
+
+                // Strategy 2: Stale-While-Revalidate for external resources
+                if (shouldCacheExternally(url)) {
+                    const cache = await caches.open(runtimeCache);
+                    const cachedResponse = await cache.match(request);
+
+                    // Return cached version immediately
+                    const fetchPromise = fetch(request, { mode: "cors" })
+                        .then((response) => {
+                            if (response.ok) {
+                                cache.put(request, response.clone());
+                            }
+                            return response;
+                        })
+                        .catch((err) => {
+                            console.warn("[SW] Failed to fetch external:", url, err);
+                            // Always return a Response from respondWith()
+                            return (
+                                cachedResponse ||
+                                new Response("External resource unavailable", {
+                                    status: 504,
+                                    statusText: "Gateway Timeout",
+                                    headers: { "Content-Type": "text/plain" },
+                                })
+                            );
+                        });
+
+                    // Return cached immediately if available, otherwise wait for network
+                    return cachedResponse || fetchPromise;
+                }
+
+                // Strategy 3: Network First for everything else
+                try {
+                    const fetchResponse = await fetch(request);
+
+                    // Cache successful GET requests from external sources
+                    if (fetchResponse.status === 200 && request.method === "GET" && shouldCacheExternally(url)) {
+                        const cache = await caches.open(runtimeCache);
+                        cache.put(request, fetchResponse.clone());
+                    }
+
+                    return fetchResponse;
+                } catch (networkError) {
+                    // Network failed, try cache as fallback
+                    const cachedResponse = await caches.match(request);
+                    if (cachedResponse) {
+                        console.log("[SW] Serving from cache after network failure:", url);
+                        return cachedResponse;
+                    }
+
+                    // Last resort: return offline page for navigation requests
+                    if (request.mode === "navigate") {
+                        const offlinePage = await caches.match(resolvePath("/index.html"));
+                        return offlinePage;
+                    }
+
+                    throw networkError;
+                }
+            } catch (err) {
+                console.error("[SW] Fetch error:", err);
+                // Final fallback
+                const fallback = await caches.match(resolvePath("/index.html"));
+                return (
+                    fallback ||
+                    new Response("Application Offline", {
+                        status: 503,
+                        statusText: "Service Unavailable",
+                        headers: { "Content-Type": "text/plain" },
                     })
-                    .catch(() => null);
-
-                // Keep cache warm in background when we already have a cached copy
-                if (cached) event.waitUntil(update);
-                return cached || (await update) || textResponse(504, "Gateway Timeout", "Upstream unavailable");
-            }
-
-            // Navigation: network-first with offline HTML fallback
-            if (request.mode === "navigate") {
-                try {
-                    const res = await fetch(request);
-                    // Keep the entrypoint fresh for offline
-                    if (res && res.ok && res.type === "basic") {
-                        const cache = await caches.open(PRECACHE);
-                        cache.put(resolvePath("/index.html"), res.clone());
-                    }
-                    return res;
-                } catch {
-                    const cache = await caches.open(PRECACHE);
-                    const offline = await cache.match(resolvePath("/index.html"));
-                    return offline || textResponse(503, "Service Unavailable", "Offline");
-                }
-            }
-
-            // Typed assets: cache-first (exact match), never return HTML
-            const isTypedAsset =
-                request.destination === "script" ||
-                request.destination === "worker" ||
-                request.destination === "style" ||
-                request.destination === "font" ||
-                isWasmRequest(request, urlObj) ||
-                urlObj.pathname.endsWith(".js") ||
-                urlObj.pathname.endsWith(".mjs") ||
-                urlObj.pathname.endsWith(".css");
-
-            if (isTypedAsset || urlObj.pathname.startsWith("/thirdparty/")) {
-                const cache = await caches.open(PRECACHE);
-                // Some hosts add `Vary: Accept-Encoding` (or similar) which can make
-                // Cache.match() miss a valid precached response on some Android WebView/Chrome builds.
-                // For static assets (fonts/icons/wasm/css/js), ignoring Vary is safe and more reliable.
-                const cached = await cache.match(request, { ignoreSearch: false, ignoreVary: true });
-                if (cached) return cached;
-
-                try {
-                    const res = await fetch(request);
-                    // Never cache errors, redirects, or opaque responses
-                    if (res && res.ok && res.type === "basic" && !res.redirected) {
-                        cache.put(request, res.clone());
-                    }
-                    return res;
-                } catch {
-                    // For typed assets, return a valid non-HTML response
-                    if (isBinaryAsset(request, urlObj)) {
-                        return textResponse(503, "Service Unavailable", "Offline");
-                    }
-                    return textResponse(503, "Service Unavailable", "Offline");
-                }
-            }
-
-            // Other same-origin GET (images, json, etc.): cache-first with network fallback
-            const cache = await caches.open(PRECACHE);
-            const cached = await cache.match(request, { ignoreSearch: false, ignoreVary: true });
-            if (cached) return cached;
-            try {
-                const res = await fetch(request);
-                if (res && res.ok && res.type === "basic" && !res.redirected) {
-                    cache.put(request, res.clone());
-                }
-                return res;
-            } catch {
-                return textResponse(503, "Service Unavailable", "Offline");
+                );
             }
         })(),
     );
-});
+};
 
-self.addEventListener("message", (event) => {
-    const { data } = event || {};
-    if (!data || !data.type) return;
-    if (data.type === "SKIP_WAITING") self.skipWaiting();
-});
+const messageHandler = async ({ data }) => {
+    const { type } = data;
+    switch (type) {
+        case "SKIP_WAITING": {
+            const clients = await self.clients.matchAll({
+                includeUncontrolled: true,
+            });
+            if (clients.length < 2) {
+                await self.skipWaiting();
+                await self.clients.claim();
+            }
+            break;
+        }
+        case "PREPARE_CACHES_FOR_UPDATE": {
+            await updateLastCache();
+            break;
+        }
+        case "retry-requests": {
+            if (!("sync" in self.registration)) {
+                console.log("retry requests when Background Sync is not supported");
+                await retryRequests();
+            }
+            break;
+        }
+    }
+};
+
+const syncHandler = async (e) => {
+    console.log("sync event with tag:", e.tag);
+    const { tag } = e;
+    switch (tag) {
+        case "retry-request":
+            e.waitUntil(retryRequests());
+            break;
+    }
+};
+
+//╭─────────────────────────────────────╮
+//│              Listener               │
+//╰─────────────────────────────────────╯
+self.addEventListener("install", installHandler);
+self.addEventListener("activate", activateHandler);
+self.addEventListener("fetch", fetchHandler);
+self.addEventListener("message", messageHandler);
+self.addEventListener("sync", syncHandler);

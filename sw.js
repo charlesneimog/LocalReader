@@ -1,7 +1,8 @@
-const APP_VERSION = "0.12.0+0";
+const APP_VERSION = "0.13.0+0";
 const IDB_VERSION = 1;
 const cacheName = `LocalReader-v${APP_VERSION}`;
 const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
+let coepCredentialless = true;
 
 // Determine the base path (works for both root and subpath deployments)
 const getBasePath = () => {
@@ -383,6 +384,30 @@ const cleanRedirect = async (response) => {
     });
 };
 
+const applyCoepHeaders = (response) => {
+    if (!response || response.type === "opaque" || response.status === 0) {
+        return response;
+    }
+
+    const clonedResponse = response.clone();
+    const headers = new Headers(clonedResponse.headers);
+
+    headers.set(
+        "Cross-Origin-Embedder-Policy",
+        coepCredentialless ? "credentialless" : "require-corp",
+    );
+    if (!coepCredentialless) {
+        headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+    }
+    headers.set("Cross-Origin-Opener-Policy", "same-origin");
+
+    return new Response(clonedResponse.body, {
+        status: clonedResponse.status,
+        statusText: clonedResponse.statusText,
+        headers,
+    });
+};
+
 const fetchHandler = async (e) => {
     const { request } = e;
     const url = request.url;
@@ -410,14 +435,17 @@ const fetchHandler = async (e) => {
                 if (isOffline() && isRequestEligibleForRetry(request)) {
                     await storeRequest(request);
                     const cachedResponse = await caches.match(resolvePath("/index.html"));
-                    return cachedResponse || new Response("Offline", { status: 503 });
+                    return applyCoepHeaders(cachedResponse) || new Response("Offline", { status: 503 });
                 }
 
                 // Strategy 1: Cache First for local assets
                 if (url.startsWith(self.location.origin)) {
                     const cachedResponse = await caches.match(request, { ignoreVary: true, ignoreSearch: false });
                     if (cachedResponse) {
-                        return cachedResponse.redirected ? cleanRedirect(cachedResponse) : cachedResponse;
+                        const normalized = cachedResponse.redirected
+                            ? await cleanRedirect(cachedResponse)
+                            : cachedResponse;
+                        return applyCoepHeaders(normalized);
                     }
                 }
 
@@ -432,13 +460,13 @@ const fetchHandler = async (e) => {
                             if (response.ok) {
                                 cache.put(request, response.clone());
                             }
-                            return response;
+                            return applyCoepHeaders(response);
                         })
                         .catch((err) => {
                             console.warn("[SW] Failed to fetch external:", url, err);
                             // Always return a Response from respondWith()
                             return (
-                                cachedResponse ||
+                                applyCoepHeaders(cachedResponse) ||
                                 new Response("External resource unavailable", {
                                     status: 504,
                                     statusText: "Gateway Timeout",
@@ -448,7 +476,7 @@ const fetchHandler = async (e) => {
                         });
 
                     // Return cached immediately if available, otherwise wait for network
-                    return cachedResponse || fetchPromise;
+                    return applyCoepHeaders(cachedResponse) || fetchPromise;
                 }
 
                 // Strategy 3: Network First for everything else
@@ -461,19 +489,19 @@ const fetchHandler = async (e) => {
                         cache.put(request, fetchResponse.clone());
                     }
 
-                    return fetchResponse;
+                    return applyCoepHeaders(fetchResponse);
                 } catch (networkError) {
                     // Network failed, try cache as fallback
                     const cachedResponse = await caches.match(request);
                     if (cachedResponse) {
                         console.log("[SW] Serving from cache after network failure:", url);
-                        return cachedResponse;
+                        return applyCoepHeaders(cachedResponse);
                     }
 
                     // Last resort: return offline page for navigation requests
                     if (request.mode === "navigate") {
                         const offlinePage = await caches.match(resolvePath("/index.html"));
-                        return offlinePage;
+                        return applyCoepHeaders(offlinePage) || offlinePage;
                     }
 
                     throw networkError;
@@ -483,7 +511,7 @@ const fetchHandler = async (e) => {
                 // Final fallback
                 const fallback = await caches.match(resolvePath("/index.html"));
                 return (
-                    fallback ||
+                    applyCoepHeaders(fallback) ||
                     new Response("Application Offline", {
                         status: 503,
                         statusText: "Service Unavailable",
@@ -517,6 +545,16 @@ const messageHandler = async ({ data }) => {
                 console.log("retry requests when Background Sync is not supported");
                 await retryRequests();
             }
+            break;
+        }
+        case "coepCredentialless": {
+            coepCredentialless = Boolean(data.value);
+            break;
+        }
+        case "deregister": {
+            await self.registration.unregister();
+            const clients = await self.clients.matchAll();
+            clients.forEach((client) => client.navigate(client.url));
             break;
         }
     }

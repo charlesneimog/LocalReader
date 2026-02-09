@@ -1,4 +1,5 @@
-const APP_VERSION = "0.11.0+0";
+const APP_VERSION = "0.12.0+0";
+const IDB_VERSION = 1;
 const cacheName = `LocalReader-v${APP_VERSION}`;
 const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
 
@@ -58,7 +59,6 @@ const staticFiles = [
     "/src/modules/index.js",
 
     // Módulos (principais)
-    "/src/modules/login/auth.js",
     "/src/modules/pdf/pdfLoader.js",
     "/src/modules/pdf/pdfRenderer.js",
     "/src/modules/pdf/pdfHeaderFooterDetector.js",
@@ -84,10 +84,10 @@ const staticFiles = [
     "/src/modules/utils/viewport.js",
 
     // Third-party
-    "/thirdparty/ort.js",
-    "/thirdparty/ort-wasm-simd.wasm",
-    "/thirdparty/ort-wasm-simd-threaded.jsep.mjs",
-    "/thirdparty/ort-wasm-simd-threaded.jsep.wasm",
+    "/thirdparty/ort/ort.js",
+    "/thirdparty/ort/ort-wasm-simd.wasm",
+    "/thirdparty/ort/ort-wasm-simd-threaded.jsep.mjs",
+    "/thirdparty/ort/ort-wasm-simd-threaded.jsep.wasm",
     "/thirdparty/pdf/pdf.js",
     "/thirdparty/pdf/pdf.worker.js",
     "/thirdparty/pdf/pdf-lib.js",
@@ -130,8 +130,9 @@ const shouldCacheExternally = (url) => {
 };
 
 const routes = ["/"];
+const resolvedRoutes = routes.map(resolvePath);
 const resolvedStaticFiles = staticFiles.map(resolvePath);
-const filesToCache = [...routes, ...resolvedStaticFiles];
+const filesToCache = [...resolvedRoutes, ...resolvedStaticFiles];
 const requestsToRetryWhenOffline = [];
 
 //╭─────────────────────────────────────╮
@@ -139,7 +140,7 @@ const requestsToRetryWhenOffline = [];
 //╰─────────────────────────────────────╯
 const IDBConfig = {
     name: "web-app-db",
-    version: APP_VERSION,
+    version: IDB_VERSION,
     stores: {
         requestStore: {
             name: `request-store`,
@@ -157,7 +158,7 @@ const isRequestEligibleForRetry = ({ url, method }) => {
 };
 
 const createIndexedDB = ({ name, stores }) => {
-    const request = self.indexedDB.open(name, 1);
+    const request = self.indexedDB.open(name, IDB_VERSION);
     return new Promise((resolve, reject) => {
         request.onupgradeneeded = (e) => {
             const db = e.target.result;
@@ -299,14 +300,24 @@ const retryRequests = async () => {
     });
 };
 
+const cacheLocalFiles = async () => {
+    const cache = await caches.open(cacheName);
+    const results = await Promise.allSettled(
+        filesToCache.map((file) => cache.add(new Request(file, { cache: "reload" }))),
+    );
+    results.forEach((result, index) => {
+        if (result.status === "rejected") {
+            console.warn("[SW] Failed to cache:", filesToCache[index], result.reason);
+        }
+    });
+};
+
 const installHandler = (e) => {
     console.log("[SW] Installing service worker v" + APP_VERSION);
     e.waitUntil(
         Promise.all([
             // Cache local files
-            caches
-                .open(cacheName)
-                .then((cache) => cache.addAll(filesToCache.map((file) => new Request(file, { cache: "reload" })))),
+            cacheLocalFiles(),
             // Cache external resources with proper error handling
             caches.open(cacheName).then((cache) =>
                 Promise.allSettled(

@@ -639,6 +639,11 @@ html {
     overflow-x: hidden;
 }
 
+#previous-pdf-container > * {
+    min-width: 0;
+    box-sizing: border-box;
+}
+
 @media (min-width: 640px) {
     #previous-pdf-container {
         grid-template-columns: repeat(3, minmax(0, 1fr));

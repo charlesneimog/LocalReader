@@ -222,7 +222,7 @@ export class PDFThumbnailCache {
     createPlaceholderCard({ key, docType }) {
         const card = document.createElement("div");
         card.className =
-            "flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm border border-slate-200 dark:border-slate-700 relative cursor-pointer w-full";
+            "flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm border border-slate-200 dark:border-slate-700 relative cursor-pointer min-w-0 box-border";
         card.dataset.docKey = key;
         card.dataset.docType = docType;
 
@@ -303,7 +303,7 @@ export class PDFThumbnailCache {
     populatePdfCard(cardElement, canvas, pdfBlob, pdfName, pdfKey) {
         // Update card styling
         cardElement.className =
-            "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer w-full transition-shadow duration-200";
+            "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer min-w-0 box-border transition-shadow duration-200";
 
         // Replace placeholder thumbnail with actual canvas
         const thumbDiv = cardElement.querySelector("div");
@@ -353,7 +353,7 @@ export class PDFThumbnailCache {
         const effectiveCover = coverDataUrl || coverFromProgress;
 
         cardElement.className =
-            "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer w-full transition-shadow duration-200";
+            "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer min-w-0 box-border transition-shadow duration-200";
 
         const thumbDiv = cardElement.querySelector("div");
         thumbDiv.className =

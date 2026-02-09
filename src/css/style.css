@@ -632,25 +632,21 @@ html {
     height: 100%;
 }
 #previous-pdf-container {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scroll-behavior: smooth;
-    -webkit-overflow-scrolling: touch;
-    gap: 1rem; /* espaço entre os cards */
-    padding: 1rem; /* evita que o primeiro/último fiquem colados */
-    scroll-padding-right: 1rem; /* garante espaço visual no final */
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
     box-sizing: border-box;
+    overflow-x: hidden;
 }
 
-#previous-pdf-container > * {
-    flex-shrink: 0; /* impede encolhimento */
+@media (min-width: 640px) {
+    #previous-pdf-container {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
-/* cria espaço final invisível após o último card */
-#previous-pdf-container::after {
-    content: "";
-    flex: 0 0 1rem; /* controla o espaço final: aumente se ainda cortar */
+@media (min-width: 1024px) {
+    #previous-pdf-container {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
 }

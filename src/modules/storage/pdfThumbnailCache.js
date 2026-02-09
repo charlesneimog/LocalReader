@@ -169,9 +169,6 @@ export class PDFThumbnailCache {
         for (const entry of documents) {
             const card = this.createPlaceholderCard(entry);
             if (this.container) this.container.appendChild(card);
-            requestAnimationFrame(() => {
-                this.container.scrollLeft = this.container.scrollWidth;
-            });
         }
 
         // Best-effort: show a small cloud badge for files present on server.
@@ -225,16 +222,15 @@ export class PDFThumbnailCache {
     createPlaceholderCard({ key, docType }) {
         const card = document.createElement("div");
         card.className =
-            "flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm border border-slate-200 dark:border-slate-700 relative cursor-pointer flex-shrink-0";
-        card.style.width = this.config.placeholderWidth + "px";
+            "flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm border border-slate-200 dark:border-slate-700 relative cursor-pointer w-full";
         card.dataset.docKey = key;
         card.dataset.docType = docType;
 
         // Thumbnail placeholder with loading animation
         const thumbDiv = document.createElement("div");
         thumbDiv.className = "w-full rounded-md flex items-center justify-center bg-slate-100 dark:bg-slate-700";
-        thumbDiv.style.width = this.config.placeholderWidth + "px";
-        thumbDiv.style.height = this.config.placeholderHeight + "px";
+        thumbDiv.style.width = "100%";
+        thumbDiv.style.aspectRatio = `${this.width} / ${this.height}`;
         const iconName = docType === "epub" ? "menu_book" : "description";
         thumbDiv.innerHTML = `
             <span class="material-symbols-outlined text-4xl text-slate-400 animate-pulse">${iconName}</span>
@@ -286,8 +282,8 @@ export class PDFThumbnailCache {
         canvas.className = "rounded-md";
 
         // Set display size (CSS) smaller than render size for crisp rendering
-        canvas.style.width = this.config.displayWidth + "px";
-        canvas.style.height = this.config.displayHeight + "px";
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
         canvas.style.objectFit = "contain";
         canvas.style.objectPosition = "top center";
 
@@ -307,14 +303,13 @@ export class PDFThumbnailCache {
     populatePdfCard(cardElement, canvas, pdfBlob, pdfName, pdfKey) {
         // Update card styling
         cardElement.className =
-            "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer flex-shrink-0 transition-shadow duration-200";
-        cardElement.style.width = this.config.cardWidth + "px";
+            "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer w-full transition-shadow duration-200";
 
         // Replace placeholder thumbnail with actual canvas
         const thumbDiv = cardElement.querySelector("div");
         thumbDiv.className = "w-full rounded-md flex justify-center overflow-hidden bg-slate-50 dark:bg-slate-900";
-        thumbDiv.style.width = this.config.displayWidth + "px";
-        thumbDiv.style.height = this.config.displayHeight + "px";
+        thumbDiv.style.width = "100%";
+        thumbDiv.style.aspectRatio = `${this.width} / ${this.height}`;
         thumbDiv.innerHTML = "";
         thumbDiv.appendChild(canvas);
         thumbDiv.setAttribute("data-alt", `Page 1 of ${pdfName}`);
@@ -358,14 +353,13 @@ export class PDFThumbnailCache {
         const effectiveCover = coverDataUrl || coverFromProgress;
 
         cardElement.className =
-            "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer flex-shrink-0 transition-shadow duration-200";
-        cardElement.style.width = this.config.cardWidth + "px";
+            "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer w-full transition-shadow duration-200";
 
         const thumbDiv = cardElement.querySelector("div");
         thumbDiv.className =
             "w-full rounded-md flex items-center justify-center overflow-hidden bg-slate-100 dark:bg-slate-900";
-        thumbDiv.style.width = this.config.displayWidth + "px";
-        thumbDiv.style.height = this.config.displayHeight + "px";
+        thumbDiv.style.width = "100%";
+        thumbDiv.style.aspectRatio = `${this.width} / ${this.height}`;
 
         const applyFallbackIcon = () => {
             thumbDiv.innerHTML = `

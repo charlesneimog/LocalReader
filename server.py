@@ -309,6 +309,34 @@ class APIHandler(BaseHTTPRequestHandler):
         if (self.headers.get("Access-Control-Request-Private-Network") or "").strip().lower() == "true":
             self.send_header("Access-Control-Allow-Private-Network", "true")
 
+    def _set_cross_origin_isolation_headers(self) -> None:
+        """Set headers required for crossOriginIsolated mode.
+
+        Required for SharedArrayBuffer and cross-origin isolated contexts.
+        """
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        # Recommended: lock resources to same-origin unless explicitly shared.
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+
+    def _should_apply_coi_headers(self, path: str) -> bool:
+        """Decide whether to apply Cross-Origin Isolation headers."""
+        p = (path or "").split("?", 1)[0].split("#", 1)[0]
+        if p in {"", "/", "/index.html"}:
+            return True
+        if p.startswith("/api/") or p in {"/api"}:
+            return True
+        pl = p.lower()
+        return pl.endswith((
+            ".html",
+            ".js",
+            ".mjs",
+            ".wasm",
+            ".worker.js",
+            ".css",
+            ".webmanifest",
+        ))
+
     def _get_auth_email(self):
         auth = self.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
@@ -329,6 +357,9 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self._set_cors_headers()
+        # Apply COI headers for API responses to support WASM threading.
+        # This is safe to send broadly and keeps behavior consistent.
+        self._set_cross_origin_isolation_headers()
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
     
@@ -342,6 +373,8 @@ class APIHandler(BaseHTTPRequestHandler):
         # 204 is typical for preflight and avoids implying a body
         self.send_response(204)
         self._set_cors_headers()
+        # Ensure COI headers exist on preflight responses as well.
+        self._set_cross_origin_isolation_headers()
         self.end_headers()
     
     def do_GET(self):
@@ -437,6 +470,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Disposition", f"attachment; filename=\"{filename}\"")
                 self._set_cors_headers()
+                self._set_cross_origin_isolation_headers()
                 self.end_headers()
                 self.wfile.write(file_data)
                 logger.info("Download served: owner=%s bytes=%d filename=%s", user_email, len(file_data), filename)
@@ -495,6 +529,8 @@ class APIHandler(BaseHTTPRequestHandler):
         if not full_path:
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            if self._should_apply_coi_headers(url_path):
+                self._set_cross_origin_isolation_headers()
             self.end_headers()
             self.wfile.write(b"Not found")
             return
@@ -503,6 +539,8 @@ class APIHandler(BaseHTTPRequestHandler):
             logger.info("Static 404: url_path=%s resolved=%s", url_path, full_path)
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            if self._should_apply_coi_headers(url_path):
+                self._set_cross_origin_isolation_headers()
             self.end_headers()
             self.wfile.write(b"Not found")
             return
@@ -530,6 +568,8 @@ class APIHandler(BaseHTTPRequestHandler):
 
             self.send_response(200)
             self.send_header("Content-Type", content_type)
+            if self._should_apply_coi_headers(url_path):
+                self._set_cross_origin_isolation_headers()
             # Keep SW/HTML always fresh; cache static assets a bit.
             if full_path.endswith(("index.html", "sw.js", "threads.js", "manifest.webmanifest")):
                 self.send_header("Cache-Control", "no-cache")
@@ -546,6 +586,8 @@ class APIHandler(BaseHTTPRequestHandler):
             logger.exception("Static file serve failed: path=%s", url_path)
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            if self._should_apply_coi_headers(url_path):
+                self._set_cross_origin_isolation_headers()
             self.end_headers()
             self.wfile.write(f"Internal server error: {e}".encode("utf-8"))
     

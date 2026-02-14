@@ -545,6 +545,9 @@
   .ml-4 {
     margin-left: calc(var(--spacing) * 4);
   }
+  .box-border {
+    box-sizing: border-box;
+  }
   .block {
     display: block;
   }

@@ -149,10 +149,33 @@ export class PDFThumbnailCache {
             this.app.progressManager.listSavedEPUBs(),
         ]);
 
+        // Sort thumbnails by most recently opened document.
+        // Progress entries are stored under compound keys like "pdf::${key}" / "epub::${key}".
+        // PDFs may also have legacy entries keyed directly by `key`.
+        const progressMap =
+            typeof this.app.progressManager.getProgressMap === "function"
+                ? this.app.progressManager.getProgressMap()
+                : this.app.progressManager.listSavedProgress?.() || {};
+
+        const getUpdated = (docType, key) => {
+            if (!key) return 0;
+            const compoundKey = `${docType}::${key}`;
+            const entry = progressMap?.[compoundKey] || (docType === "pdf" ? progressMap?.[key] : null);
+            const updated = entry?.updated;
+            return Number.isFinite(updated) ? updated : 0;
+        };
+
         const documents = [
-            ...savedPDFs.map((key) => ({ key, docType: "pdf" })),
-            ...savedEPUBs.map((key) => ({ key, docType: "epub" })),
-        ];
+            ...savedPDFs.map((key) => ({ key, docType: "pdf", updated: getUpdated("pdf", key) })),
+            ...savedEPUBs.map((key) => ({ key, docType: "epub", updated: getUpdated("epub", key) })),
+        ].sort((a, b) => {
+            const diff = (b.updated || 0) - (a.updated || 0);
+            if (diff) return diff;
+            // Stable fallback: group by type then key.
+            const typeDiff = String(a.docType).localeCompare(String(b.docType));
+            if (typeDiff) return typeDiff;
+            return String(a.key).localeCompare(String(b.key));
+        });
 
         if (!documents.length) {
             if (this.overlay) this.overlay.classList.add("hidden");

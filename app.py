@@ -147,6 +147,9 @@ def init_db():
             file_data BLOB NOT NULL,
             reading_position TEXT,
             voice TEXT,
+            translation_target TEXT,
+            translation_mode TEXT,
+            translation_updated_at TEXT,
             created_at TEXT NOT NULL
         )
     """)
@@ -205,6 +208,9 @@ def init_db():
     _ensure_column("files", "position_updated_at", "TEXT")
     _ensure_column("files", "highlights_updated_at", "TEXT")
     _ensure_column("files", "voice_updated_at", "TEXT")
+    _ensure_column("files", "translation_target", "TEXT")
+    _ensure_column("files", "translation_mode", "TEXT")
+    _ensure_column("files", "translation_updated_at", "TEXT")
     _ensure_column("files", "owner_email", "TEXT")
     _ensure_column("files", "actual_filename", "TEXT")
 
@@ -231,11 +237,13 @@ def init_db():
             updated_at = COALESCE(updated_at, created_at),
             position_updated_at = COALESCE(position_updated_at, created_at),
             highlights_updated_at = COALESCE(highlights_updated_at, created_at),
-            voice_updated_at = COALESCE(voice_updated_at, created_at)
+            voice_updated_at = COALESCE(voice_updated_at, created_at),
+            translation_updated_at = COALESCE(translation_updated_at, created_at)
         WHERE updated_at IS NULL
            OR position_updated_at IS NULL
            OR highlights_updated_at IS NULL
            OR voice_updated_at IS NULL
+           OR translation_updated_at IS NULL
         """
     )
     # Backfill ownership for older DBs (single-user legacy): keep NULL if unknown.
@@ -607,11 +615,27 @@ def add_file(title, filename, format, voice=None):
         """
         INSERT INTO files (
             title, filename, format, file_data, reading_position, voice,
+            translation_target, translation_mode, translation_updated_at,
             created_at, updated_at, position_updated_at, highlights_updated_at, voice_updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (title, filename, format, file_data, None, voice, created_at, updated_at, updated_at, updated_at, updated_at),
+        (
+            title,
+            filename,
+            format,
+            file_data,
+            None,
+            voice,
+            None,
+            None,
+            created_at,
+            created_at,
+            updated_at,
+            updated_at,
+            updated_at,
+            updated_at,
+        ),
     )
     
     file_id = cursor.lastrowid
@@ -663,11 +687,13 @@ def get_files(owner_email=None):
             """
             SELECT
                 filename, title, format, reading_position, voice,
+                translation_target, translation_mode,
                 created_at,
                 COALESCE(updated_at, created_at) AS updated_at,
                 COALESCE(position_updated_at, created_at) AS position_updated_at,
                 COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
-                COALESCE(voice_updated_at, created_at) AS voice_updated_at
+                COALESCE(voice_updated_at, created_at) AS voice_updated_at,
+                COALESCE(translation_updated_at, created_at) AS translation_updated_at
             FROM files
             WHERE owner_email = ?
             ORDER BY created_at DESC
@@ -679,11 +705,13 @@ def get_files(owner_email=None):
             """
             SELECT
                 filename, title, format, reading_position, voice,
+                translation_target, translation_mode,
                 created_at,
                 COALESCE(updated_at, created_at) AS updated_at,
                 COALESCE(position_updated_at, created_at) AS position_updated_at,
                 COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
-                COALESCE(voice_updated_at, created_at) AS voice_updated_at
+                COALESCE(voice_updated_at, created_at) AS voice_updated_at,
+                COALESCE(translation_updated_at, created_at) AS translation_updated_at
             FROM files
             ORDER BY created_at DESC
             """
@@ -764,11 +792,13 @@ def get_file_data(file_id, owner_email=None):
             """
             SELECT
                 filename, title, format, reading_position, voice,
+                translation_target, translation_mode,
                 created_at,
                 COALESCE(updated_at, created_at) AS updated_at,
                 COALESCE(position_updated_at, created_at) AS position_updated_at,
                 COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
-                COALESCE(voice_updated_at, created_at) AS voice_updated_at
+                COALESCE(voice_updated_at, created_at) AS voice_updated_at,
+                COALESCE(translation_updated_at, created_at) AS translation_updated_at
             FROM files
             WHERE filename = ? AND owner_email = ?
             """,
@@ -779,11 +809,13 @@ def get_file_data(file_id, owner_email=None):
             """
             SELECT
                 filename, title, format, reading_position, voice,
+                translation_target, translation_mode,
                 created_at,
                 COALESCE(updated_at, created_at) AS updated_at,
                 COALESCE(position_updated_at, created_at) AS position_updated_at,
                 COALESCE(highlights_updated_at, created_at) AS highlights_updated_at,
-                COALESCE(voice_updated_at, created_at) AS voice_updated_at
+                COALESCE(voice_updated_at, created_at) AS voice_updated_at,
+                COALESCE(translation_updated_at, created_at) AS translation_updated_at
             FROM files
             WHERE filename = ?
             """,
@@ -879,11 +911,26 @@ def add_file_with_id(file_id, title, file_data, format, voice=None, owner_email=
                                 format = ?,
                                 actual_filename = ?,
                                 voice = COALESCE(?, voice),
+                                translation_target = COALESCE(translation_target, ?),
+                                translation_mode = COALESCE(translation_mode, ?),
                                 updated_at = ?,
                                 voice_updated_at = CASE WHEN ? IS NOT NULL THEN ? ELSE voice_updated_at END
                             WHERE filename = ? AND owner_email = ?
                             """,
-                            (title, file_data, format, actual_filename, voice, updated_at, voice, updated_at, file_id, owner_n),
+                            (
+                                title,
+                                file_data,
+                                format,
+                                actual_filename,
+                                voice,
+                                None,
+                                None,
+                                updated_at,
+                                voice,
+                                updated_at,
+                                file_id,
+                                owner_n,
+                            ),
                         )
                     else:
                         cursor.execute(
@@ -895,11 +942,25 @@ def add_file_with_id(file_id, title, file_data, format, voice=None, owner_email=
                             format = ?,
                             actual_filename = ?,
                             voice = COALESCE(?, voice),
+                            translation_target = COALESCE(translation_target, ?),
+                            translation_mode = COALESCE(translation_mode, ?),
                             updated_at = ?,
                             voice_updated_at = CASE WHEN ? IS NOT NULL THEN ? ELSE voice_updated_at END
                         WHERE filename = ?
                         """,
-                        (title, file_data, format, actual_filename, voice, updated_at, voice, updated_at, file_id),
+                        (
+                            title,
+                            file_data,
+                            format,
+                            actual_filename,
+                            voice,
+                            None,
+                            None,
+                            updated_at,
+                            voice,
+                            updated_at,
+                            file_id,
+                        ),
                     )
                 else:
                     logger.info("add_file_with_id: insert owner=%s file_id=%s", owner_n or "*", file_id)
@@ -908,10 +969,11 @@ def add_file_with_id(file_id, title, file_data, format, voice=None, owner_email=
                         """
                         INSERT INTO files (
                             title, filename, format, file_data, reading_position, voice,
+                            translation_target, translation_mode, translation_updated_at,
                             created_at, updated_at, position_updated_at, highlights_updated_at, voice_updated_at,
                             owner_email, actual_filename
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             title,
@@ -920,6 +982,9 @@ def add_file_with_id(file_id, title, file_data, format, voice=None, owner_email=
                             file_data,
                             None,
                             voice,
+                            None,
+                            None,
+                            updated_at,
                             created_at,
                             updated_at,
                             updated_at,
@@ -1050,6 +1115,85 @@ def update_voice_by_file_id(file_id, voice, owner_email=None):
         except sqlite3.OperationalError as e:
             if "locked" in str(e).lower() and attempt < 3:
                 logger.warning("DB locked on update_voice (attempt %d): owner=%s file_id=%s", attempt + 1, owner_n or "*", file_id)
+                _sleep_on_lock(attempt)
+                continue
+            raise
+
+
+def update_translation_settings_by_file_id(file_id, target, mode, owner_email=None):
+    """Update translation settings for a file by file_id.
+
+    Args:
+        file_id: The file identifier (filename)
+        target: Translation target language (e.g. "pt", "en", "zh-CN")
+        mode: One of "read", "show", "off"
+
+    Returns:
+        True if update was successful, False if file not found
+    """
+    now = datetime.utcnow().isoformat()
+    owner_n = _normalize_email(owner_email) if owner_email else None
+    canonical = _resolve_canonical_filename(file_id, owner_n)
+    if not canonical:
+        logger.info("update_translation_settings: owner=%s file_id=%s ok=%s", owner_n or "*", file_id, False)
+        return False
+
+    mode_n = (str(mode or "").strip().lower() or "off")
+    if mode_n not in {"read", "show", "off"}:
+        mode_n = "off"
+
+    target_n = str(target or "").strip().replace("_", "-") or "pt"
+
+    for attempt in range(4):
+        try:
+            with sqlite3.connect(DB_PATH, timeout=30) as conn:
+                cursor = conn.cursor()
+                if owner_n:
+                    cursor.execute(
+                        """
+                        UPDATE files
+                        SET
+                            translation_target = ?,
+                            translation_mode = ?,
+                            updated_at = ?,
+                            translation_updated_at = ?
+                        WHERE filename = ? AND owner_email = ?
+                        """,
+                        (target_n, mode_n, now, now, canonical, owner_n),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        UPDATE files
+                        SET
+                            translation_target = ?,
+                            translation_mode = ?,
+                            updated_at = ?,
+                            translation_updated_at = ?
+                        WHERE filename = ?
+                        """,
+                        (target_n, mode_n, now, now, canonical),
+                    )
+                rows_affected = cursor.rowcount
+            ok = rows_affected > 0
+            logger.info(
+                "update_translation_settings: owner=%s file_id=%s canonical=%s ok=%s mode=%s target=%s",
+                owner_n or "*",
+                file_id,
+                canonical,
+                ok,
+                mode_n,
+                target_n,
+            )
+            return ok
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 3:
+                logger.warning(
+                    "DB locked on update_translation_settings (attempt %d): owner=%s file_id=%s",
+                    attempt + 1,
+                    owner_n or "*",
+                    file_id,
+                )
                 _sleep_on_lock(attempt)
                 continue
             raise

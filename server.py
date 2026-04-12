@@ -428,11 +428,14 @@ class APIHandler(BaseHTTPRequestHandler):
                         "format": fmt,
                         "reading_position": None,
                         "voice": None,
+                        "translation_target": None,
+                        "translation_mode": None,
                         "created_at": deleted_at,
                         "updated_at": deleted_at,
                         "position_updated_at": deleted_at,
                         "highlights_updated_at": deleted_at,
                         "voice_updated_at": deleted_at,
+                        "translation_updated_at": deleted_at,
                         "deleted": True,
                         "deleted_at": deleted_at,
                     }
@@ -508,11 +511,14 @@ class APIHandler(BaseHTTPRequestHandler):
                     "format": file_data.get("format"),
                     "reading_position": file_data.get("reading_position"),
                     "voice": file_data.get("voice"),
+                    "translation_target": file_data.get("translation_target"),
+                    "translation_mode": file_data.get("translation_mode"),
                     "created_at": file_data.get("created_at"),
                     "updated_at": file_data.get("updated_at"),
                     "position_updated_at": file_data.get("position_updated_at"),
                     "highlights_updated_at": file_data.get("highlights_updated_at"),
                     "voice_updated_at": file_data.get("voice_updated_at"),
+                    "translation_updated_at": file_data.get("translation_updated_at"),
                 })
             else:
                 logger.debug("File not found: owner=%s file_id=%s", user_email, file_id)
@@ -985,6 +991,41 @@ class APIHandler(BaseHTTPRequestHandler):
                 "success": True,
                 "message": f"Updated {count} highlights"
             })
+            return
+
+        # PUT /api/files/{file_id}/translation-settings
+        match = re.match(r'^/api/files/(.+)/translation-settings$', path)
+        if match:
+            file_id = _normalize_file_id(unquote(match.group(1)))
+            target = (data.get("target") or "").strip()
+            mode = (data.get("mode") or "").strip().lower()
+
+            logger.info(
+                "Update translation settings: owner=%s file_id=%s mode=%s target=%s",
+                user_email,
+                file_id,
+                mode,
+                target,
+            )
+
+            if mode not in {"read", "show", "off"}:
+                self._send_error(400, "Missing or invalid 'mode' field (read|show|off)")
+                return
+
+            if not target:
+                target = "pt"
+
+            success = app.update_translation_settings_by_file_id(
+                file_id,
+                target,
+                mode,
+                owner_email=user_email,
+            )
+
+            if success:
+                self._send_json(200, {"success": True, "message": "Translation settings updated"})
+            else:
+                self._send_error(404, "File not found")
             return
         
         self._send_error(404, "Not found")

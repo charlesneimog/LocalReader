@@ -16,6 +16,9 @@ export class UIService {
 
         this._highlightPopupEl = null;
         this._highlightPopupCleanup = null;
+
+        this._pdfTranslationPromptEl = null;
+        this._pdfTranslationPromptCleanup = null;
     }
 
     _hideTranslatePopup() {
@@ -49,6 +52,224 @@ export class UIService {
             this._highlightPopupCleanup();
             this._highlightPopupCleanup = null;
         }
+    }
+
+    _hidePdfTranslationPrompt() {
+        if (this._pdfTranslationPromptEl) {
+            this._pdfTranslationPromptEl.remove();
+            this._pdfTranslationPromptEl = null;
+        }
+        if (typeof this._pdfTranslationPromptCleanup === "function") {
+            this._pdfTranslationPromptCleanup();
+            this._pdfTranslationPromptCleanup = null;
+        }
+    }
+
+    async showPdfTranslationPrompt({
+        title = "Translation Setup",
+        subtitle = "Choose how translations should work for this PDF",
+        initialTarget = "pt",
+    } = {}) {
+        this._hidePdfTranslationPrompt();
+
+        return await new Promise((resolve) => {
+            const closeWith = (result = null) => {
+                this._hidePdfTranslationPrompt();
+                resolve(result);
+            };
+
+            const backdrop = document.createElement("div");
+            backdrop.className =
+                "fixed inset-0 z-50 bg-slate-900/40 dark:bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-3";
+
+            const panel = document.createElement("div");
+            panel.className =
+                "w-[94vw] max-w-xl rounded-xl border border-slate-200 dark:border-slate-700 " +
+                "bg-background-light dark:bg-background-dark shadow-2xl";
+
+            const header = document.createElement("div");
+            header.className = "flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700";
+
+            const titleWrap = document.createElement("div");
+
+            const titleEl = document.createElement("div");
+            titleEl.className = "text-sm font-semibold text-slate-900 dark:text-slate-100";
+            titleEl.textContent = title;
+
+            const subtitleEl = document.createElement("div");
+            subtitleEl.className = "mt-1 text-xs text-slate-600 dark:text-slate-300";
+            subtitleEl.textContent = subtitle;
+
+            titleWrap.appendChild(titleEl);
+            titleWrap.appendChild(subtitleEl);
+
+            const closeBtn = document.createElement("button");
+            closeBtn.type = "button";
+            closeBtn.className =
+                "p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary";
+            const closeIcon = document.createElement("span");
+            closeIcon.className = "material-symbols-outlined";
+            closeIcon.textContent = "close";
+            closeBtn.appendChild(closeIcon);
+            closeBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeWith(null);
+            });
+
+            header.appendChild(titleWrap);
+            header.appendChild(closeBtn);
+
+            const body = document.createElement("div");
+            body.className = "px-4 py-4 space-y-4";
+
+            const langWrap = document.createElement("label");
+            langWrap.className = "block space-y-1";
+
+            const langLabel = document.createElement("div");
+            langLabel.className = "text-xs font-medium text-slate-700 dark:text-slate-200";
+            langLabel.textContent = "PDF language / translation target";
+
+            const langSelect = document.createElement("select");
+            langSelect.className =
+                "w-full rounded-md border border-slate-200 dark:border-slate-700 " +
+                "bg-white/80 dark:bg-black/20 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm " +
+                "outline-none focus:ring-2 focus:ring-primary";
+
+            const languageOptions = [
+                { value: "pt", label: "Portuguese (pt)" },
+                { value: "en", label: "English (en)" },
+                { value: "es", label: "Spanish (es)" },
+                { value: "fr", label: "French (fr)" },
+                { value: "de", label: "German (de)" },
+                { value: "it", label: "Italian (it)" },
+                { value: "ja", label: "Japanese (ja)" },
+                { value: "zh-CN", label: "Chinese Simplified (zh-CN)" },
+            ];
+
+            for (const optionDef of languageOptions) {
+                const option = document.createElement("option");
+                option.value = optionDef.value;
+                option.textContent = optionDef.label;
+                langSelect.appendChild(option);
+            }
+
+            const normalizedTarget = String(initialTarget || "pt").trim();
+            const hasPreset = languageOptions.some((entry) => entry.value === normalizedTarget);
+            if (!hasPreset && normalizedTarget) {
+                const custom = document.createElement("option");
+                custom.value = normalizedTarget;
+                custom.textContent = `${normalizedTarget} (custom)`;
+                langSelect.appendChild(custom);
+            }
+            langSelect.value = normalizedTarget || "pt";
+
+            langWrap.appendChild(langLabel);
+            langWrap.appendChild(langSelect);
+
+            const optionsWrap = document.createElement("div");
+            optionsWrap.className = "grid grid-cols-1 sm:grid-cols-3 gap-2";
+
+            const buildModeBtn = ({ mode, label, helper, className = "" }) => {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className =
+                    "rounded-lg border px-3 py-3 text-left transition-colors " +
+                    className;
+
+                const labelEl = document.createElement("div");
+                labelEl.className = "text-sm font-medium";
+                labelEl.textContent = label;
+
+                const helperEl = document.createElement("div");
+                helperEl.className = "mt-1 text-xs opacity-80";
+                helperEl.textContent = helper;
+
+                btn.appendChild(labelEl);
+                btn.appendChild(helperEl);
+
+                btn.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeWith({
+                        mode,
+                        target: String(langSelect.value || "pt").trim() || "pt",
+                    });
+                });
+                return btn;
+            };
+
+            const readBtn = buildModeBtn({
+                mode: "read",
+                label: "Read translation",
+                helper: "Read PDF in translated language",
+                className:
+                    "border-primary/40 text-slate-900 dark:text-slate-100 hover:bg-primary/10 dark:hover:bg-primary/20",
+            });
+
+            const showBtn = buildModeBtn({
+                mode: "show",
+                label: "Show translation",
+                helper: "Read original + show translated phrases",
+                className:
+                    "border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-white/5",
+            });
+
+            const offBtn = buildModeBtn({
+                mode: "off",
+                label: "Turn off both",
+                helper: "Read original language only",
+                className:
+                    "border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5",
+            });
+
+            optionsWrap.appendChild(readBtn);
+            optionsWrap.appendChild(showBtn);
+            optionsWrap.appendChild(offBtn);
+
+            const footer = document.createElement("div");
+            footer.className = "px-4 pb-4 flex justify-end";
+
+            const keepCurrentBtn = document.createElement("button");
+            keepCurrentBtn.type = "button";
+            keepCurrentBtn.className =
+                "rounded-md px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 " +
+                "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5";
+            keepCurrentBtn.textContent = "Keep current";
+            keepCurrentBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeWith(null);
+            });
+
+            footer.appendChild(keepCurrentBtn);
+
+            body.appendChild(langWrap);
+            body.appendChild(optionsWrap);
+            panel.appendChild(header);
+            panel.appendChild(body);
+            panel.appendChild(footer);
+            backdrop.appendChild(panel);
+            document.body.appendChild(backdrop);
+
+            this._pdfTranslationPromptEl = backdrop;
+
+            const onKey = (e) => {
+                if (e.key === "Escape") closeWith(null);
+            };
+            const onDown = (e) => {
+                if (!this._pdfTranslationPromptEl) return;
+                if (e.target === panel || panel.contains(e.target)) return;
+                closeWith(null);
+            };
+
+            window.addEventListener("keydown", onKey, { passive: true });
+            window.addEventListener("mousedown", onDown, { capture: true });
+            this._pdfTranslationPromptCleanup = () => {
+                window.removeEventListener("keydown", onKey);
+                window.removeEventListener("mousedown", onDown, { capture: true });
+            };
+        });
     }
 
     showHighlightPopup() {
@@ -547,8 +768,25 @@ export class UIService {
         const body = document.createElement("div");
         body.className = "space-y-2";
 
+        if (originalText && String(originalText).trim()) {
+            const oLabel = document.createElement("div");
+            oLabel.className = "text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400";
+            oLabel.textContent = "Original";
+
+            const oText = document.createElement("div");
+            oText.className = "text-sm text-slate-700 dark:text-slate-300";
+            oText.textContent = String(originalText).trim();
+
+            body.appendChild(oLabel);
+            body.appendChild(oText);
+        }
+
+        const tLabel = document.createElement("div");
+        tLabel.className = "text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400";
+        tLabel.textContent = "Translation";
+        body.appendChild(tLabel);
+
         const tText = document.createElement("div");
-        //tText.className = "text-sm font-medium text-slate-900 dark:text-white";
         tText.className = "text-lg font-medium text-slate-900 dark:text-white";
 
         tText.textContent = translatedText || "(empty)";

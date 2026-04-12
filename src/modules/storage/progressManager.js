@@ -63,6 +63,7 @@ export class ProgressManager {
         }
 
         map[compoundKey] = {
+            ...existingEntry,
             sentenceIndex: state.currentSentenceIndex,
             totalSentences: state.sentences.length,
             updated: Date.now(),

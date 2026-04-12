@@ -282,6 +282,26 @@ export class PDFLoader {
                         // Also save to local storage
                         app.highlightsStorage?.saveHighlights?.(state.currentPdfKey, serverData.highlights);
                     }
+
+                    // Persist server translation preferences locally for prompt defaults.
+                    if (serverData.translationTarget || serverData.translationMode) {
+                        const map = app.progressManager.getProgressMap();
+                        const compoundKey = `pdf::${state.currentPdfKey}`;
+                        const existingEntry = map[compoundKey] || {};
+                        map[compoundKey] = {
+                            ...existingEntry,
+                            translationTarget:
+                                typeof serverData.translationTarget === "string" && serverData.translationTarget.trim()
+                                    ? serverData.translationTarget.trim()
+                                    : existingEntry.translationTarget,
+                            translationMode:
+                                typeof serverData.translationMode === "string" && serverData.translationMode.trim()
+                                    ? serverData.translationMode.trim()
+                                    : existingEntry.translationMode,
+                            docType: "pdf",
+                        };
+                        app.progressManager.setProgressMap(map);
+                    }
                 } catch (error) {
                     console.warn("[PDFLoader] Failed to load from server, using local data:", error);
                 }

@@ -6,7 +6,6 @@ import {
     formatTextToSpeech,
     hasUsableSpeechText,
 } from "../utils/helpers.js";
-
 import { EVENTS } from "../../constants/events.js";
 import { PiperWorkerClient } from "./piper-client.js";
 
@@ -299,8 +298,6 @@ export class TTSEngine {
         if (!s.isTextToRead) {
             return;
         }
-        const voiceSelect = document.getElementById("voice-select");
-        const voice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
         if (s.audioInProgress) return;
 
         const baseText = s.readableText && s.readableText.trim().length ? s.readableText : s.text;
@@ -314,6 +311,17 @@ export class TTSEngine {
             s.audioError = new Error("No speech text available for synthesis");
             return;
         }
+
+        if (this.app.isReadTranslationEnabled?.()) {
+            try {
+                await this.app.ensureReadTranslationVoiceReady?.();
+            } catch (err) {
+                console.warn("[TTS] Failed to align voice with translation target", err);
+            }
+        }
+
+        const voiceSelect = document.getElementById("voice-select");
+        const voice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
 
         if (!hasUsableSpeechText(sourceText)) {
             this._markSentenceAsSilent(s);
@@ -463,7 +471,7 @@ export class TTSEngine {
     async resetEngine({ clearCache = true, reason } = {}) {
         const { state } = this.app;
         console.warn("Restarting TTS engine", reason || "");
-        // console.log(this._restartAttemptedCount);
+        console.log(this._restartAttemptedCount);
         if (this._restartAttemptedCount > 10) {
             console.error("Max attempted reset engine");
             return;

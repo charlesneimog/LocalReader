@@ -379,10 +379,12 @@ export class ServerSync {
                 const serverPosMs = this._parseIsoToMs(fileInfo.position_updated_at || fileInfo.updated_at);
                 const serverHlMs = this._parseIsoToMs(fileInfo.highlights_updated_at || fileInfo.updated_at);
                 const serverVoiceMs = this._parseIsoToMs(fileInfo.voice_updated_at || fileInfo.updated_at);
+                const serverTranslationMs = this._parseIsoToMs(fileInfo.translation_updated_at || fileInfo.updated_at);
 
                 const localServerPosMs = Number(localEntry.serverPositionUpdatedAt || 0);
                 const localServerHlMs = Number(localEntry.serverHighlightsUpdatedAt || 0);
                 const localServerVoiceMs = Number(localEntry.serverVoiceUpdatedAt || 0);
+                const localServerTranslationMs = Number(localEntry.serverTranslationUpdatedAt || 0);
 
                 // Position: if server has newer position than last pulled, update local.
                 if (serverPosMs > localServerPosMs) {
@@ -402,6 +404,18 @@ export class ServerSync {
                         localEntry.voice = fileInfo.voice.trim();
                     }
                     localEntry.serverVoiceUpdatedAt = serverVoiceMs;
+                    updatedCount++;
+                }
+
+                // Translation settings: if newer.
+                if (serverTranslationMs > localServerTranslationMs) {
+                    if (typeof fileInfo.translation_target === "string" && fileInfo.translation_target.trim()) {
+                        localEntry.translationTarget = fileInfo.translation_target.trim();
+                    }
+                    if (typeof fileInfo.translation_mode === "string" && fileInfo.translation_mode.trim()) {
+                        localEntry.translationMode = fileInfo.translation_mode.trim();
+                    }
+                    localEntry.serverTranslationUpdatedAt = serverTranslationMs;
                     updatedCount++;
                 }
 
@@ -534,20 +548,67 @@ export class ServerSync {
         }
     }
 
-    async translateText(text, { target = null } = {}) {
-        const serverUrl = this.getServerUrl();
-        if (!serverUrl) {
-            this.app.ui?.showInfo?.("⚠️ No server URL configured");
-            return null;
+    _resolveTranslationTarget(target) {
+        const explicitTarget = typeof target === "string" ? target.trim() : "";
+        if (explicitTarget) return explicitTarget.replace(/_/g, "-");
+
+        try {
+            const savedTarget = (localStorage.getItem("config.translationTarget") || "").trim();
+            if (savedTarget) return savedTarget.replace(/_/g, "-");
+        } catch {
+            // ignore localStorage access failures
         }
+
+        return "pt";
+    }
+
+    async _translateTextWithGoogleFallback(text, { target = null } = {}) {
         const payloadText = (text || "").trim();
         if (!payloadText) return null;
+
+        const targetLang = this._resolveTranslationTarget(target);
+        const url =
+            "https://translate.googleapis.com/translate_a/single" +
+            `?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(payloadText)}`;
+
+        const res = await fetch(url);
+        if (!res.ok) return null;
+
+        const data = await res.json().catch(() => null);
+        const chunks = Array.isArray(data?.[0]) ? data[0] : [];
+        const translatedText = chunks
+            .map((chunk) => (Array.isArray(chunk) && typeof chunk[0] === "string" ? chunk[0] : ""))
+            .join("")
+            .trim();
+
+        if (!translatedText) return null;
+
+        return {
+            translatedText,
+            target: targetLang,
+            detectedSource: typeof data?.[2] === "string" ? data[2] : "",
+        };
+    }
+
+    async translateText(text, { target = null } = {}) {
+        const payloadText = (text || "").trim();
+        if (!payloadText) return null;
+        const effectiveTarget = this._resolveTranslationTarget(target);
+
+        const serverUrl = this.getServerUrl();
+        if (!serverUrl) {
+            try {
+                return await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
+            } catch {
+                return null;
+            }
+        }
 
         try {
             const response = await this._fetch(`${serverUrl}/api/translate`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: payloadText, target }),
+                body: JSON.stringify({ text: payloadText, target: effectiveTarget }),
             });
 
             const data = await response.json().catch(() => ({}));
@@ -721,6 +782,54 @@ export class ServerSync {
         }
     }
 
+    async syncTranslationSettings(fileId, { target, mode } = {}) {
+        const serverUrl = this.getServerUrl();
+        if (!serverUrl || !fileId) return false;
+
+        const modeValue = String(mode || "").trim().toLowerCase();
+        if (!modeValue || !["read", "show", "off"].includes(modeValue)) return false;
+        const targetValue = String(target || "").trim() || "pt";
+
+        try {
+            // Find the actual file_id on server (may have different timestamp)
+            let actualFileIdOnServer = await this.findFileIdOnServer(fileId);
+            if (!actualFileIdOnServer) {
+                console.warn("[ServerSync] File not found on server for translation settings sync; trying ensureFileOnServer()");
+                try {
+                    await this.ensureFileOnServer();
+                } catch (e) {
+                    // ignore
+                }
+                actualFileIdOnServer = await this.findFileIdOnServer(fileId);
+                if (!actualFileIdOnServer) {
+                    console.warn("[ServerSync] Still no matching file on server; translation settings not synced", {
+                        fileId,
+                    });
+                    return false;
+                }
+            }
+
+            const response = await this._fetch(
+                `${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/translation-settings`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        target: targetValue,
+                        mode: modeValue,
+                    }),
+                },
+            );
+
+            return !!response.ok;
+        } catch (error) {
+            console.warn("[ServerSync] Translation settings sync error:", error);
+            return false;
+        }
+    }
+
     async syncHighlights(fileId, highlights) {
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) return false;
@@ -794,7 +903,7 @@ export class ServerSync {
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) {
             // console.log("[ServerSync] Cannot load from server - no URL or file ID");
-            return { position: null, voice: null, highlights: null };
+            return { position: null, voice: null, highlights: null, translationTarget: null, translationMode: null };
         }
 
         try {
@@ -802,7 +911,7 @@ export class ServerSync {
             const actualFileIdOnServer = await this.findFileIdOnServer(fileId);
             if (!actualFileIdOnServer) {
                 // console.log("[ServerSync] File not found on server");
-                return { position: null, voice: null, highlights: null };
+                return { position: null, voice: null, highlights: null, translationTarget: null, translationMode: null };
             }
 
             // Fetch file metadata (includes position and voice)
@@ -813,11 +922,15 @@ export class ServerSync {
 
             let position = null;
             let voice = null;
+            let translationTarget = null;
+            let translationMode = null;
 
             if (metaResponse.ok) {
                 const fileData = await metaResponse.json();
                 position = fileData.reading_position ? parseInt(fileData.reading_position, 10) : null;
                 voice = fileData.voice || null;
+                translationTarget = (fileData.translation_target || "").trim() || null;
+                translationMode = (fileData.translation_mode || "").trim() || null;
                 // console.log(`[ServerSync] Loaded from server - position: ${position}, voice: ${voice}`);
             }
 
@@ -845,10 +958,10 @@ export class ServerSync {
                 }
             }
 
-            return { position, voice, highlights };
+            return { position, voice, highlights, translationTarget, translationMode };
         } catch (error) {
             console.warn("[ServerSync] Failed to load data from server:", error);
-            return { position: null, voice: null, highlights: null };
+            return { position: null, voice: null, highlights: null, translationTarget: null, translationMode: null };
         }
     }
 

@@ -52,7 +52,6 @@ export class PDFTTSApp {
         // Runtime: sentence translations used for TTS substitution
         this._readTranslationCache = new Map();
         this._readTranslationInFlight = new Map();
-        this._lastTranslationWarningAt = 0;
         this._loadRuntimeSettings();
 
         // Utilities
@@ -84,6 +83,7 @@ export class PDFTTSApp {
 
         this._setupAutoTranslate();
         this._setupReadTranslation();
+        this._setupPdfTranslationPrompt();
 
         this.showSavedPDFs();
 
@@ -143,11 +143,6 @@ export class PDFTTSApp {
         const text = (sentence?.text || "").trim();
         if (!text) return;
 
-        if (!this.serverSync?.isEnabled?.()) {
-            this.ui?.showInfo?.("⚠️ Configure Server Link to translate");
-            return;
-        }
-
         this.ui?.showInfo?.("Translating...");
         const result = await this.serverSync.translateText(text);
         if (!result) return;
@@ -172,6 +167,118 @@ export class PDFTTSApp {
         this.controlsManager?.reflectReadTranslationToggle?.(readTranslationEnabled);
     }
 
+    _normalizeTranslationTarget(target) {
+        const raw = String(target || "")
+            .trim()
+            .replace(/_/g, "-");
+        if (!raw) return "pt";
+
+        const lower = raw.toLowerCase();
+        if (/^[a-z]{2,3}$/.test(lower)) return lower;
+
+        const parts = lower.split("-");
+        if (parts.length === 2 && /^[a-z]{2,3}$/.test(parts[0]) && /^[a-z0-9]{2,4}$/.test(parts[1])) {
+            return `${parts[0]}-${parts[1].toUpperCase()}`;
+        }
+
+        return "pt";
+    }
+
+    _getTranslationTargetLanguage() {
+        try {
+            const saved = localStorage.getItem("config.translationTarget");
+            return this._normalizeTranslationTarget(saved);
+        } catch {
+            return "pt";
+        }
+    }
+
+    _setTranslationTargetLanguage(target) {
+        const normalized = this._normalizeTranslationTarget(target);
+        try {
+            localStorage.setItem("config.translationTarget", normalized);
+        } catch {
+            // ignore localStorage access failures
+        }
+        return normalized;
+    }
+
+    _normalizeTranslationMode(mode) {
+        const value = String(mode || "")
+            .trim()
+            .toLowerCase();
+        if (value === "read" || value === "show" || value === "off") return value;
+        return "off";
+    }
+
+    _getCurrentPdfPromptKey() {
+        const { state } = this;
+        if (state.currentDocumentType !== "pdf") return "";
+
+        const key = String(state.currentPdfKey || "").trim();
+        if (key) return key;
+
+        const desc = state.currentPdfDescriptor;
+        if (desc?.name) {
+            return `file::${desc.name}::${Number(desc.size || 0)}`;
+        }
+        return "";
+    }
+
+    _getSavedTranslationSettingsForPdf(pdfKey) {
+        if (!pdfKey) return null;
+        const entry = this.progressManager?.loadSavedPosition?.(pdfKey, "pdf") || null;
+        if (!entry || typeof entry !== "object") return null;
+
+        const targetRaw = entry.translationTarget;
+        const modeRaw = entry.translationMode;
+        if (!targetRaw && !modeRaw) return null;
+
+        return {
+            target: this._normalizeTranslationTarget(targetRaw),
+            mode: this._normalizeTranslationMode(modeRaw),
+        };
+    }
+
+    _saveTranslationSettingsForPdfLocal(pdfKey, { target, mode } = {}) {
+        if (!pdfKey) return;
+
+        const map = this.progressManager.getProgressMap();
+        const compoundKey = `pdf::${pdfKey}`;
+        const existing = map[compoundKey] || {};
+
+        map[compoundKey] = {
+            ...existing,
+            translationTarget: this._normalizeTranslationTarget(target),
+            translationMode: this._normalizeTranslationMode(mode),
+            updated: Date.now(),
+            docType: "pdf",
+        };
+
+        this.progressManager.setProgressMap(map);
+    }
+
+    async _persistTranslationSettingsForCurrentPdf({ target, mode } = {}) {
+        const pdfKey = this._getCurrentPdfPromptKey();
+        if (!pdfKey) return;
+
+        const targetNorm = this._normalizeTranslationTarget(target);
+        const modeNorm = this._normalizeTranslationMode(mode);
+
+        this._saveTranslationSettingsForPdfLocal(pdfKey, {
+            target: targetNorm,
+            mode: modeNorm,
+        });
+
+        if (this.serverSync?.isEnabled?.()) {
+            this.serverSync
+                .syncTranslationSettings(pdfKey, { target: targetNorm, mode: modeNorm })
+                .catch((err) => {
+                    console.warn("[translationPrompt] failed to sync translation settings", err);
+                });
+        }
+    }
+
     setAutoTranslateEnabled(enabled) {
         const value = !!enabled;
         this.state.autoTranslateEnabled = value;
@@ -191,6 +298,11 @@ export class PDFTTSApp {
         localStorage.setItem("config.readTranslation", value ? "1" : "0");
         this.controlsManager?.reflectReadTranslationToggle?.(value);
         if (!value) this._resetReadTranslationCache();
+        if (value) {
+            this._syncTtsVoiceWithTranslationTarget(this._getTranslationTargetLanguage()).catch((err) => {
+                console.warn("[translation] failed to sync voice with translation target", err);
+            });
+        }
     }
 
     isReadTranslationEnabled() {
@@ -227,6 +339,141 @@ export class PDFTTSApp {
         this.eventBus.on(EVENTS.PDF_LOADED, resetOnDocChange);
         this.eventBus.on(EVENTS.EPUB_LOADED, resetOnDocChange);
         this.eventBus.on(EVENTS.SENTENCES_PARSED, resetOnDocChange);
+
+        this.eventBus.on(EVENTS.AUDIO_PLAYBACK_START, ({ index } = {}) => {
+            if (!this.isReadTranslationEnabled()) return;
+            if (!Number.isFinite(index) || index < 0) return;
+            this._showReadTranslationPopupForPlayback(index).catch((err) => {
+                console.warn("[translation] failed to show read-translation popup", err);
+            });
+        });
+    }
+
+    _setupPdfTranslationPrompt() {
+        this.eventBus.on(EVENTS.PDF_LOADED, () => {
+            // Defer to ensure render/layout work settles before opening the modal.
+            window.setTimeout(() => {
+                this._maybePromptTranslationForNewPdf().catch((err) => {
+                    console.warn("[translationPrompt] failed", err);
+                });
+            }, 80);
+        });
+    }
+
+    async _maybePromptTranslationForNewPdf() {
+        const promptKey = this._getCurrentPdfPromptKey();
+        if (!promptKey) return;
+
+        const bookTitle = String(this.state.bookTitle || "").trim();
+        const subtitle = bookTitle
+            ? `Choose how translations should work for \"${bookTitle}\"`
+            : "Choose how translations should work for this PDF";
+
+        const savedPrefs = this._getSavedTranslationSettingsForPdf(promptKey);
+        const initialTarget = savedPrefs?.target || this._getTranslationTargetLanguage();
+
+        const response = await this.ui?.showPdfTranslationPrompt?.({
+            subtitle,
+            initialTarget,
+        });
+
+        if (!response || !response.mode) return;
+
+        const target = this._setTranslationTargetLanguage(response.target);
+        const mode = this._normalizeTranslationMode(response.mode);
+
+        await this._persistTranslationSettingsForCurrentPdf({ target, mode });
+
+        if (mode === "read") {
+            this.setReadTranslationEnabled(true);
+            this.setAutoTranslateEnabled(false);
+            this.ui?.showInfo?.(`Translation: read mode (${target})`);
+            return;
+        }
+
+        if (mode === "show") {
+            this.setReadTranslationEnabled(false);
+            this.setAutoTranslateEnabled(true);
+            this.ui?.showInfo?.(`Translation: show mode (${target})`);
+            return;
+        }
+
+        this.setReadTranslationEnabled(false);
+        this.setAutoTranslateEnabled(false);
+        this.ui?.showInfo?.("Translation: OFF");
+    }
+
+    _getVoicePrimaryLanguage(voiceId) {
+        const token = String(voiceId || "")
+            .split("-")[0]
+            .split("_")[0]
+            .trim()
+            .toLowerCase();
+        return token || "";
+    }
+
+    _pickVoiceForLanguage(targetLanguage) {
+        const targetPrimary = this._normalizeTranslationTarget(targetLanguage).split("-")[0].toLowerCase();
+        if (!targetPrimary) return null;
+
+        const voiceSelect = document.getElementById("voice-select");
+        const availableVoices = voiceSelect?.options?.length
+            ? Array.from(voiceSelect.options).map((opt) => opt.value)
+            : this.config.PIPER_VOICES || [];
+
+        const exact = availableVoices.find((voiceId) => this._getVoicePrimaryLanguage(voiceId) === targetPrimary);
+        if (exact) return exact;
+        return null;
+    }
+
+    async _syncTtsVoiceWithTranslationTarget(targetLanguage) {
+        if (!this.isReadTranslationEnabled()) return;
+
+        const nextVoice = this._pickVoiceForLanguage(targetLanguage);
+        if (!nextVoice) return;
+        if (this.state.currentPiperVoice === nextVoice) return;
+
+        const voiceSelect = document.getElementById("voice-select");
+        if (voiceSelect && Array.from(voiceSelect.options || []).some((opt) => opt.value === nextVoice)) {
+            voiceSelect.value = nextVoice;
+        }
+
+        await this.ttsEngine.ensurePiper(nextVoice);
+
+        const fromIndex = Math.max(0, this.state.currentSentenceIndex || 0);
+        this.cache.clearAudioFrom(fromIndex);
+        this.ttsEngine.schedulePrefetch();
+
+        const docType = this.state.currentDocumentType === "epub" ? "epub" : "pdf";
+        const fileId = docType === "epub" ? this.state.currentEpubKey : this.state.currentPdfKey;
+        if (fileId && this.serverSync?.isEnabled?.()) {
+            this.serverSync.queueVoiceSync(fileId, nextVoice);
+        }
+    }
+
+    async ensureReadTranslationVoiceReady() {
+        if (!this.isReadTranslationEnabled()) return;
+        await this._syncTtsVoiceWithTranslationTarget(this._getTranslationTargetLanguage());
+    }
+
+    async _showReadTranslationPopupForPlayback(index) {
+        const sentence = this.state?.sentences?.[index];
+        const originalText = (sentence?.readableText || sentence?.text || "").trim();
+        if (!originalText) return;
+
+        const translatedText = (await this.getSentenceSpeechText(index, originalText)) || "";
+        if (!this.isReadTranslationEnabled()) return;
+
+        const stillCurrent =
+            this.state.playingSentenceIndex === index || this.state.currentSentenceIndex === index;
+        if (!stillCurrent) return;
+
+        await this.ui?.showTranslatePopup?.({
+            originalText,
+            translatedText: translatedText.trim() || originalText,
+            target: this._getTranslationTargetLanguage(),
+            detectedSource: "",
+        });
     }
 
     _resetReadTranslationCache() {
@@ -251,7 +498,6 @@ export class PDFTTSApp {
         const key = this._getReadTranslationKey(index);
         if (this._readTranslationCache.has(key)) return;
         if (this._readTranslationInFlight.has(key)) return;
-        if (!this.serverSync?.isEnabled?.()) return;
 
         const p = Promise.resolve()
             .then(async () => {
@@ -273,15 +519,6 @@ export class PDFTTSApp {
         const base = (fallbackText || "").trim();
         if (!base) return "";
         if (!this.isReadTranslationEnabled()) return base;
-
-        if (!this.serverSync?.isEnabled?.()) {
-            const now = Date.now();
-            if (now - this._lastTranslationWarningAt > 15000) {
-                this._lastTranslationWarningAt = now;
-                this.ui?.showInfo?.("⚠️ Configure Server Link to translate");
-            }
-            return base;
-        }
 
         const key = this._getReadTranslationKey(index);
         const cached = this._readTranslationCache.get(key);
@@ -361,7 +598,6 @@ export class PDFTTSApp {
         if (!Number.isFinite(index) || index < 0) return;
         if (this._autoTranslateCache.has(index)) return;
         if (this._autoTranslateInFlight.has(index)) return;
-        if (!this.serverSync?.isEnabled?.()) return;
 
         const sentence = this.state?.sentences?.[index];
         const text = (sentence?.text || "").trim();

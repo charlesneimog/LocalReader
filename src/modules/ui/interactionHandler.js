@@ -39,6 +39,41 @@ export class InteractionHandler {
         });
     }
 
+    _getActiveSentenceIndex() {
+        const { state } = this.app;
+        if (!state?.sentences?.length) return -1;
+        const idx =
+            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+        if (!Number.isFinite(idx) || idx < 0 || idx >= state.sentences.length) return -1;
+        return idx;
+    }
+
+    _getCurrentSentenceOriginalTextForCopy() {
+        const { state } = this.app;
+        const idx = this._getActiveSentenceIndex();
+        if (idx < 0) return "";
+
+        const sentence = state.sentences[idx];
+        const original = sentence?.originalText || sentence?.readableText || sentence?.text || "";
+        return this._normalizeSelectionText(String(original), { singleLine: true });
+    }
+
+    getCurrentPhraseTextForCopy({ fallbackToSelection = true } = {}) {
+        const current = this._getCurrentSentenceOriginalTextForCopy();
+        if (current) return current;
+        if (!fallbackToSelection) return "";
+        return this._getSelectionTextForCopy();
+    }
+
+    async copyCurrentPhraseToClipboard({ successMessage = "Current phrase copied" } = {}) {
+        const text = this.getCurrentPhraseTextForCopy({ fallbackToSelection: true });
+        if (!text) return false;
+        await this._copyTextToClipboard(text, { successMessage });
+        return true;
+    }
+
     async _handleSelectionCopyShortcut(e) {
         const { state } = this.app;
         if (state.currentDocumentType !== "pdf") return;
@@ -50,11 +85,11 @@ export class InteractionHandler {
         const isCopy = (e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.key === "c" || e.key === "C");
         if (!isCopy) return;
 
-        const text = this._getSelectionTextForCopy();
+        const text = this.getCurrentPhraseTextForCopy({ fallbackToSelection: true });
         if (!text) return;
 
         e.preventDefault();
-        await this._copyTextToClipboard(text);
+        await this._copyTextToClipboard(text, { successMessage: "Current phrase copied" });
     }
 
     _clearPdfTextSelectionOverlays() {
@@ -201,12 +236,12 @@ export class InteractionHandler {
             .trim();
     }
 
-    async _copyTextToClipboard(text) {
+    async _copyTextToClipboard(text, { successMessage = "Copied selection" } = {}) {
         if (!text) return;
         try {
             if (navigator.clipboard?.writeText) {
                 await navigator.clipboard.writeText(text);
-                this.app.ui?.showInfo?.("Copied selection");
+                if (successMessage) this.app.ui?.showInfo?.(successMessage);
                 return;
             }
         } catch (_) {
@@ -223,7 +258,7 @@ export class InteractionHandler {
             ta.select();
             const ok = document.execCommand("copy");
             document.body.removeChild(ta);
-            if (ok) this.app.ui?.showInfo?.("Copied selection");
+            if (ok && successMessage) this.app.ui?.showInfo?.(successMessage);
         } catch (e) {
             console.warn("Copy failed", e);
         }

@@ -69,6 +69,7 @@ export class UIService {
         title = "Translation Setup",
         subtitle = "Choose how translations should work for this PDF",
         initialTarget = "pt",
+        initialSpeed = 1,
     } = {}) {
         this._hidePdfTranslationPrompt();
 
@@ -137,14 +138,14 @@ export class UIService {
                 "outline-none focus:ring-2 focus:ring-primary";
 
             const languageOptions = [
-                { value: "pt", label: "Portuguese (pt)" },
-                { value: "en", label: "English (en)" },
-                { value: "es", label: "Spanish (es)" },
-                { value: "fr", label: "French (fr)" },
-                { value: "de", label: "German (de)" },
-                { value: "it", label: "Italian (it)" },
-                { value: "ja", label: "Japanese (ja)" },
-                { value: "zh-CN", label: "Chinese Simplified (zh-CN)" },
+                { value: "pt", label: "🇧🇷 Portuguese (pt)" },
+                { value: "en", label: "🇺🇸 English (en)" },
+                { value: "es", label: "🇪🇸 Spanish (es)" },
+                { value: "fr", label: "🇫🇷 French (fr)" },
+                { value: "de", label: "🇩🇪 German (de)" },
+                { value: "it", label: "🇮🇹 Italian (it)" },
+                { value: "ja", label: "🇯🇵 Japanese (ja)" },
+                { value: "zh-CN", label: "🇨🇳 Chinese Simplified (zh-CN)" },
             ];
 
             for (const optionDef of languageOptions) {
@@ -166,6 +167,54 @@ export class UIService {
 
             langWrap.appendChild(langLabel);
             langWrap.appendChild(langSelect);
+
+            const speedWrap = document.createElement("label");
+            speedWrap.className = "block space-y-1";
+
+            const speedLabel = document.createElement("div");
+            speedLabel.className = "text-xs font-medium text-slate-700 dark:text-slate-200";
+            speedLabel.textContent = "Reading speed";
+
+            const speedRow = document.createElement("div");
+            speedRow.className = "flex items-center gap-3";
+
+            const slow = document.createElement("span");
+            slow.className = "text-xs text-slate-500 dark:text-slate-400";
+            slow.textContent = "0.5x";
+
+            const speedInput = document.createElement("input");
+            speedInput.type = "range";
+            speedInput.min = "0.5";
+            speedInput.max = "2";
+            speedInput.step = "0.1";
+            speedInput.className = "translation-speed-slider w-full";
+
+            const normalizedSpeed = Number.isFinite(Number(initialSpeed))
+                ? Math.min(2, Math.max(0.5, Number(initialSpeed)))
+                : 1;
+            speedInput.value = String(normalizedSpeed);
+
+            const fast = document.createElement("span");
+            fast.className = "text-xs text-slate-500 dark:text-slate-400";
+            fast.textContent = "2.0x";
+
+            speedRow.appendChild(slow);
+            speedRow.appendChild(speedInput);
+            speedRow.appendChild(fast);
+
+            const speedValue = document.createElement("div");
+            speedValue.className = "text-xs text-slate-600 dark:text-slate-300";
+            speedValue.textContent = `${normalizedSpeed.toFixed(1)}x`;
+
+            speedInput.addEventListener("input", () => {
+                const next = Number.parseFloat(speedInput.value);
+                if (!Number.isFinite(next)) return;
+                speedValue.textContent = `${next.toFixed(1)}x`;
+            });
+
+            speedWrap.appendChild(speedLabel);
+            speedWrap.appendChild(speedRow);
+            speedWrap.appendChild(speedValue);
 
             const optionsWrap = document.createElement("div");
             optionsWrap.className = "grid grid-cols-1 sm:grid-cols-3 gap-2";
@@ -194,6 +243,7 @@ export class UIService {
                     closeWith({
                         mode,
                         target: String(langSelect.value || "pt").trim() || "pt",
+                        speed: Number.parseFloat(speedInput.value || "1") || 1,
                     });
                 });
                 return btn;
@@ -245,6 +295,7 @@ export class UIService {
             footer.appendChild(keepCurrentBtn);
 
             body.appendChild(langWrap);
+            body.appendChild(speedWrap);
             body.appendChild(optionsWrap);
             panel.appendChild(header);
             panel.appendChild(body);

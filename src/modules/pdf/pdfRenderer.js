@@ -8,6 +8,7 @@ export class PDFRenderer {
     constructor(app) {
         this.app = app;
         this.pageCoordinateSystems = new Map();
+        this._activePhraseActionsEl = null;
     }
 
     async ensureViewportDisplay(pageNumber) {
@@ -625,8 +626,9 @@ export class PDFRenderer {
         const container = document.getElementById("pdf-doc-container");
         if (!container) return;
         container
-            .querySelectorAll(".pdf-word-highlight,.persistent-highlight,.hover-highlight")
+            .querySelectorAll(".pdf-word-highlight,.persistent-highlight,.hover-highlight,.pdf-active-phrase-actions")
             .forEach((n) => n.remove());
+        this._activePhraseActionsEl = null;
     }
 
     getMergedLineRects(words, pageNumber, { offsetYDisplay = 1, yTolerance = 2 } = {}) {
@@ -918,9 +920,81 @@ export class PDFRenderer {
         }
     }
 
+    _removeActivePhraseActions() {
+        if (this._activePhraseActionsEl) {
+            this._activePhraseActionsEl.remove();
+            this._activePhraseActionsEl = null;
+        }
+    }
+
+    _renderActivePhraseActions({
+        wrapper,
+        anchorRect,
+        offsetLeft,
+        offsetTop,
+        scaleX,
+        scaleY,
+        sentenceIndex,
+        highlighted,
+    }) {
+        if (!wrapper || !anchorRect || !Number.isFinite(sentenceIndex)) {
+            this._removeActivePhraseActions();
+            return;
+        }
+
+        this._removeActivePhraseActions();
+
+        const left = offsetLeft + anchorRect.x * scaleX;
+        const top = offsetTop + anchorRect.y * scaleY;
+
+        const panel = document.createElement("div");
+        panel.className = "pdf-active-phrase-actions";
+        panel.style.left = `${Math.max(6, left)}px`;
+        panel.style.top = `${Math.max(6, top - 34)}px`;
+
+        const stopBubble = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.className = "pdf-active-phrase-btn";
+        copyBtn.title = "Copy current phrase";
+        copyBtn.setAttribute("aria-label", "Copy current phrase");
+        copyBtn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>';
+        copyBtn.addEventListener("mousedown", stopBubble);
+        copyBtn.addEventListener("click", async (e) => {
+            stopBubble(e);
+            await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({ successMessage: "Current phrase copied" });
+        });
+
+        const highlightBtn = document.createElement("button");
+        highlightBtn.type = "button";
+        highlightBtn.className = "pdf-active-phrase-btn";
+        if (highlighted) highlightBtn.classList.add("is-active");
+        highlightBtn.setAttribute("aria-pressed", highlighted ? "true" : "false");
+        highlightBtn.title = highlighted ? "Remove highlight" : "Toggle highlight";
+        highlightBtn.setAttribute("aria-label", highlighted ? "Remove highlight" : "Toggle highlight");
+        highlightBtn.innerHTML = '<span class="material-symbols-outlined">format_ink_highlighter</span>';
+        highlightBtn.addEventListener("mousedown", stopBubble);
+        highlightBtn.addEventListener("click", (e) => {
+            stopBubble(e);
+            this.app.highlightManager?.toggleCurrentSentenceHighlight?.({ showMessage: true });
+        });
+
+        panel.appendChild(copyBtn);
+        panel.appendChild(highlightBtn);
+        wrapper.appendChild(panel);
+        this._activePhraseActionsEl = panel;
+    }
+
     updateHighlightFullDoc(sentence) {
         const { state } = this.app;
-        if (state.viewMode !== "full") return;
+        if (state.viewMode !== "full") {
+            this._removeActivePhraseActions();
+            return;
+        }
         const container = document.getElementById("pdf-doc-container");
         if (!container) return;
 
@@ -929,6 +1003,7 @@ export class PDFRenderer {
 
         // Clear old highlights
         container.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
+        this._removeActivePhraseActions();
 
         if (!targetSentence) {
             this.renderSavedHighlightsFullDoc();
@@ -966,6 +1041,7 @@ export class PDFRenderer {
         const lineRects = this.getMergedLineRects(highlightWords, targetSentence.pageNumber);
         if (lineRects.length) {
             wrapper.querySelectorAll(".pdf-word-highlight").forEach((n) => n.remove());
+            const firstRect = lineRects[0];
 
             for (const rect of lineRects) {
                 const div = document.createElement("div");
@@ -989,6 +1065,17 @@ export class PDFRenderer {
                 }
                 wrapper.appendChild(div);
             }
+
+            this._renderActivePhraseActions({
+                wrapper,
+                anchorRect: firstRect,
+                offsetLeft,
+                offsetTop,
+                scaleX,
+                scaleY,
+                sentenceIndex: targetSentence.index,
+                highlighted: !!savedHighlightData?.color,
+            });
         }
 
         // Maintain original functions

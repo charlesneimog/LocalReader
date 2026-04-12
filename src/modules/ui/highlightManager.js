@@ -3,6 +3,64 @@ export class HighlightManager {
         this.app = app;
     }
 
+    _getActiveSentenceIndex() {
+        const { state } = this.app;
+        if (!state?.sentences?.length) return -1;
+        const idx =
+            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+        if (!Number.isFinite(idx) || idx < 0 || idx >= state.sentences.length) return -1;
+        return idx;
+    }
+
+    _refreshHighlightsForCurrentDocument() {
+        const { state } = this.app;
+        if (state.currentDocumentType === "epub") {
+            this.app.epubRenderer?.updateHighlightDisplay?.();
+        } else {
+            this.app.pdfRenderer?.updateHighlightFullDoc?.();
+        }
+        this.app.controlsManager?.reflectSelectedHighlightColor?.();
+    }
+
+    toggleCurrentSentenceHighlight({ color = null, showMessage = true } = {}) {
+        const { state } = this.app;
+        if (!state) return false;
+
+        const activeIndex = this._getActiveSentenceIndex();
+        if (activeIndex < 0) return false;
+
+        const existingHighlight = state.savedHighlights.get(activeIndex);
+        if (existingHighlight?.color) {
+            state.savedHighlights.delete(activeIndex);
+            this.app.highlightsStorage?.saveHighlightsForPdf?.({ allowEmpty: true });
+            this._refreshHighlightsForCurrentDocument();
+            if (showMessage) this.app.ui?.showInfo?.("Highlight removed");
+            return false;
+        }
+
+        let highlightColor = color || state.selectedHighlightColor || "#FFF176";
+        const selectedButton = document.querySelector(".highlight-color-option.selected");
+        if (!color && selectedButton) {
+            highlightColor = selectedButton.getAttribute("data-highlight-color");
+        }
+
+        state.selectedHighlightColor = highlightColor;
+        const sentenceText = state.sentences[activeIndex]?.text || "";
+        state.savedHighlights.set(activeIndex, {
+            color: highlightColor,
+            timestamp: Date.now(),
+            text: sentenceText,
+            sentenceText,
+        });
+
+        this.app.highlightsStorage?.saveHighlightsForPdf?.();
+        this._refreshHighlightsForCurrentDocument();
+        if (showMessage) this.app.ui?.showInfo?.("Highlight saved");
+        return true;
+    }
+
     async editCurrentSentenceComment() {
         const { state } = this.app;
         if (!state) return;
@@ -64,10 +122,7 @@ export class HighlightManager {
     saveCurrentSentenceHighlight(color = null) {
         const { state } = this.app;
         if (!state) return;
-        const activeIndex =
-            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
-                ? state.playingSentenceIndex
-                : state.currentSentenceIndex;
+        const activeIndex = this._getActiveSentenceIndex();
         if (activeIndex < 0 || activeIndex >= state.sentences.length) return;
         let highlightColor = color || state.selectedHighlightColor || "#FFF176"; // default amarelo
         const selectedButton = document.querySelector(".highlight-color-option.selected");

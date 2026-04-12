@@ -211,6 +211,26 @@ export class PDFTTSApp {
         return "off";
     }
 
+    _getCurrentSpeedControlValue() {
+        const speedInput = document.getElementById("reading-speed");
+        const raw = Number.parseFloat(speedInput?.value ?? "1");
+        if (!Number.isFinite(raw)) return 1;
+        return Math.min(2, Math.max(0.5, raw));
+    }
+
+    _applyReadingSpeedFromPopup(speedValue) {
+        const speedInput = document.getElementById("reading-speed");
+        if (!speedInput) return;
+
+        const parsed = Number.parseFloat(speedValue);
+        if (!Number.isFinite(parsed)) return;
+        const clamped = Math.min(2, Math.max(0.5, parsed));
+        speedInput.value = String(clamped);
+
+        speedInput.dispatchEvent(new Event("input", { bubbles: true }));
+        speedInput.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
     _getCurrentPdfPromptKey() {
         const { state } = this;
         if (state.currentDocumentType !== "pdf") return "";
@@ -375,9 +395,12 @@ export class PDFTTSApp {
         const response = await this.ui?.showPdfTranslationPrompt?.({
             subtitle,
             initialTarget,
+            initialSpeed: this._getCurrentSpeedControlValue(),
         });
 
         if (!response || !response.mode) return;
+
+        this._applyReadingSpeedFromPopup(response.speed);
 
         const target = this._setTranslationTargetLanguage(response.target);
         const mode = this._normalizeTranslationMode(response.mode);

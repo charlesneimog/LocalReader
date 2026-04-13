@@ -24,7 +24,6 @@ export class TTSEngine {
         this._renderAheadPages = new Set();
         this._restartAttemptedCount = 0;
         this._resetPromise = null;
-        this.PREFETCH_TARGET = Number.isFinite(app.config?.PREFETCH_TARGET) ? app.config.PREFETCH_TARGET : 5;
 
         const scriptSrc = (document.currentScript && document.currentScript.src) || window.location.href;
         const scriptDir = scriptSrc.substring(0, scriptSrc.lastIndexOf("/"));
@@ -479,122 +478,100 @@ export class TTSEngine {
         }
         if (s.audioInProgress) return;
 
-        s.rendering = true;
-        try {
-            const baseText = s.readableText && s.readableText.trim().length ? s.readableText : s.text;
-            if (!baseText || !baseText.trim().length) {
-                s.audioError = new Error("No readable text available for synthesis");
-                return;
-            }
+        const baseText = s.readableText && s.readableText.trim().length ? s.readableText : s.text;
+        if (!baseText || !baseText.trim().length) {
+            s.audioError = new Error("No readable text available for synthesis");
+            return;
+        }
 
-            const sourceText = await this.app.getSentenceSpeechText?.(idx, baseText);
-            if (!sourceText || !sourceText.trim().length) {
-                s.audioError = new Error("No speech text available for synthesis");
-                return;
-            }
+        const sourceText = await this.app.getSentenceSpeechText?.(idx, baseText);
+        if (!sourceText || !sourceText.trim().length) {
+            s.audioError = new Error("No speech text available for synthesis");
+            return;
+        }
 
-            if (this.app.isReadTranslationEnabled?.()) {
-                try {
-                    await this.app.ensureReadTranslationVoiceReady?.();
-                } catch (err) {
-                    console.warn("[TTS] Failed to align voice with translation target", err);
-                }
-            }
-
-            const voiceSelect = document.getElementById("voice-select");
-            const voice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-
-            if (!hasUsableSpeechText(sourceText)) {
-                this._markSentenceAsSilent(s);
-                return;
-            }
-
-            const norm = normalizeText(sourceText);
-
-            if (
-                s.audioReady &&
-                s.lastVoice === voice &&
-                s.lastSpeed === state.CURRENT_SPEED &&
-                typeof s.normalizedText === "string" &&
-                s.normalizedText === norm
-            ) {
-                return;
-            }
-
-            s.normalizedText = norm;
-            const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;
-            if (state.audioCache.has(cacheKey)) {
-                const cached = state.audioCache.get(cacheKey);
-                Object.assign(s, {
-                    audioBlob: cached.audioBlob || null,
-                    wavBlob: cached.wavBlob || null,
-                    audioBuffer: cached.audioBuffer,
-                    audioReady: true,
-                    lastVoice: voice,
-                    lastSpeed: state.CURRENT_SPEED,
-                    audioError: null,
-                    audioInProgress: false,
-                    prefetchQueued: false,
-                    wordBoundaries: cached.wordBoundaries || [],
-                });
-                s._restartRetryCount = 0;
-                delete s._restartAttempted;
-                return;
-            }
-
-            s.audioInProgress = true;
-            s.audioError = null;
-
-            this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_START, { index: idx });
-
+        if (this.app.isReadTranslationEnabled?.()) {
             try {
-                await this.buildPiperAudio(s, voice, norm);
-                this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
+                await this.app.ensureReadTranslationVoiceReady?.();
             } catch (err) {
-                if (this._isOfflineVoiceError(err)) {
-                    s.audioError = err;
-                    this.app.ui?.showInfo?.(OFFLINE_VOICE_MESSAGE);
-                    this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
-                    return;
+                console.warn("[TTS] Failed to align voice with translation target", err);
+            }
+        }
+
+        const voiceSelect = document.getElementById("voice-select");
+        const voice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
+
+        if (!hasUsableSpeechText(sourceText)) {
+            this._markSentenceAsSilent(s);
+            return;
+        }
+
+        const norm = normalizeText(sourceText);
+
+        if (
+            s.audioReady &&
+            s.lastVoice === voice &&
+            s.lastSpeed === state.CURRENT_SPEED &&
+            typeof s.normalizedText === "string" &&
+            s.normalizedText === norm
+        ) {
+            return;
+        }
+
+        s.normalizedText = norm;
+        const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;
+        if (state.audioCache.has(cacheKey)) {
+            const cached = state.audioCache.get(cacheKey);
+            Object.assign(s, {
+                audioBlob: cached.audioBlob || null,
+                wavBlob: cached.wavBlob || null,
+                audioBuffer: cached.audioBuffer,
+                audioReady: true,
+                lastVoice: voice,
+                lastSpeed: state.CURRENT_SPEED,
+                audioError: null,
+                audioInProgress: false,
+                prefetchQueued: false,
+                wordBoundaries: cached.wordBoundaries || [],
+            });
+            s._restartRetryCount = 0;
+            delete s._restartAttempted;
+            return;
+        }
+
+        s.audioInProgress = true;
+        s.audioError = null;
+
+        this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_START, { index: idx });
+
+        try {
+            await this.buildPiperAudio(s, voice, norm);
+            this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
+        } catch (err) {
+            s.audioError = err;
+            const retryCount = (Number.isFinite(s._restartRetryCount) ? s._restartRetryCount : 0) + 1;
+            s._restartRetryCount = retryCount;
+            const reason = err?.message || "unknown synthesis error";
+            this.app.ui.showMessage(
+                `TTS warning: restarting engine (attempt ${retryCount}). Audio generation will keep retrying. If this continues, reloading the page will help.`,
+                3200,
+            );
+            this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
+            try {
+                await this.resetEngine({
+                    clearCache: true,
+                    reason,
+                    preservePlayback: true,
+                    attempt: retryCount,
+                });
+                const retrySentence = this.app.state.sentences[idx];
+                if (retrySentence) {
+                    retrySentence.audioError = null;
+                    retrySentence.audioInProgress = false;
                 }
-                s.audioError = err;
-                const retryCount = (Number.isFinite(s._restartRetryCount) ? s._restartRetryCount : 0) + 1;
-                s._restartRetryCount = retryCount;
-                const reason = err?.message || "unknown synthesis error";
-                this.app.ui.showMessage(
-                    `TTS warning: restarting engine (attempt ${retryCount}). Audio generation will keep retrying. If this continues, reloading the page will help.`,
-                    3200,
-                );
-                this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
-                try {
-                    await this.resetEngine({
-                        clearCache: true,
-                        reason,
-                        preservePlayback: true,
-                        attempt: retryCount,
-                    });
-                    const retrySentence = this.app.state.sentences[idx];
-                    if (retrySentence) {
-                        retrySentence.audioError = null;
-                        retrySentence.audioInProgress = false;
-                        retrySentence.rendering = false;
-                    }
-                    if (this.app.state.generationEnabled && this.app.ttsQueue) {
-                        const baseIndex =
-                            Number.isFinite(state.playingSentenceIndex) && state.playingSentenceIndex >= 0
-                                ? state.playingSentenceIndex
-                                : state.currentSentenceIndex;
-                        let priority = "normal";
-                        if (idx === baseIndex) {
-                            priority = "critical";
-                        } else if (Number.isFinite(baseIndex) && (idx === baseIndex + 1 || idx === baseIndex + 2)) {
-                            priority = "high";
-                        }
-                        this.app.ttsQueue.add(idx, { priority, force: true });
-                        this.app.ttsQueue.run();
-                    }
-                } catch (resetErr) {
-                    console.error("Failed to reset TTS engine:", resetErr);
+                if (this.app.state.generationEnabled && this.app.ttsQueue) {
+                    this.app.ttsQueue.add(idx, true);
+                    this.app.ttsQueue.run();
                 }
             }
         } finally {
@@ -801,7 +778,6 @@ export class TTSEngine {
                         sentence.audioInProgress = false;
                         sentence.audioError = null;
                         sentence.prefetchQueued = false;
-                        sentence.rendering = false;
                         continue;
                     }
 
@@ -814,7 +790,6 @@ export class TTSEngine {
                     sentence.audioBuffer = null;
                     sentence.audioReady = false;
                     sentence.audioInProgress = false;
-                    sentence.rendering = false;
                     sentence.lastVoice = null;
                     sentence.lastSpeed = null;
                     sentence.audioError = null;

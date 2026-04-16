@@ -581,6 +581,8 @@
             >
                 <button
                     id="home-btn"
+                    title="Return to main page"
+                    aria-label="Return to main page"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
                     <span class="material-symbols-outlined text-xl sm:text-lg text-slate-600 dark:text-slate-300"
@@ -590,6 +592,8 @@
 
                 <button
                     id="open-file"
+                    title="Open a new PDF file"
+                    aria-label="Open a new PDF file"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
                     <span class="material-symbols-outlined text-xl sm:text-lg text-slate-600 dark:text-slate-300"
@@ -599,6 +603,8 @@
 
                 <button
                     id="export-highlights"
+                    title="Save the current PDF with highlights to a file"
+                    aria-label="Save the current PDF with highlights to a file"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
                     <span class="material-symbols-outlined text-xl sm:text-lg text-slate-600 dark:text-slate-300"
@@ -609,6 +615,8 @@
                 <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
 
                 <button
+                    title="Go to previous sentence"
+                    aria-label="Go to previous sentence"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
                     <span class="material-symbols-outlined text-xl sm:text-lg text-slate-600 dark:text-slate-300"
@@ -618,12 +626,16 @@
 
                 <button
                     id="play-toggle"
+                    title="Play or pause the current sentence"
+                    aria-label="Play or pause the current sentence"
                     class="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-white"
                 >
                     <span class="material-symbols-outlined">play_arrow</span>
                 </button>
 
                 <button
+                    title="Go to next sentence"
+                    aria-label="Go to next sentence"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
                     <span class="material-symbols-outlined text-xl sm:text-lg text-slate-600 dark:text-slate-300"
@@ -635,6 +647,8 @@
 
                 <button
                     id="save-highlight"
+                    title="Configure highlights"
+                    aria-label="Configure highlights"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                 >
                     <span class="material-symbols-outlined text-xl sm:text-lg text-slate-600 dark:text-slate-300"
@@ -645,7 +659,8 @@
                 <button
                     id="save-comment"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
-                    title="Login / Account"
+                    title="Self-Host Server Configurations"
+                    aria-label="Self-Host Server Configurations"
                 >
                     <span class="material-symbols-outlined text-xl sm:text-lg text-slate-600 dark:text-slate-300"
                         >person</span
@@ -656,6 +671,8 @@
                 <div class="relative">
                     <button
                         id="settings-button"
+                        title="General configuration and options"
+                        aria-label="General configuration and options"
                         class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
                     >
                         <span class="material-symbols-outlined text-lg sm:text-lg text-slate-600 dark:text-slate-300"
@@ -783,14 +800,15 @@
                 const refreshAuthState = async () => {
                     setAuthError("");
                     authStatus.textContent = "";
+                    const authTitleBase = "Self-Host Server Configurations";
                     const token = localStorage.getItem("localreaderAuthToken") || "";
                     if (!token) {
                         authStatus.textContent = "Not authenticated";
                         if (authButton) {
                             const icon = authButton.querySelector(".material-symbols-outlined");
                             if (icon) icon.textContent = "person";
-                            authButton.title = "Login / Account";
-                            authButton.setAttribute("aria-label", "Login / Account");
+                            authButton.title = authTitleBase;
+                            authButton.setAttribute("aria-label", authTitleBase);
                         }
                         return { authenticated: false };
                     }
@@ -802,7 +820,9 @@
                                 const icon = authButton.querySelector(".material-symbols-outlined");
                                 if (icon) icon.textContent = "person_check";
                                 const email = (me.email || "").trim();
-                                authButton.title = email ? `Account: ${email}` : "Account";
+                                authButton.title = email
+                                    ? `${authTitleBase} (Account: ${email})`
+                                    : `${authTitleBase} (Account)`;
                                 authButton.setAttribute("aria-label", authButton.title);
                             }
                             loggedInPanel.classList.remove("hidden");
@@ -820,8 +840,8 @@
                     if (authButton) {
                         const icon = authButton.querySelector(".material-symbols-outlined");
                         if (icon) icon.textContent = "person";
-                        authButton.title = "Login / Account";
-                        authButton.setAttribute("aria-label", "Login / Account");
+                        authButton.title = authTitleBase;
+                        authButton.setAttribute("aria-label", authTitleBase);
                     }
                     return { authenticated: false };
                 };

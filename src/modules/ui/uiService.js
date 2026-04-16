@@ -366,7 +366,7 @@ export class UIService {
             "fixed z-50 bottom-20 left-1/2 -translate-x-1/2 w-[92vw] max-w-md rounded-lg " +
             "bg-background-light dark:bg-background-dark bg-opacity-100 " +
             "px-3 py-2 shadow-lg border border-slate-200 dark:border-slate-700";
-        wrap.style.zIndex = "10000";
+        wrap.style.zIndex = "10020";
 
         const header = document.createElement("div");
         header.className = "flex items-center justify-between gap-2 mb-2";
@@ -634,7 +634,7 @@ export class UIService {
                 "fixed z-50 bottom-24 left-1/2 -translate-x-1/2 w-[92vw] max-w-2xl rounded-lg " +
                 "bg-background-light dark:bg-background-dark bg-opacity-100 " +
                 "px-4 py-3 shadow-lg border border-slate-200 dark:border-slate-700";
-            wrap.style.zIndex = "10000";
+            wrap.style.zIndex = "10020";
 
             const header = document.createElement("div");
             header.className = "flex items-center justify-between gap-3 mb-2";
@@ -829,22 +829,8 @@ export class UIService {
         wrap.appendChild(body);
         document.body.appendChild(wrap);
         this._translatePopupEl = wrap;
-
-        const onKey = (e) => {
-            if (e.key === "Escape") this._hideTranslatePopup();
-        };
-        const onDown = (e) => {
-            if (!this._translatePopupEl) return;
-            if (e.target === this._translatePopupEl || this._translatePopupEl.contains(e.target)) return;
-            this._hideTranslatePopup();
-        };
-
-        window.addEventListener("keydown", onKey, { passive: true });
-        window.addEventListener("mousedown", onDown, { capture: true });
-        this._translatePopupCleanup = () => {
-            window.removeEventListener("keydown", onKey);
-            window.removeEventListener("mousedown", onDown, { capture: true });
-        };
+        // Keep translation popup sticky: only explicit close button should dismiss it.
+        this._translatePopupCleanup = null;
     }
 
     showInfo(msg) {

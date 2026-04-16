@@ -771,7 +771,7 @@ export class UIService {
         });
     }
 
-    async showTranslatePopup({ originalText = "", translatedText = "", target = "", detectedSource = "" } = {}) {
+    async showTranslatePopup({ translatedText = "", target = "" } = {}) {
         this._hideTranslatePopup();
 
         const wrap = document.createElement("div");
@@ -817,25 +817,7 @@ export class UIService {
         header.appendChild(actions);
 
         const body = document.createElement("div");
-        body.className = "space-y-2";
-
-        if (originalText && String(originalText).trim()) {
-            const oLabel = document.createElement("div");
-            oLabel.className = "text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400";
-            oLabel.textContent = "Original";
-
-            const oText = document.createElement("div");
-            oText.className = "text-sm text-slate-700 dark:text-slate-300";
-            oText.textContent = String(originalText).trim();
-
-            body.appendChild(oLabel);
-            body.appendChild(oText);
-        }
-
-        const tLabel = document.createElement("div");
-        tLabel.className = "text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400";
-        tLabel.textContent = "Translation";
-        body.appendChild(tLabel);
+        body.className = "space-y-1";
 
         const tText = document.createElement("div");
         tText.className = "text-lg font-medium text-slate-900 dark:text-white";

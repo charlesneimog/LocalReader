@@ -445,14 +445,32 @@ export class InteractionHandler {
         }
     }
 
+    _isFloatingPhraseUiTarget(target) {
+        return !!(
+            target?.closest?.(".pdf-active-phrase-actions") ||
+            target?.closest?.(".pdf-selection-menu") ||
+            target?.closest?.(".pdf-comment-tooltip") ||
+            target?.closest?.(".pdf-comment-marker")
+        );
+    }
+
     handlePointerMove(e) {
         const { state } = this.app;
         state.lastPointerEvent = e;
+
+        if (this._isFloatingPhraseUiTarget(e?.target)) {
+            this.setHoveredSentence(-1);
+        }
+
         if (state.hoverRafScheduled) return;
         state.hoverRafScheduled = true;
         requestAnimationFrame(() => {
             state.hoverRafScheduled = false;
             if (!state.lastPointerEvent) return;
+            if (this._isFloatingPhraseUiTarget(state.lastPointerEvent?.target)) {
+                this.setHoveredSentence(-1);
+                return;
+            }
             const mapped = mapClientPointToPdf(state.lastPointerEvent, state, this.app.config);
             if (!mapped) {
                 this.setHoveredSentence(-1);
@@ -465,6 +483,10 @@ export class InteractionHandler {
 
     async handlePointerClick(e) {
         const { state } = this.app;
+
+        if (this._isFloatingPhraseUiTarget(e?.target)) {
+            return;
+        }
 
         if (this._suppressNextClick) {
             this._suppressNextClick = false;

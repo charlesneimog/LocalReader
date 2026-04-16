@@ -936,6 +936,7 @@ export class PDFRenderer {
         scaleY,
         sentenceIndex,
         highlighted,
+        hasComment = false,
     }) {
         if (!wrapper || !anchorRect || !Number.isFinite(sentenceIndex)) {
             this._removeActivePhraseActions();
@@ -957,13 +958,29 @@ export class PDFRenderer {
             e.stopPropagation();
         };
 
+        const stopPropagationOnly = (e) => {
+            e.stopPropagation();
+        };
+
+        const guardPointerEvents = (el) => {
+            if (!el) return;
+            el.addEventListener("pointerdown", stopPropagationOnly);
+            el.addEventListener("pointerup", stopPropagationOnly);
+            el.addEventListener("mousedown", stopPropagationOnly);
+            el.addEventListener("mouseup", stopPropagationOnly);
+            el.addEventListener("touchstart", stopPropagationOnly, { passive: true });
+            el.addEventListener("touchend", stopPropagationOnly, { passive: true });
+        };
+
+        guardPointerEvents(panel);
+
         const copyBtn = document.createElement("button");
         copyBtn.type = "button";
         copyBtn.className = "pdf-active-phrase-btn";
         copyBtn.title = "Copy current phrase";
         copyBtn.setAttribute("aria-label", "Copy current phrase");
         copyBtn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>';
-        copyBtn.addEventListener("mousedown", stopBubble);
+        guardPointerEvents(copyBtn);
         copyBtn.addEventListener("click", async (e) => {
             stopBubble(e);
             await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({ successMessage: "Current phrase copied" });
@@ -977,14 +994,29 @@ export class PDFRenderer {
         highlightBtn.title = highlighted ? "Remove highlight" : "Toggle highlight";
         highlightBtn.setAttribute("aria-label", highlighted ? "Remove highlight" : "Toggle highlight");
         highlightBtn.innerHTML = '<span class="material-symbols-outlined">format_ink_highlighter</span>';
-        highlightBtn.addEventListener("mousedown", stopBubble);
+        guardPointerEvents(highlightBtn);
         highlightBtn.addEventListener("click", (e) => {
             stopBubble(e);
             this.app.highlightManager?.toggleCurrentSentenceHighlight?.({ showMessage: true });
         });
 
+        const commentBtn = document.createElement("button");
+        commentBtn.type = "button";
+        commentBtn.className = "pdf-active-phrase-btn";
+        if (hasComment) commentBtn.classList.add("is-active");
+        commentBtn.setAttribute("aria-pressed", hasComment ? "true" : "false");
+        commentBtn.title = hasComment ? "Edit comment" : "Add comment";
+        commentBtn.setAttribute("aria-label", hasComment ? "Edit comment" : "Add comment");
+        commentBtn.innerHTML = '<span class="material-symbols-outlined">comment</span>';
+        guardPointerEvents(commentBtn);
+        commentBtn.addEventListener("click", async (e) => {
+            stopBubble(e);
+            await this.app.interactionHandler?.promptCommentForSelection?.([sentenceIndex]);
+        });
+
         panel.appendChild(copyBtn);
         panel.appendChild(highlightBtn);
+        panel.appendChild(commentBtn);
         wrapper.appendChild(panel);
         this._activePhraseActionsEl = panel;
     }
@@ -1075,6 +1107,7 @@ export class PDFRenderer {
                 scaleY,
                 sentenceIndex: targetSentence.index,
                 highlighted: !!savedHighlightData?.color,
+                hasComment: typeof savedHighlightData?.comment === "string" && savedHighlightData.comment.trim().length > 0,
             });
         }
 

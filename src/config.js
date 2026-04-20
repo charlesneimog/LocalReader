@@ -2,7 +2,7 @@
 export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 17,
-    VERSION_PATCH: 3,
+    VERSION_PATCH: 5,
     VERSION_BUILD: 0,
 
     // Rendering

@@ -73,6 +73,9 @@ export class PDFLoader {
 
             const createWord = ({ str, x: xPos, width: wordWidth, lineBreak }) => {
                 const bboxTop = y - height;
+                const safeScale = Number.isFinite(displayScale) && displayScale > 0 ? displayScale : 1;
+                const baseX = xPos / safeScale;
+                const baseWidth = wordWidth / safeScale;
                 const word = {
                     pageNumber,
                     str: str.trim(),
@@ -95,9 +98,10 @@ export class PDFLoader {
                     isReadable: null,
 
                     // Canonical base geometry (for lazy rescaling)
-                    _baseX: canonX,
+                    // IMPORTANT: use token-level x/width so split text items keep distinct boxes after rescale.
+                    _baseX: Number.isFinite(baseX) ? baseX : canonX,
                     _baseYDisplay: canonYDisplay,
-                    _baseWidth: canonWidth,
+                    _baseWidth: Number.isFinite(baseWidth) ? baseWidth : canonWidth,
                     _baseHeight: canonHeight,
                 };
                 pageWords.push(word);

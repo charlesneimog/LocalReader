@@ -395,6 +395,25 @@ export class PDFRenderer {
                 const unscaledWidth = page.unscaledWidth || baseViewport.width;
                 const unscaledHeight = page.unscaledHeight || baseViewport.height;
                 const displayScale = effectiveWidth / Math.max(1, unscaledWidth);
+                const previousScale =
+                    Number.isFinite(page.currentDisplayScale) && page.currentDisplayScale > 0
+                        ? page.currentDisplayScale
+                        : Number.isFinite(page.baseDisplayScale) && page.baseDisplayScale > 0
+                            ? page.baseDisplayScale
+                            : displayScale;
+
+                // Normalize canonical geometry from the currently rendered words so subsequent
+                // rescaling preserves token boundaries even for split text items.
+                if (Array.isArray(page.pageWords) && previousScale > 0) {
+                    for (const w of page.pageWords) {
+                        if (!w) continue;
+                        if (Number.isFinite(w.x)) w._baseX = w.x / previousScale;
+                        if (Number.isFinite(w.y)) w._baseYDisplay = w.y / previousScale;
+                        if (Number.isFinite(w.width)) w._baseWidth = w.width / previousScale;
+                        if (Number.isFinite(w.height)) w._baseHeight = w.height / previousScale;
+                    }
+                }
+
                 const viewportDisplay = {
                     width: unscaledWidth * displayScale,
                     height: unscaledHeight * displayScale,

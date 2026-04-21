@@ -1,8 +1,8 @@
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
     VERSION_MAJOR: 0,
-    VERSION_MINOR: 17,
-    VERSION_PATCH: 5,
+    VERSION_MINOR: 18,
+    VERSION_PATCH: 0,
     VERSION_BUILD: 0,
 
     // Rendering
@@ -35,7 +35,8 @@ export const CONFIG = {
 
     // TTS
     PREFETCH_AHEAD: 10,
-    MAX_CONCURRENT_SYNTH: navigator.hardwareConcurrency - 1 || 1,
+    // Piper uses a single worker/session; serial synthesis avoids contention and race-like behavior on mobile.
+    MAX_CONCURRENT_SYNTH: 1,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,
     PIPER_VOICES: [

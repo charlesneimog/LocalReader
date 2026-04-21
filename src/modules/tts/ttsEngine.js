@@ -413,8 +413,9 @@ export class TTSEngine {
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             indices.push(state.currentSentenceIndex);
         }
+        const prefetchAhead = state.isPlaying ? config.PREFETCH_AHEAD : 0;
         const base = state.currentSentenceIndex;
-        for (let i = base + 1; i <= base + config.PREFETCH_AHEAD && i < state.sentences.length; i++) {
+        for (let i = base + 1; i <= base + prefetchAhead && i < state.sentences.length; i++) {
             this.app.ttsQueue.add(i);
             this.app.prefetchSentenceTranslationForTTS?.(i);
         }

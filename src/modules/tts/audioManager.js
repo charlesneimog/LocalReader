@@ -33,6 +33,12 @@ export class AudioManager {
     async _playEPUBSentence(context) {
         const { config, state } = this.app;
 
+        const voiceSelect = document.getElementById("voice-select");
+        const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
+        void this.app.ttsEngine.ensurePiper(selectedVoice).catch((err) => {
+            console.warn("[TTS] Piper warm-up during EPUB playback start failed", err);
+        });
+
         await this.app.epubLoader.ensureLayoutFilteringReady();
         if (!this._isContextActive(context)) return;
 
@@ -168,6 +174,11 @@ export class AudioManager {
 
     async _playPDFSentence(context) {
         const { config, state } = this.app;
+        const voiceSelect = document.getElementById("voice-select");
+        const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
+        void this.app.ttsEngine.ensurePiper(selectedVoice).catch((err) => {
+            console.warn("[TTS] Piper warm-up during PDF playback start failed", err);
+        });
         try {
             await this.app.pdfLoader.ensureLayoutFilteringReady();
         } catch (err) {

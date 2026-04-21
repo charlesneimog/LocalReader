@@ -1215,45 +1215,6 @@ export class PDFRenderer {
         this.updateHighlightFullDoc(sentence);
         this.scrollSentenceIntoView(sentence);
 
-        // Prefetch da próxima frase
-        if (state.generationEnabled) {
-            let nextReadableIdx = -1;
-            try {
-                nextReadableIdx = await this.findNextReadableSentenceForward(idx, new Set([idx]));
-            } catch (err) {
-                console.warn("[renderSentence] Failed to resolve next readable sentence", err);
-            }
-
-            if (nextReadableIdx >= 0) {
-                const readableSentence = state.sentences[nextReadableIdx];
-                if (readableSentence && readableSentence.pageNumber !== pageNumber) {
-                    const targetPage = readableSentence.pageNumber;
-                    if (!state.prefetchedPages.has(targetPage)) {
-                        state.prefetchedPages.add(targetPage);
-
-                        const queueSentence = () => {
-                            const candidate = state.sentences[nextReadableIdx];
-                            if (!candidate) return;
-                            if (!candidate.layoutProcessed || !candidate.isTextToRead) return;
-                            if (!candidate.audioReady && !candidate.audioInProgress) {
-                                this.app.ttsQueue.add(nextReadableIdx, true);
-                                this.app.ttsQueue.run();
-                            }
-                        };
-
-                        try {
-                            await this.ensureFullPageRendered(targetPage);
-                            await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(targetPage);
-                            queueSentence();
-                        } catch (err) {
-                            console.warn("[renderSentence] Prefetch workflow failed for page", targetPage, err);
-                            state.prefetchedPages.delete(targetPage);
-                        }
-                    }
-                }
-            }
-        }
-
         if (state.generationEnabled && !sentence.isTextToRead) {
             this.app.ui.showInfo(
                 `Sentence ${sentence.index + 1} is outside readable layout regions. Select another sentence to play.`,
@@ -1261,6 +1222,49 @@ export class PDFRenderer {
         } else if (!skipTTS) {
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             this.app.ttsQueue.run();
+        }
+
+        // Keep first-audio latency low: queue current sentence first and prefetch ahead asynchronously.
+        if (state.generationEnabled) {
+            Promise.resolve()
+                .then(async () => {
+                    let nextReadableIdx = -1;
+                    try {
+                        nextReadableIdx = await this.findNextReadableSentenceForward(idx, new Set([idx]));
+                    } catch (err) {
+                        console.warn("[renderSentence] Failed to resolve next readable sentence", err);
+                        return;
+                    }
+
+                    if (nextReadableIdx < 0) return;
+                    const readableSentence = state.sentences[nextReadableIdx];
+                    if (!readableSentence || readableSentence.pageNumber === pageNumber) return;
+
+                    const targetPage = readableSentence.pageNumber;
+                    if (state.prefetchedPages.has(targetPage)) return;
+
+                    state.prefetchedPages.add(targetPage);
+
+                    const queueSentence = () => {
+                        const candidate = state.sentences[nextReadableIdx];
+                        if (!candidate) return;
+                        if (!candidate.layoutProcessed || !candidate.isTextToRead) return;
+                        if (!candidate.audioReady && !candidate.audioInProgress) {
+                            this.app.ttsQueue.add(nextReadableIdx, true);
+                            this.app.ttsQueue.run();
+                        }
+                    };
+
+                    try {
+                        await this.ensureFullPageRendered(targetPage);
+                        await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(targetPage);
+                        queueSentence();
+                    } catch (err) {
+                        console.warn("[renderSentence] Prefetch workflow failed for page", targetPage, err);
+                        state.prefetchedPages.delete(targetPage);
+                    }
+                })
+                .catch((err) => console.warn("[renderSentence] Async prefetch failed", err));
         }
 
         this.app.ttsEngine.schedulePrefetch();

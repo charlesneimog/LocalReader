@@ -67,16 +67,56 @@ export class ServerSync {
         const headers = { "Content-Type": "application/json" };
         const finalHeaders = withAuth ? this._withAuthHeaders(headers) : headers;
 
-        const res = await fetch(`${serverUrl}${path}`, {
-            method,
-            headers: finalHeaders,
-            body: body ? JSON.stringify(body) : undefined,
-        });
+        let res;
+        try {
+            res = await fetch(`${serverUrl}${path}`, {
+                method,
+                headers: finalHeaders,
+                body: body ? JSON.stringify(body) : undefined,
+            });
+        } catch (error) {
+            console.error("[ServerSync] Network error during API request", {
+                method,
+                path,
+                serverUrl,
+                error,
+            });
+            const e = new Error(
+                "Network error while contacting server. Check Server Link, HTTPS certificate, and reverse proxy.",
+            );
+            e.cause = error;
+            e.path = path;
+            e.method = method;
+            throw e;
+        }
 
-        const data = await res.json().catch(() => ({}));
+        const rawText = await res.text().catch(() => "");
+        let data = {};
+        if (rawText) {
+            try {
+                data = JSON.parse(rawText);
+            } catch {
+                data = {};
+            }
+        }
+
         if (!res.ok) {
-            const msg = data?.error || `${res.status} ${res.statusText}`;
-            throw new Error(msg);
+            const rawSnippet = (rawText || "").trim().slice(0, 400);
+            const msg = data?.error || rawSnippet || `${res.status} ${res.statusText}`;
+            const e = new Error(msg);
+            e.status = res.status;
+            e.statusText = res.statusText;
+            e.path = path;
+            e.method = method;
+            e.responseText = rawSnippet;
+            console.error("[ServerSync] API request failed", {
+                method,
+                path,
+                status: res.status,
+                statusText: res.statusText,
+                responseText: rawSnippet,
+            });
+            throw e;
         }
         return data;
     }

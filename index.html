@@ -749,6 +749,37 @@
                     authError.classList.remove("hidden");
                 };
 
+                const formatAuthErrorMessage = (err, fallback = "Request failed") => {
+                    const status = Number(err?.status);
+                    const rawMessage = String(err?.message || "").trim();
+                    const is502 = status === 502 || /(^|\s)502(\s|$)|bad gateway/i.test(rawMessage);
+                    if (is502) {
+                        return "Login failed: server/proxy returned 502 Bad Gateway. Check reverse proxy and upstream server logs.";
+                    }
+
+                    const looksLikeNetworkIssue =
+                        err?.name === "TypeError" || /failed to fetch|networkerror|network error/i.test(rawMessage);
+                    if (looksLikeNetworkIssue) {
+                        return "Login failed: could not reach server. Check Server Link, HTTPS certificate, and CORS/proxy settings.";
+                    }
+
+                    return rawMessage || fallback;
+                };
+
+                const logAuthError = (action, err) => {
+                    console.error(`[Auth] ${action} failed`, {
+                        name: err?.name,
+                        message: err?.message,
+                        status: err?.status,
+                        statusText: err?.statusText,
+                        method: err?.method,
+                        path: err?.path,
+                        responseText: err?.responseText,
+                        stack: err?.stack,
+                        error: err,
+                    });
+                };
+
                 const setTab = (tab) => {
                     loginForm.classList.toggle("hidden", tab !== "login");
                     signupForm.classList.toggle("hidden", tab !== "signup");
@@ -832,8 +863,8 @@
                             authStatus.textContent = "Authenticated";
                             return { authenticated: true, email: me.email };
                         }
-                    } catch {
-                        // token invalid
+                    } catch (err) {
+                        console.error("[Auth] Failed to validate saved token", err);
                     }
                     app.serverSync?.clearAuthToken?.();
                     authStatus.textContent = "Not authenticated";
@@ -902,7 +933,8 @@
                         hideAuthOverlay();
                         await ensureAppInitialized();
                     } catch (err) {
-                        setAuthError(err.message || "Login failed");
+                        logAuthError("login", err);
+                        setAuthError(formatAuthErrorMessage(err, "Login failed"));
                     }
                 });
 

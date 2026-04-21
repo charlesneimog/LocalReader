@@ -31,7 +31,7 @@ export class ControlsManager {
         this.btnPlayToggle = document.getElementById("play-toggle");
         this.btnNextPage = document.getElementById("next-page");
         this.btnPrevPage = document.getElementById("prev-page");
-        this.bntHelp = document.getElementById("help-button");
+        this.bntHelp = document.getElementById("toggle-help") || document.getElementById("help-button");
         this.bntHelpClose = document.getElementById("help-close");
         this.bntFullScreen = document.getElementById("toggle-fullscreen");
 
@@ -58,13 +58,12 @@ export class ControlsManager {
             icon.style.color = "#ffda76";
         }
 
-        // cache
-        this.btnClearCache = document.getElementById("clear-cache-btn");
-
         // stopwatch
         this.autoStopInput = document.getElementById("stopwatch-input");
         this.btnPlayTimer = document.getElementById("btn-timer-play");
         this.btnStopTimer = document.getElementById("btn-timer-stop");
+        this.btnTimerIncrease = document.getElementById("btn-timer-increase");
+        this.btnTimerDecrease = document.getElementById("btn-timer-decrease");
     }
 
     _setupEventListeners() {
@@ -98,8 +97,13 @@ export class ControlsManager {
         on(this.bntFullScreen, "click", () => this.toggleFullscreen());
 
         // Help overlay
-        on(this.bntHelp, "click", () => (this.overlayHelp.style.display = "block"));
-        on(this.bntHelpClose, "click", () => (this.overlayHelp.style.display = "none"));
+        on(this.bntHelp, "click", () => this.overlayHelp?.classList.remove("hidden"));
+        on(this.bntHelpClose, "click", () => this.overlayHelp?.classList.add("hidden"));
+        on(this.overlayHelp, "click", (e) => {
+            if (e.target === this.overlayHelp) {
+                this.overlayHelp.classList.add("hidden");
+            }
+        });
 
         // Page navigation
         on(this.btnNextPage, "click", () => {
@@ -371,25 +375,19 @@ export class ControlsManager {
         this.orientationChange = this.orientationChange.bind(this);
         window.addEventListener("orientationchange", this.orientationChange, { passive: true });
 
-        //
-        on(this.btnClearCache, "click", () => {
-            {
-                const confirmed = confirm("Are you sure you want to clear all pdfs saved?");
-                if (confirmed) {
-                    this.app.progressManager.clearPDFCache();
-                }
-            }
-        });
-
         // Stop Watch
         this.btnPlayTimer.addEventListener("click", () => this._toggleTimer());
         this.btnStopTimer.addEventListener("click", () => this._stopTimer());
-        this.autoStopInput.addEventListener("change", (e) => {
-            const val = parseInt(e.target.value, 10);
-            if (!isNaN(val) && val >= 0) {
-                this.autoStopDuration = val * 60;
-                this.timeLeft = this.autoStopDuration;
-                this._updateTimerDisplay();
+        this.btnTimerIncrease?.addEventListener("click", () => this._stepAutoStopMinutes(1));
+        this.btnTimerDecrease?.addEventListener("click", () => this._stepAutoStopMinutes(-1));
+        const commitAutoStopMinutes = () => this._applyAutoStopMinutes(this.autoStopInput?.value);
+        this.autoStopInput.addEventListener("change", commitAutoStopMinutes);
+        this.autoStopInput.addEventListener("blur", commitAutoStopMinutes);
+        this.autoStopInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                commitAutoStopMinutes();
+                this.autoStopInput.blur();
             }
         });
 
@@ -572,11 +570,35 @@ export class ControlsManager {
         if (this.btnPlayTimer) this.btnPlayTimer.querySelector("span").textContent = "play_arrow";
     }
 
+    _applyAutoStopMinutes(rawValue) {
+        const parsed = Number.parseInt(String(rawValue ?? "").trim(), 10);
+        if (!Number.isFinite(parsed)) {
+            this._updateTimerDisplay();
+            return false;
+        }
+
+        const minutes = Math.min(720, Math.max(1, parsed));
+        this.autoStopDuration = minutes * 60;
+        this.timeLeft = this.autoStopDuration;
+        this._updateTimerDisplay();
+        return true;
+    }
+
+    _stepAutoStopMinutes(delta = 1) {
+        if (!this.autoStopInput) return;
+        const currentRaw = Number.parseInt(String(this.autoStopInput.value || "").trim(), 10);
+        const fallbackMinutes = Math.max(1, Math.ceil(this.timeLeft / 60));
+        const current = Number.isFinite(currentRaw) ? currentRaw : fallbackMinutes;
+        const next = Math.min(720, Math.max(1, current + delta));
+        this.autoStopInput.value = String(next);
+        this._applyAutoStopMinutes(next);
+    }
+
     _updateTimerDisplay() {
         if (!this.autoStopInput) return;
-        const minutes = Math.floor(this.timeLeft / 60);
-        const seconds = this.timeLeft % 60;
-        this.autoStopInput.value = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+        // Minutes-only UI: avoid second-level churn on small/mobile screens.
+        const minutes = Math.max(1, Math.ceil(this.timeLeft / 60));
+        this.autoStopInput.value = String(minutes);
     }
 
     showInfo(message, duration = 2000) {

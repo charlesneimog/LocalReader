@@ -164,6 +164,17 @@ input[type="color"]:hover:not(:disabled) {
     background: var(--btn-bg-hover);
 }
 
+#stopwatch-input {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+#stopwatch-input::-webkit-outer-spin-button,
+#stopwatch-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
 #viewer-region {
     flex: 1 1 auto;
     display: flex;

@@ -439,13 +439,37 @@
                     >
                         <div class="flex items-center gap-2">
                             <span class="material-symbols-outlined text-slate-600 dark:text-slate-400">timer</span>
-                            <input
-                                class="w-20 bg-transparent text-slate-800 dark:text-slate-200 text-2xl font-semibold p-0 border-0 focus:ring-0"
-                                inputmode="numeric"
-                                id="stopwatch-input"
-                                type="text"
-                                value="30:00"
-                            />
+                            <div
+                                class="flex items-center rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden bg-white/70 dark:bg-black/20"
+                            >
+                                <button
+                                    id="btn-timer-decrease"
+                                    type="button"
+                                    aria-label="Decrease timer by one minute"
+                                    class="w-9 h-9 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10"
+                                >
+                                    <span class="material-symbols-outlined text-lg">remove</span>
+                                </button>
+                                <input
+                                    class="w-14 bg-transparent text-center text-slate-800 dark:text-slate-200 text-xl font-semibold p-0 border-0 focus:ring-0"
+                                    inputmode="numeric"
+                                    id="stopwatch-input"
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value="30"
+                                    aria-label="Auto-stop time in minutes"
+                                />
+                                <button
+                                    id="btn-timer-increase"
+                                    type="button"
+                                    aria-label="Increase timer by one minute"
+                                    class="w-9 h-9 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10"
+                                >
+                                    <span class="material-symbols-outlined text-lg">add</span>
+                                </button>
+                            </div>
+                            <span class="text-sm font-medium text-slate-500 dark:text-slate-400">min</span>
                         </div>
                         <div class="flex items-center gap-2">
                             <button
@@ -529,17 +553,101 @@
                             help
                         </span>
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Help Overlay -->
+        <div
+            id="help-overlay"
+            class="hidden fixed inset-0 z-40 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-sm p-3 sm:p-6"
+        >
+            <div
+                class="mx-auto w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-xl border border-white/20 dark:border-background-dark/20 bg-white/70 dark:bg-background-dark/70 shadow-2xl"
+            >
+                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-800 dark:text-slate-100">Help</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">LocalReader shortcuts and controls</p>
+                    </div>
                     <button
-                        id="clear-cache-btn"
-                        title="Clear cache"
-                        class="flex items-center justify-center rounded p-2 ml-2"
+                        id="help-close"
+                        type="button"
+                        class="p-1 rounded-full text-slate-500 dark:text-slate-300 hover:text-primary dark:hover:text-primary"
+                        aria-label="Close help"
                     >
-                        <span
-                            class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300 hover:text-red-500 dark:hover:text-red-500"
-                        >
-                            delete_forever
-                        </span>
+                        <span class="material-symbols-outlined">close</span>
                     </button>
+                </div>
+
+                <div class="p-4 space-y-4">
+                    <section class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20">
+                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">Desktop / Keyboard</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                            <div class="flex items-center gap-2">
+                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">Space</kbd>
+                                <span>Play / Pause reading</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">h</kbd>
+                                <span>Highlight current sentence</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">1 2 3 4</kbd>
+                                <span>Select highlight color preset</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">c</kbd>
+                                <span>Add / edit comment</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">t</kbd>
+                                <span>Translate current sentence</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">f</kbd>
+                                <span>Toggle fullscreen</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">← / →</kbd>
+                                <span>Previous / next sentence</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20">
+                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">Smartphone / Tablet</h3>
+                        <div class="space-y-2 text-sm text-slate-700 dark:text-slate-200">
+                            <div class="flex items-start gap-2">
+                                <span class="material-symbols-outlined text-base text-primary mt-0.5">touch_app</span>
+                                <span>Tap the highlighter icon to open the highlight menu and choose color/comments.</span>
+                            </div>
+                            <div class="flex items-start gap-2">
+                                <span class="material-symbols-outlined text-base text-primary mt-0.5">gesture</span>
+                                <span>Long-press the highlighter icon to quickly highlight the current sentence.</span>
+                            </div>
+                            <div class="flex items-start gap-2">
+                                <span class="material-symbols-outlined text-base text-primary mt-0.5">play_circle</span>
+                                <span>Use the center play button to start/pause reading and prefetch audio.</span>
+                            </div>
+                            <div class="flex items-start gap-2">
+                                <span class="material-symbols-outlined text-base text-primary mt-0.5">timer</span>
+                                <span>Auto-stop timer uses minutes only. Use + / - buttons to adjust quickly.</span>
+                            </div>
+                            <div class="flex items-start gap-2">
+                                <span class="material-symbols-outlined text-base text-primary mt-0.5">settings</span>
+                                <span>Open Settings for voice, speed, translation mode, orientation lock, and help.</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20">
+                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">Highlight Menu Tips</h3>
+                        <p class="text-sm text-slate-700 dark:text-slate-200">
+                            Use <span class="font-semibold">1 2 3 4</span> on desktop to switch colors instantly, or open
+                            the highlight popup to pick custom colors and add comments.
+                        </p>
+                    </section>
                 </div>
             </div>
         </div>

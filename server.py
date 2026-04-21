@@ -166,6 +166,10 @@ def _b64url_decode(raw: str) -> bytes:
     return base64.urlsafe_b64decode((raw + padding).encode("ascii"))
 
 
+def _env_truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def issue_auth_token(email: str, ttl_seconds: int = AUTH_TOKEN_TTL_SECONDS) -> str:
     exp = int((datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).timestamp())
     payload = json.dumps({"email": email, "exp": exp}, separators=(",", ":")).encode("utf-8")
@@ -265,18 +269,29 @@ def _send_email_smtp(to_email: str, subject: str, body: str) -> None:
 
 class APIHandler(BaseHTTPRequestHandler):
     # Read allowed origins from environment variable, fallback to defaults
-    ALLOWED_ORIGINS = os.environ.get(
+    ALLOWED_ORIGINS = [
+        o.strip()
+        for o in os.environ.get(
         "ALLOWED_ORIGINS",
         "http://127.0.0.1:8080,https://charlesneimog.github.io,http://localhost:8080"
-    ).split(",")
+        ).split(",")
+        if o.strip()
+    ]
+    # Useful for reverse-proxy/public-domain deployments where many origins may hit the API.
+    # When enabled, the server reflects the request Origin instead of requiring explicit allow-list entries.
+    ALLOW_ANY_ORIGIN = _env_truthy(os.environ.get("ALLOW_ANY_ORIGIN"))
     
     def _is_origin_allowed(self, origin: str) -> bool:
         if not origin:
             return False
+        if self.ALLOW_ANY_ORIGIN:
+            return True
         for allowed_origin in self.ALLOWED_ORIGINS:
             allowed_origin = (allowed_origin or "").strip()
             if not allowed_origin:
                 continue
+            if allowed_origin == "*":
+                return True
             # Historically we used prefix-matching (startswith). Keep that behavior
             # for compatibility with older deployments.
             if origin.startswith(allowed_origin):
@@ -290,9 +305,12 @@ class APIHandler(BaseHTTPRequestHandler):
         preflight by returning `Access-Control-Allow-Private-Network: true`.
         """
         origin = (self.headers.get("Origin") or "").strip()
-        if self._is_origin_allowed(origin):
+        origin_allowed = self._is_origin_allowed(origin)
+        vary_tokens = []
+
+        if origin_allowed:
             self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Vary", "Origin")
+            vary_tokens.append("Origin")
 
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header(
@@ -306,8 +324,16 @@ class APIHandler(BaseHTTPRequestHandler):
         # Chrome Private Network Access (PNA)
         # If the browser is trying to reach a private/local IP behind this hostname,
         # it will send a preflight request with this header.
-        if (self.headers.get("Access-Control-Request-Private-Network") or "").strip().lower() == "true":
+        is_pna_preflight = (self.headers.get("Access-Control-Request-Private-Network") or "").strip().lower() == "true"
+        if is_pna_preflight:
+            vary_tokens.append("Access-Control-Request-Private-Network")
+
+        # Chrome only checks this on preflight; we return it when requested and origin is allowed.
+        if is_pna_preflight and origin_allowed:
             self.send_header("Access-Control-Allow-Private-Network", "true")
+
+        if vary_tokens:
+            self.send_header("Vary", ", ".join(vary_tokens))
 
     def _set_cross_origin_isolation_headers(self) -> None:
         """Set headers required for crossOriginIsolated mode.
@@ -1053,6 +1079,7 @@ def main():
     except Exception:
         pass
     logger.info("CORS allowed origins: %s", ",".join([o.strip() for o in APIHandler.ALLOWED_ORIGINS if o.strip()]))
+    logger.info("CORS allow any origin: %s", APIHandler.ALLOW_ANY_ORIGIN)
     logger.debug("API endpoints: GET /api/files, GET /api/files/{file_id}, GET /api/files/{file_id}/download, GET /api/files/{file_id}/highlights")
     logger.debug("API endpoints: POST /api/files, DELETE /api/files/{file_id}, PUT /api/files/{file_id}/position|voice|highlights")
     

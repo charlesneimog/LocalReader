@@ -106,6 +106,11 @@ docker-compose up -d
 
 If you will host the site in another domain than [charlesneimog.github.io](charlesneimog.github.io), add this domain in `ALLOWED_ORIGINS`, multiple domains can be used using commas.
 
+For public HTTPS frontends calling this server on a private network (Chrome Private Network Access), keep your frontend domain(s) in `ALLOWED_ORIGINS`.
+If you need to accept many public domains, set `ALLOW_ANY_ORIGIN=true`.
+
+The server handles preflight (`OPTIONS`) and returns `Access-Control-Allow-Private-Network: true` when requested by the browser preflight and the origin is allowed.
+
 If you want the same server to also serve the web UI (so you can open `http(s)://<server>:8997/` and get the app), set:
 
 `PUBLIC_APP_URL=http://192.168.15.10:8997/`

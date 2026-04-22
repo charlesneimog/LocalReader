@@ -51,6 +51,68 @@ STATIC_ROOT = os.path.abspath(STATIC_ROOT)
 PUBLIC_APP_URL = (os.environ.get("PUBLIC_APP_URL") or "").strip()
 
 
+def _read_version_from_frontend_config(static_root: str) -> str:
+    config_path = os.path.join(static_root, "src", "config.js")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception:
+        return ""
+
+    def _extract_number(field_name: str) -> int | None:
+        m = re.search(rf"{field_name}\s*:\s*(\d+)", content)
+        if not m:
+            return None
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
+
+    major = _extract_number("VERSION_MAJOR")
+    minor = _extract_number("VERSION_MINOR")
+    patch = _extract_number("VERSION_PATCH")
+    build = _extract_number("VERSION_BUILD")
+
+    if None in {major, minor, patch, build}:
+        return ""
+
+    return f"{major}.{minor}.{patch}+{build}"
+
+
+def _read_version_from_sw(static_root: str) -> str:
+    sw_path = os.path.join(static_root, "sw.js")
+    try:
+        with open(sw_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception:
+        return ""
+
+    m = re.search(r'const\s+APP_VERSION\s*=\s*["\']([^"\']+)["\']', content)
+    if not m:
+        return ""
+
+    return (m.group(1) or "").strip().lstrip("vV")
+
+
+def _resolve_server_app_version() -> str:
+    env_version = (os.environ.get("APP_VERSION") or os.environ.get("SERVER_VERSION") or "").strip()
+    if env_version:
+        return env_version.lstrip("vV")
+
+    config_version = _read_version_from_frontend_config(STATIC_ROOT)
+    if config_version:
+        return config_version
+
+    sw_version = _read_version_from_sw(STATIC_ROOT)
+    if sw_version:
+        return sw_version
+
+    return "unknown"
+
+
+SERVER_APP_VERSION = _resolve_server_app_version()
+
+
 def _guess_content_type(path: str) -> str:
     ct, _ = mimetypes.guess_type(path)
     if ct:
@@ -298,6 +360,23 @@ class APIHandler(BaseHTTPRequestHandler):
                 return True
         return False
 
+    @staticmethod
+    def _split_header_tokens(value: str) -> list[str]:
+        if not value:
+            return []
+        out = []
+        seen = set()
+        for token in value.split(","):
+            item = (token or "").strip()
+            if not item:
+                continue
+            key = item.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(item)
+        return out
+
     def _set_cors_headers(self):
         """Set CORS headers to allow browser requests.
 
@@ -312,11 +391,25 @@ class APIHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", origin)
             vary_tokens.append("Origin")
 
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header(
-            "Access-Control-Allow-Headers",
-            "Content-Type, Authorization, Access-Control-Request-Private-Network",
-        )
+        requested_method = (self.headers.get("Access-Control-Request-Method") or "").strip().upper()
+        allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        if requested_method and requested_method not in allowed_methods:
+            allowed_methods.append(requested_method)
+
+        requested_headers_raw = self.headers.get("Access-Control-Request-Headers") or ""
+        requested_headers = self._split_header_tokens(requested_headers_raw)
+        base_headers = ["Content-Type", "Authorization", "Access-Control-Request-Private-Network"]
+        merged_headers = []
+        seen = set()
+        for hdr in base_headers + requested_headers:
+            key = hdr.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged_headers.append(hdr)
+
+        self.send_header("Access-Control-Allow-Methods", ", ".join(allowed_methods))
+        self.send_header("Access-Control-Allow-Headers", ", ".join(merged_headers))
         self.send_header("Access-Control-Allow-Credentials", "true")
         # Cache preflight for a bit to reduce OPTIONS spam
         self.send_header("Access-Control-Max-Age", "600")
@@ -327,9 +420,14 @@ class APIHandler(BaseHTTPRequestHandler):
         is_pna_preflight = (self.headers.get("Access-Control-Request-Private-Network") or "").strip().lower() == "true"
         if is_pna_preflight:
             vary_tokens.append("Access-Control-Request-Private-Network")
+        if requested_method:
+            vary_tokens.append("Access-Control-Request-Method")
+        if requested_headers_raw:
+            vary_tokens.append("Access-Control-Request-Headers")
 
-        # Chrome only checks this on preflight; we return it when requested and origin is allowed.
-        if is_pna_preflight and origin_allowed:
+        # Chrome checks this on PNA preflight; keeping it on allowed CORS responses is harmless
+        # and avoids edge cases with proxies/caches during rollout differences.
+        if origin_allowed:
             self.send_header("Access-Control-Allow-Private-Network", "true")
 
         if vary_tokens:
@@ -340,10 +438,11 @@ class APIHandler(BaseHTTPRequestHandler):
 
         Required for SharedArrayBuffer and cross-origin isolated contexts.
         """
-        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
-        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        #self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        #self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         # Recommended: lock resources to same-origin unless explicitly shared.
-        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        #self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Access-Control-Allow-Origin", "*")
 
     def _should_apply_coi_headers(self, path: str) -> bool:
         """Decide whether to apply Cross-Origin Isolation headers."""
@@ -418,7 +517,15 @@ class APIHandler(BaseHTTPRequestHandler):
         # GET /api/ping - Simple health check
         if path == "/api/ping":
             logger.debug("Ping")
-            self._send_json(200, {"status": "ok", "message": "Server is running"})
+            self._send_json(
+                200,
+                {
+                    "status": "ok",
+                    "message": "Server is running",
+                    "version": SERVER_APP_VERSION,
+                    "server_version": SERVER_APP_VERSION,
+                },
+            )
             return
 
         # GET /api/auth/me
@@ -1072,6 +1179,7 @@ def main():
     server = ThreadingHTTPServer((HOST, PORT), APIHandler)
     logger.info("Server running on http://%s:%s", HOST, PORT)
     logger.info("Static root: %s", STATIC_ROOT)
+    logger.info("Server app version: %s", SERVER_APP_VERSION)
     # Helpful for diagnosing missing static files in container builds
     try:
         probe = os.path.join(STATIC_ROOT, "thirdparty", "foliate-js", "epubcfi.js")

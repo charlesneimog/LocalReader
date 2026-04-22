@@ -20,6 +20,9 @@ export class ServerSync {
         this.serverPullIntervalMs = 30000; // Check every 30 seconds
         this.lastServerPullCheck = 0;
 
+        this._lastVersionWarningKey = "";
+        this.lastPingMeta = null;
+
         try {
             if (localStorage.getItem("localreaderAuthToken")) {
                 this.pingServer(true).catch(() => {});
@@ -65,15 +68,19 @@ export class ServerSync {
         this._setReloadSuppressionWindow();
 
         const headers = { "Content-Type": "application/json" };
-        const finalHeaders = withAuth ? this._withAuthHeaders(headers) : headers;
+        const url = `${serverUrl}${path}`;
 
         let res;
         try {
-            res = await fetch(`${serverUrl}${path}`, {
-                method,
-                headers: finalHeaders,
-                body: body ? JSON.stringify(body) : undefined,
-            });
+            res = await this._fetch(
+                url,
+                {
+                    method,
+                    headers,
+                    body: body ? JSON.stringify(body) : undefined,
+                },
+                { withAuth },
+            );
         } catch (error) {
             console.error("[ServerSync] Network error during API request", {
                 method,
@@ -177,9 +184,81 @@ export class ServerSync {
         return { ...headers, Authorization: `Bearer ${token}` };
     }
 
-    _fetch(url, options = {}) {
-        const headers = this._withAuthHeaders(options.headers || {});
-        return fetch(url, { ...options, headers });
+    _isPrivateIpv4(hostname) {
+        if (typeof hostname !== "string") return false;
+        const m = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+        if (!m) return false;
+        const octets = m.slice(1).map((n) => Number.parseInt(n, 10));
+        if (octets.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) return false;
+
+        const [a, b] = octets;
+        if (a === 10) return true;
+        if (a === 172 && b >= 16 && b <= 31) return true;
+        if (a === 192 && b === 168) return true;
+        if (a === 169 && b === 254) return true;
+        // RFC 6598 shared address space (CGNAT), commonly seen behind reverse proxies/tunnels.
+        if (a === 100 && b >= 64 && b <= 127) return true;
+        return false;
+    }
+
+    _isCrossOriginHttpsUrl(url) {
+        try {
+            const u = new URL(String(url), window.location.href);
+            return u.origin !== window.location.origin && u.protocol === "https:";
+        } catch {
+            return false;
+        }
+    }
+
+    _inferTargetAddressSpace(url) {
+        try {
+            const u = new URL(String(url), window.location.href);
+            const host = (u.hostname || "").toLowerCase();
+
+            // Loopback/local hostnames
+            if (host === "localhost" || host === "::1" || host.startsWith("127.")) return "local";
+
+            // mDNS/local devices and private RFC1918/link-local ranges
+            if (host.endsWith(".local") || this._isPrivateIpv4(host)) return "private";
+
+            // IPv6 private/link-local ranges
+            if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return "private";
+        } catch {
+            // ignore URL parse issues
+        }
+        return null;
+    }
+
+    _buildPnaAwareFetchOptions(url, options = {}) {
+        const requestOptions = {
+            mode: "cors",
+            credentials: "omit",
+            redirect: "follow",
+            cache: "no-store",
+            ...options,
+        };
+
+        if (!requestOptions.targetAddressSpace) {
+            const targetAddressSpace = this._inferTargetAddressSpace(url);
+            if (targetAddressSpace) {
+                // Hint for modern Chrome networking checks when talking to local/private network targets.
+                requestOptions.targetAddressSpace = targetAddressSpace;
+            } else if (this._isCrossOriginHttpsUrl(url)) {
+                // Some self-hosted domains resolve to private/shared ranges (e.g. CGNAT) and
+                // Chrome enforces PNA more strictly there. Default to "private" for cross-origin
+                // HTTPS API calls to avoid browser-side "Failed to fetch" blocks.
+                requestOptions.targetAddressSpace = "private";
+            }
+        }
+
+        return requestOptions;
+    }
+
+    _fetch(url, options = {}, { withAuth = true } = {}) {
+        const baseHeaders = options.headers || {};
+        const headers = withAuth ? this._withAuthHeaders(baseHeaders) : baseHeaders;
+        const requestOptions = this._buildPnaAwareFetchOptions(url, { ...options, headers });
+        return fetch(url, requestOptions);
     }
 
     _addAutoSyncListener(element, type, handler, options) {
@@ -530,6 +609,59 @@ export class ServerSync {
         return await this.pingServer(false);
     }
 
+    _normalizeVersionValue(value) {
+        if (typeof value !== "string" && typeof value !== "number") return "";
+        return String(value).trim().replace(/^v/i, "");
+    }
+
+    _getCurrentAppVersion() {
+        const cfg = this.app?.config || {};
+        const major = Number.parseInt(cfg.VERSION_MAJOR, 10);
+        const minor = Number.parseInt(cfg.VERSION_MINOR, 10);
+        const patch = Number.parseInt(cfg.VERSION_PATCH, 10);
+        const build = Number.parseInt(cfg.VERSION_BUILD, 10);
+
+        if (![major, minor, patch, build].every((n) => Number.isFinite(n))) {
+            return "";
+        }
+
+        return `${major}.${minor}.${patch}+${build}`;
+    }
+
+    _warnIfVersionMismatch(pingData, showMessages = false) {
+        const appVersion = this._normalizeVersionValue(this._getCurrentAppVersion());
+        const serverVersion = this._normalizeVersionValue(
+            pingData?.version || pingData?.server_version || pingData?.app_version,
+        );
+
+        this.lastPingMeta = {
+            checkedAt: Date.now(),
+            appVersion,
+            serverVersion,
+        };
+
+        if (!appVersion || !serverVersion) return;
+
+        if (appVersion === serverVersion) {
+            this._lastVersionWarningKey = "";
+            return;
+        }
+
+        const warningKey = `${appVersion}|${serverVersion}`;
+        const warningMsg = `⚠️ Version mismatch: app v${appVersion} and server v${serverVersion}. Update one side to keep sync stable.`;
+
+        console.warn("[ServerSync] Version mismatch detected", {
+            appVersion,
+            serverVersion,
+        });
+
+        if (this._lastVersionWarningKey !== warningKey || showMessages) {
+            this.app.ui?.showInfo?.(warningMsg);
+        }
+
+        this._lastVersionWarningKey = warningKey;
+    }
+
     async pingServer(showMessages = true) {
         const serverUrl = this.getServerUrl();
         if (!serverUrl) {
@@ -549,7 +681,7 @@ export class ServerSync {
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000);
-            
+
             const startTime = Date.now();
             const response = await this._fetch(`${serverUrl}/api/ping`, {
                 method: "GET",
@@ -561,10 +693,15 @@ export class ServerSync {
 
             if (response.ok) {
                 const data = await response.json();
+                this._warnIfVersionMismatch(data, showMessages);
                 // console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
                 if (showMessages) {
                     //this.app.ui?.showInfo?.(`✓ Server is accessible (${pingTime}ms)`);
-                    console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
+                    const serverVersion = this._normalizeVersionValue(
+                        data?.version || data?.server_version || data?.app_version,
+                    );
+                    const versionSuffix = serverVersion ? ` [server v${serverVersion}]` : "";
+                    console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms)${versionSuffix}:`, data.message);
                 }
                 return true;
             } else {
@@ -579,6 +716,12 @@ export class ServerSync {
             let errorMsg = error.message;
             if (error.name === "AbortError") {
                 errorMsg = "Connection timeout (server not responding)";
+            } else if (/failed to fetch|networkerror/i.test(String(error?.message || ""))) {
+                const pingUrl = `${serverUrl}/api/ping`;
+                if (this._isCrossOriginHttpsUrl(pingUrl)) {
+                    errorMsg =
+                        "Failed to fetch (browser blocked network path). Check PNA/private-network access and DNS routing for this server host.";
+                }
             }
             console.error("[ServerSync] ✗ Ping failed:", errorMsg);
             if (showMessages) {
@@ -755,15 +898,18 @@ export class ServerSync {
                 }
             }
 
-            const response = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/position`, {
-                method: "PUT",
-                headers: {
-                    "Content-Type": "application/json",
+            const response = await this._fetch(
+                `${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/position`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        position: sentenceIndex.toString(),
+                    }),
                 },
-                body: JSON.stringify({
-                    position: sentenceIndex.toString(),
-                }),
-            });
+            );
 
             if (response.ok) {
                 //console.log("[ServerSync] Position synced:", sentenceIndex);
@@ -799,15 +945,18 @@ export class ServerSync {
                 }
             }
 
-            const response = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/voice`, {
-                method: "PUT",
-                headers: {
-                    "Content-Type": "application/json",
+            const response = await this._fetch(
+                `${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/voice`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        voice: voice,
+                    }),
                 },
-                body: JSON.stringify({
-                    voice: voice,
-                }),
-            });
+            );
 
             if (response.ok) {
                 //// console.log("[ServerSync] Voice synced:", voice);
@@ -826,7 +975,9 @@ export class ServerSync {
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) return false;
 
-        const modeValue = String(mode || "").trim().toLowerCase();
+        const modeValue = String(mode || "")
+            .trim()
+            .toLowerCase();
         if (!modeValue || !["read", "show", "off"].includes(modeValue)) return false;
         const targetValue = String(target || "").trim() || "pt";
 
@@ -834,7 +985,9 @@ export class ServerSync {
             // Find the actual file_id on server (may have different timestamp)
             let actualFileIdOnServer = await this.findFileIdOnServer(fileId);
             if (!actualFileIdOnServer) {
-                console.warn("[ServerSync] File not found on server for translation settings sync; trying ensureFileOnServer()");
+                console.warn(
+                    "[ServerSync] File not found on server for translation settings sync; trying ensureFileOnServer()",
+                );
                 try {
                     await this.ensureFileOnServer();
                 } catch (e) {
@@ -907,15 +1060,18 @@ export class ServerSync {
                 });
             }
 
-            const response = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/highlights`, {
-                method: "PUT",
-                headers: {
-                    "Content-Type": "application/json",
+            const response = await this._fetch(
+                `${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/highlights`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        highlights: highlightsArray,
+                    }),
                 },
-                body: JSON.stringify({
-                    highlights: highlightsArray,
-                }),
-            });
+            );
 
             if (response.ok) {
                 // console.log("[ServerSync] syncHighlights: OK", {
@@ -951,14 +1107,23 @@ export class ServerSync {
             const actualFileIdOnServer = await this.findFileIdOnServer(fileId);
             if (!actualFileIdOnServer) {
                 // console.log("[ServerSync] File not found on server");
-                return { position: null, voice: null, highlights: null, translationTarget: null, translationMode: null };
+                return {
+                    position: null,
+                    voice: null,
+                    highlights: null,
+                    translationTarget: null,
+                    translationMode: null,
+                };
             }
 
             // Fetch file metadata (includes position and voice)
-            const metaResponse = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}`, {
-                method: "GET",
-                headers: { "Content-Type": "application/json" },
-            });
+            const metaResponse = await this._fetch(
+                `${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}`,
+                {
+                    method: "GET",
+                    headers: { "Content-Type": "application/json" },
+                },
+            );
 
             let position = null;
             let voice = null;
@@ -975,10 +1140,13 @@ export class ServerSync {
             }
 
             // Fetch highlights
-            const highlightsResponse = await this._fetch(`${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/highlights`, {
-                method: "GET",
-                headers: { "Content-Type": "application/json" },
-            });
+            const highlightsResponse = await this._fetch(
+                `${serverUrl}/api/files/${this._encodeFileIdForUrl(actualFileIdOnServer)}/highlights`,
+                {
+                    method: "GET",
+                    headers: { "Content-Type": "application/json" },
+                },
+            );
 
             let highlights = null;
             if (highlightsResponse.ok) {
@@ -1024,16 +1192,16 @@ export class ServerSync {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
-            
+
             if (response.ok) {
                 const data = await response.json();
                 const serverFiles = data.files || [];
-                
+
                 // Find file by matching actual filename
                 const matchingFile = serverFiles.find((f) => {
                     if (f && f.deleted) return false;
                     if (f.filename === localFileId) return true; // Exact match
-                    
+
                     // Check if actual filenames match
                     let serverActualName = f.filename;
                     if (f.filename.startsWith("file::")) {
@@ -1044,13 +1212,13 @@ export class ServerSync {
                     }
                     return this._normalizeActualFilename(serverActualName) === actualFilename;
                 });
-                
+
                 return matchingFile ? matchingFile.filename : null;
             }
         } catch (error) {
             console.warn("[ServerSync] Failed to find file on server:", error);
         }
-        
+
         return null;
     }
 
@@ -1081,16 +1249,16 @@ export class ServerSync {
                 method: "GET",
                 headers: { "Content-Type": "application/json" },
             });
-            
+
             if (response.ok) {
                 const data = await response.json();
                 const serverFiles = data.files || [];
-                
+
                 // Check if any server file matches the actual filename
                 const existingFile = serverFiles.find((f) => {
                     if (f && f.deleted) return false;
                     if (f.filename === fileId) return true; // Exact match
-                    
+
                     // Check if actual filenames match
                     let serverActualName = f.filename;
                     if (f.filename.startsWith("file::")) {
@@ -1101,7 +1269,7 @@ export class ServerSync {
                     }
                     return this._normalizeActualFilename(serverActualName) === actualFilename;
                 });
-                
+
                 if (existingFile) {
                     // console.log("[ServerSync] File with same name already exists on server:", existingFile.filename);
                     return true;
@@ -1348,15 +1516,15 @@ export class ServerSync {
             const missingFiles = serverFiles
                 .filter((f) => f && !f.deleted)
                 .filter((f) => {
-                let serverActualName = f.filename;
-                if (f.filename.startsWith("file::")) {
-                    const parts = f.filename.split("::");
-                    if (parts.length >= 2) {
-                        serverActualName = parts[1];
+                    let serverActualName = f.filename;
+                    if (f.filename.startsWith("file::")) {
+                        const parts = f.filename.split("::");
+                        if (parts.length >= 2) {
+                            serverActualName = parts[1];
+                        }
                     }
-                }
-                return !localActualFilenames.has(this._normalizeActualFilename(serverActualName));
-            });
+                    return !localActualFilenames.has(this._normalizeActualFilename(serverActualName));
+                });
 
             if (missingFiles.length === 0) {
                 // console.log("[ServerSync] All server files are already cached locally");
@@ -1384,38 +1552,41 @@ export class ServerSync {
             if (downloaded > 0) {
                 this.app.ui?.showInfo?.(`Downloaded ${downloaded} files from server`);
                 // console.log(`[ServerSync] Download complete: ${downloaded}/${missingFiles.length} files`);
-                
+
                 // Refresh the saved PDFs view to show new downloads
                 // console.log("[ServerSync] Refreshing library view with new downloads");
                 // console.log("[ServerSync] Current document type:", this.app.state.currentDocumentType);
                 // console.log("[ServerSync] App methods available:", {
-                    //showSavedPDFs: typeof this.app.showSavedPDFs,
-                   // pdfThumbnailCache: typeof this.app.pdfThumbnailCache,
-                   // showSavedPDFsOnCache: this.app.pdfThumbnailCache ? typeof this.app.pdfThumbnailCache.showSavedPDFs : 'undefined'
-               // });
-                
+                //showSavedPDFs: typeof this.app.showSavedPDFs,
+                // pdfThumbnailCache: typeof this.app.pdfThumbnailCache,
+                // showSavedPDFsOnCache: this.app.pdfThumbnailCache ? typeof this.app.pdfThumbnailCache.showSavedPDFs : 'undefined'
+                // });
+
                 setTimeout(() => {
                     try {
                         // console.log("[ServerSync] Attempting to refresh library...");
-                        
+
                         // Try to refresh the library view
-                        if (typeof this.app.showSavedPDFs === 'function') {
+                        if (typeof this.app.showSavedPDFs === "function") {
                             // console.log("[ServerSync] Calling app.showSavedPDFs()");
                             this.app.showSavedPDFs();
-                        } else if (this.app.pdfThumbnailCache && typeof this.app.pdfThumbnailCache.showSavedPDFs === 'function') {
+                        } else if (
+                            this.app.pdfThumbnailCache &&
+                            typeof this.app.pdfThumbnailCache.showSavedPDFs === "function"
+                        ) {
                             // console.log("[ServerSync] Calling pdfThumbnailCache.showSavedPDFs()");
                             this.app.pdfThumbnailCache.showSavedPDFs();
                         } else {
                             console.warn("[ServerSync] No method found to refresh library view");
                         }
-                        
+
                         // console.log("[ServerSync] Library view refresh initiated");
                     } catch (error) {
                         console.error("[ServerSync] Failed to refresh library view:", error);
                         console.error("[ServerSync] Error details:", {
                             name: error.name,
                             message: error.message,
-                            stack: error.stack
+                            stack: error.stack,
                         });
                     }
                 }, 1000);
@@ -1466,7 +1637,7 @@ export class ServerSync {
         }
 
         const blob = await response.blob();
-        
+
         // Create a proper File object with correct type and name
         const fileType = format === "pdf" ? "application/pdf" : "application/epub+zip";
         const file = new File([blob], actualFilename, { type: fileType });
@@ -1489,7 +1660,7 @@ export class ServerSync {
         const progressMap = this.app.progressManager.getProgressMap();
         const docType = format === "epub" ? "epub" : "pdf";
         const compoundKey = `${docType}::${safeFileId}`;
-        
+
         progressMap[compoundKey] = {
             sentenceIndex: parseInt(reading_position, 10) || 0,
             updated: Date.now(),
@@ -1497,7 +1668,7 @@ export class ServerSync {
             title: title || actualFilename,
             docType: docType,
         };
-        
+
         this.app.progressManager.setProgressMap(progressMap);
 
         // Pull highlights from server and persist locally so the device has an offline copy

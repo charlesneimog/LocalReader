@@ -1,4 +1,4 @@
-const APP_VERSION = "0.20.4+0";
+const APP_VERSION = "0.20.7+0";
 const IDB_VERSION = 1;
 const cacheName = `LocalReader-v${APP_VERSION}`;
 const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
@@ -417,18 +417,10 @@ const fetchHandler = async (e) => {
             try {
                 const urlObj = new URL(url);
 
-                // Never let the SW interfere with cross-origin API calls.
-                // If the network fails, return a real Response (not undefined).
-                if (urlObj.origin !== self.location.origin && urlObj.pathname.startsWith("/api/")) {
-                    try {
-                        return await fetch(request);
-                    } catch (err) {
-                        return new Response("Upstream API unavailable", {
-                            status: 502,
-                            statusText: "Bad Gateway",
-                            headers: { "Content-Type": "text/plain" },
-                        });
-                    }
+                // Never let the SW interfere with API calls (same-origin or cross-origin).
+                // Return the fetch Promise directly so network/CORS failures surface as-is.
+                if (urlObj.pathname === "/api" || urlObj.pathname.startsWith("/api/")) {
+                    return fetch(request);
                 }
 
                 // Handle offline retry for important requests

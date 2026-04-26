@@ -291,11 +291,9 @@ export class PDFTTSApp {
         });
 
         if (this.serverSync?.isEnabled?.()) {
-            this.serverSync
-                .syncTranslationSettings(pdfKey, { target: targetNorm, mode: modeNorm })
-                .catch((err) => {
-                    console.warn("[translationPrompt] failed to sync translation settings", err);
-                });
+            this.serverSync.syncTranslationSettings(pdfKey, { target: targetNorm, mode: modeNorm }).catch((err) => {
+                console.warn("[translationPrompt] failed to sync translation settings", err);
+            });
         }
     }
 
@@ -487,8 +485,7 @@ export class PDFTTSApp {
         const translatedText = (await this.getSentenceSpeechText(index, originalText)) || "";
         if (!this.isReadTranslationEnabled()) return;
 
-        const stillCurrent =
-            this.state.playingSentenceIndex === index || this.state.currentSentenceIndex === index;
+        const stillCurrent = this.state.playingSentenceIndex === index || this.state.currentSentenceIndex === index;
         if (!stillCurrent) return;
 
         await this.ui?.showTranslatePopup?.({
@@ -682,6 +679,7 @@ export class PDFTTSApp {
             const nopdf = document.getElementById("no-pdf-overlay");
             nopdf.style.display = "none";
         }
+
         const result = await this.pdfLoader.loadPDF(file, options);
         this.serverSync?.startAutoSync();
         return result;

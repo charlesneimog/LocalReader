@@ -244,6 +244,48 @@ export class EPUBRenderer {
         this._container = null;
     }
 
+    // setupInteractionListeners() {
+    //     this._detachInteractionListeners();
+    //     if (!this.view?.renderer?.getContents) return;
+    //     const contents = this.view.renderer.getContents();
+    //     for (const entry of contents) {
+    //         const doc = entry?.doc;
+    //         if (!doc) continue;
+    //         const clickHandler = (event) => this._handleDocumentClick(event, entry.index);
+    //         const mouseMoveHandler = (event) => this._handleDocumentPointerMove(event, entry.index);
+    //         const mouseLeaveHandler = () => this._setHoveredSentence(-1);
+    //         const touchStartHandler = (event) => this._handleDocumentTouchMove(event, entry.index, doc);
+    //         const touchMoveHandler = (event) => this._handleDocumentTouchMove(event, entry.index, doc);
+    //         const touchEndHandler = () => this._setHoveredSentence(-1);
+    //         const hoverSurface = doc.documentElement || doc;
+    //
+    //         doc.addEventListener("click", clickHandler, { passive: false });
+    //         doc.addEventListener("mousemove", mouseMoveHandler, { passive: true });
+    //         hoverSurface.addEventListener("mouseleave", mouseLeaveHandler, { passive: true });
+    //         doc.addEventListener("touchstart", touchStartHandler, { passive: true });
+    //         doc.addEventListener("touchmove", touchMoveHandler, { passive: true });
+    //         doc.addEventListener("touchend", touchEndHandler, { passive: true });
+    //         doc.addEventListener("touchcancel", touchEndHandler, { passive: true });
+    //
+    //         this._docListeners.push({ doc, type: "click", handler: clickHandler, options: { passive: false } });
+    //         this._docListeners.push({ doc, type: "mousemove", handler: mouseMoveHandler, options: { passive: true } });
+    //         this._docListeners.push({
+    //             doc: hoverSurface,
+    //             type: "mouseleave",
+    //             handler: mouseLeaveHandler,
+    //             options: { passive: true },
+    //         });
+    //         this._docListeners.push({
+    //             doc,
+    //             type: "touchstart",
+    //             handler: touchStartHandler,
+    //             options: { passive: true },
+    //         });
+    //         this._docListeners.push({ doc, type: "touchmove", handler: touchMoveHandler, options: { passive: true } });
+    //         this._docListeners.push({ doc, type: "touchend", handler: touchEndHandler, options: { passive: true } });
+    //         this._docListeners.push({ doc, type: "touchcancel", handler: touchEndHandler, options: { passive: true } });
+    //     }
+    // }
     setupInteractionListeners() {
         this._detachInteractionListeners();
         if (!this.view?.renderer?.getContents) return;
@@ -251,12 +293,16 @@ export class EPUBRenderer {
         for (const entry of contents) {
             const doc = entry?.doc;
             if (!doc) continue;
+
             const clickHandler = (event) => this._handleDocumentClick(event, entry.index);
             const mouseMoveHandler = (event) => this._handleDocumentPointerMove(event, entry.index);
-            const mouseLeaveHandler = () => this._setHoveredSentence(-1);
             const touchStartHandler = (event) => this._handleDocumentTouchMove(event, entry.index, doc);
             const touchMoveHandler = (event) => this._handleDocumentTouchMove(event, entry.index, doc);
-            const touchEndHandler = () => this._setHoveredSentence(-1);
+
+            // --- Update exit handlers to pass 'doc' ---
+            const mouseLeaveHandler = () => this._setHoveredSentence(-1, doc);
+            const touchEndHandler = () => this._setHoveredSentence(-1, doc);
+
             const hoverSurface = doc.documentElement || doc;
 
             doc.addEventListener("click", clickHandler, { passive: false });
@@ -530,6 +576,59 @@ export class EPUBRenderer {
         });
     }
 
+    // OLD
+    // _handleDrawAnnotation(event) {
+    //     const detail = event?.detail;
+    //     if (!detail?.draw) return;
+    //     const annotationColor = detail.annotation?.color;
+    //     const cfi = detail.annotation?.value;
+    //     const color = annotationColor || this._activeHighlightColor;
+    //
+    //     let opacity = null;
+    //     let isActive = false;
+    //
+    //     // Detect if this annotation belongs to the active sentence
+    //     if (
+    //         annotationColor === this._activeHighlightColor ||
+    //         (!annotationColor && this._activeAnnotationValue === cfi)
+    //     ) {
+    //         opacity = "0.18";
+    //         isActive = true;
+    //     } else if (annotationColor === this._hoverHighlightColor) {
+    //         opacity = "0.12";
+    //     }
+    //
+    //     const drawHighlight = (rects, options = {}) => {
+    //         const el = Overlayer.highlight(rects, options);
+    //         if (opacity !== null) {
+    //             el.style.opacity = opacity;
+    //         }
+    //
+    //         // Only attach the action popup to the active sentence
+    //         if (isActive && rects.length > 0) {
+    //             const state = this.app.state;
+    //             const sentenceIndex = state.sentences?.findIndex((s) => s.cfi === cfi) ?? -1;
+    //
+    //             if (sentenceIndex >= 0) {
+    //                 const savedData = state.savedHighlights?.get(sentenceIndex);
+    //                 const isHighlighted = !!savedData;
+    //                 const hasComment = typeof savedData?.comment === "string" && savedData.comment.trim().length > 0;
+    //
+    //                 // Defer UI placement briefly to ensure Foliate has attached 'el' to the DOM
+    //                 requestAnimationFrame(() => {
+    //                     this._renderActivePhraseActions(el, sentenceIndex, isHighlighted, hasComment);
+    //                 });
+    //             }
+    //         }
+    //         return el;
+    //     };
+    //
+    //     try {
+    //         detail.draw(drawHighlight, { color });
+    //     } catch (error) {
+    //         console.warn("[EPUBRenderer] Failed to draw annotation", error);
+    //     }
+    // }
     _handleDrawAnnotation(event) {
         const detail = event?.detail;
         if (!detail?.draw) return;
@@ -553,6 +652,10 @@ export class EPUBRenderer {
 
         const drawHighlight = (rects, options = {}) => {
             const el = Overlayer.highlight(rects, options);
+
+            // --- CRITICAL FIX: Prevent the highlight overlay from swallowing mouse events ---
+            el.style.pointerEvents = "none";
+
             if (opacity !== null) {
                 el.style.opacity = opacity;
             }
@@ -916,17 +1019,30 @@ export class EPUBRenderer {
         return this.loader?.findSentenceIndexInSection(sectionIndex, cfi) ?? -1;
     }
 
+    // _handleDocumentPointerMove(event, sectionIndex, docOverride) {
+    //     if (!this.app?.state?.sentences?.length) return;
+    //     const doc = docOverride || event.currentTarget;
+    //     if (!doc) return;
+    //     if (event?.target?.closest?.("a[href]")) {
+    //         this._setHoveredSentence(-1);
+    //         return;
+    //     }
+    //     const idx = this._resolveSentenceIndexFromEvent(doc, event, sectionIndex);
+    //     if (idx >= 0) this._setHoveredSentence(idx);
+    //     else this._setHoveredSentence(-1);
+    // }
     _handleDocumentPointerMove(event, sectionIndex, docOverride) {
         if (!this.app?.state?.sentences?.length) return;
         const doc = docOverride || event.currentTarget;
         if (!doc) return;
         if (event?.target?.closest?.("a[href]")) {
-            this._setHoveredSentence(-1);
+            this._setHoveredSentence(-1, doc);
             return;
         }
         const idx = this._resolveSentenceIndexFromEvent(doc, event, sectionIndex);
-        if (idx >= 0) this._setHoveredSentence(idx);
-        else this._setHoveredSentence(-1);
+
+        // Pass the resolved index and the document
+        this._setHoveredSentence(idx >= 0 ? idx : -1, doc);
     }
 
     _handleDocumentTouchMove(event, sectionIndex, doc) {
@@ -992,9 +1108,22 @@ export class EPUBRenderer {
         });
     }
 
-    _setHoveredSentence(idx) {
+    // _setHoveredSentence(idx) {
+    //     const { state } = this.app;
+    //     if (!state) return;
+    //     if (state.hoveredSentenceIndex === idx) return;
+    //     state.hoveredSentenceIndex = idx;
+    //     this.renderHoverHighlightFullDoc();
+    // }
+    _setHoveredSentence(idx, doc = null) {
         const { state } = this.app;
         if (!state) return;
+
+        // --- NEW: Visual feedback to show the phrase is clickable ---
+        if (doc && doc.body) {
+            doc.body.style.cursor = idx >= 0 ? "pointer" : "";
+        }
+
         if (state.hoveredSentenceIndex === idx) return;
         state.hoveredSentenceIndex = idx;
         this.renderHoverHighlightFullDoc();

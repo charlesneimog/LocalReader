@@ -83,7 +83,7 @@ export class PDFTTSApp {
 
         this._setupAutoTranslate();
         this._setupReadTranslation();
-        this._setupPdfTranslationPrompt();
+        this._setupDocumentTranslationPrompt();
 
         this.showSavedPDFs();
 
@@ -367,29 +367,46 @@ export class PDFTTSApp {
         });
     }
 
-    _setupPdfTranslationPrompt() {
+_setupDocumentTranslationPrompt() {
         this.eventBus.on(EVENTS.PDF_LOADED, () => {
             // Defer to ensure render/layout work settles before opening the modal.
             window.setTimeout(() => {
-                this._maybePromptTranslationForNewPdf().catch((err) => {
+                this._maybePromptTranslationForNewDoc("pdf").catch((err) => {
+                    console.warn("[translationPrompt] failed", err);
+                });
+            }, 80);
+        });
+
+        this.eventBus.on(EVENTS.EPUB_LOADED, () => {
+            window.setTimeout(() => {
+                this._maybePromptTranslationForNewDoc("epub").catch((err) => {
                     console.warn("[translationPrompt] failed", err);
                 });
             }, 80);
         });
     }
 
-    async _maybePromptTranslationForNewPdf() {
-        const promptKey = this._getCurrentPdfPromptKey();
+    async _maybePromptTranslationForNewDoc(docType) {
+        // Dynamically get the key based on document type
+        const promptKey = docType === "epub" ? this.state.currentEpubKey : this.state.currentPdfKey;
         if (!promptKey) return;
 
         const bookTitle = String(this.state.bookTitle || "").trim();
+        const docLabel = docType === "epub" ? "EPUB" : "PDF";
+        
         const subtitle = bookTitle
-            ? `Choose how translations should work for \"${bookTitle}\"`
-            : "Choose how translations should work for this PDF";
+            ? `Choose how translations should work for "${bookTitle}"`
+            : `Choose how translations should work for this ${docLabel}`;
 
-        const savedPrefs = this._getSavedTranslationSettingsForPdf(promptKey);
-        const initialTarget = savedPrefs?.target || this._getTranslationTargetLanguage();
+        // Fetch saved prefs using the compound key (e.g., "epub::url::book.epub")
+        const compoundKey = `${docType}::${promptKey}`;
+        const progressMap = this.app?.progressManager?.getProgressMap?.() || {};
+        const savedPrefs = progressMap[compoundKey] || {};
 
+        const initialTarget = savedPrefs?.translationTarget || this._getTranslationTargetLanguage();
+
+        // Note: You can keep using showPdfTranslationPrompt if it's just a generic UI modal, 
+        // or rename it to showTranslationPrompt in your UI manager for cleanliness.
         const response = await this.ui?.showPdfTranslationPrompt?.({
             subtitle,
             initialTarget,
@@ -403,7 +420,8 @@ export class PDFTTSApp {
         const target = this._setTranslationTargetLanguage(response.target);
         const mode = this._normalizeTranslationMode(response.mode);
 
-        await this._persistTranslationSettingsForCurrentPdf({ target, mode });
+        // Persist settings generically for the current document
+        await this._persistTranslationSettingsForDoc(compoundKey, target, mode);
 
         if (mode === "read") {
             this.setReadTranslationEnabled(true);
@@ -423,6 +441,70 @@ export class PDFTTSApp {
         this.setAutoTranslateEnabled(false);
         this.ui?.showInfo?.("Translation: OFF");
     }
+
+    // --- Helper to save the settings dynamically ---
+    async _persistTranslationSettingsForDoc(compoundKey, target, mode) {
+        if (!this.app?.progressManager) return;
+        
+        const map = this.app.progressManager.getProgressMap();
+        const existingEntry = map[compoundKey] || {};
+        
+        map[compoundKey] = {
+            ...existingEntry,
+            translationTarget: target,
+            translationMode: mode,
+            docType: compoundKey.split("::")[0] // Extract "pdf" or "epub"
+        };
+        
+        this.app.progressManager.setProgressMap(map);
+    }
+
+
+    // async _maybePromptTranslationForNewPdf() {
+    //     const promptKey = this._getCurrentPdfPromptKey();
+    //     if (!promptKey) return;
+    //
+    //     const bookTitle = String(this.state.bookTitle || "").trim();
+    //     const subtitle = bookTitle
+    //         ? `Choose how translations should work for \"${bookTitle}\"`
+    //         : "Choose how translations should work for this PDF";
+    //
+    //     const savedPrefs = this._getSavedTranslationSettingsForPdf(promptKey);
+    //     const initialTarget = savedPrefs?.target || this._getTranslationTargetLanguage();
+    //
+    //     const response = await this.ui?.showPdfTranslationPrompt?.({
+    //         subtitle,
+    //         initialTarget,
+    //         initialSpeed: this._getCurrentSpeedControlValue(),
+    //     });
+    //
+    //     if (!response || !response.mode) return;
+    //
+    //     this._applyReadingSpeedFromPopup(response.speed);
+    //
+    //     const target = this._setTranslationTargetLanguage(response.target);
+    //     const mode = this._normalizeTranslationMode(response.mode);
+    //
+    //     await this._persistTranslationSettingsForCurrentPdf({ target, mode });
+    //
+    //     if (mode === "read") {
+    //         this.setReadTranslationEnabled(true);
+    //         this.setAutoTranslateEnabled(false);
+    //         this.ui?.showInfo?.(`Translation: read mode (${target})`);
+    //         return;
+    //     }
+    //
+    //     if (mode === "show") {
+    //         this.setReadTranslationEnabled(false);
+    //         this.setAutoTranslateEnabled(true);
+    //         this.ui?.showInfo?.(`Translation: show mode (${target})`);
+    //         return;
+    //     }
+    //
+    //     this.setReadTranslationEnabled(false);
+    //     this.setAutoTranslateEnabled(false);
+    //     this.ui?.showInfo?.("Translation: OFF");
+    // }
 
     _getVoicePrimaryLanguage(voiceId) {
         const token = String(voiceId || "")

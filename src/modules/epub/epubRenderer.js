@@ -42,8 +42,8 @@ export class EPUBRenderer {
         this._playbarOriginalNextSibling = null;
         this._playbarOriginalStyles = null;
 
-    // Track persistent annotation values we created for saved highlights
-    this._persistentAnnotationValues = new Set();
+        // Track persistent annotation values we created for saved highlights
+        this._persistentAnnotationValues = new Set();
 
         window.addEventListener("resize", this._boundResize, { passive: true });
     }
@@ -184,8 +184,8 @@ export class EPUBRenderer {
             }
         }
         this._activeDocs.clear();
-
         this._detachInteractionListeners();
+        this._removeActivePhraseActions();
 
         if (this.view && this._activeAnnotationValue) {
             try {
@@ -287,6 +287,302 @@ export class EPUBRenderer {
         }
     }
 
+    _removeActivePhraseActions() {
+        if (this._activePhraseActionsEl) {
+            this._activePhraseActionsEl.remove();
+            this._activePhraseActionsEl = null;
+        }
+    }
+
+    // OLD
+    // _renderActivePhraseActions(highlightEl, sentenceIndex, highlighted, hasComment) {
+    //     if (!highlightEl || !highlightEl.isConnected) return;
+    //     this._removeActivePhraseActions();
+    //
+    //     const container = this._container;
+    //     if (!container) return;
+    //
+    //     // Get bounding rect of the first line of the highlight
+    //     const firstChild = highlightEl.firstElementChild || highlightEl;
+    //     const anchorRect = firstChild.getBoundingClientRect();
+    //
+    //     // Calculate absolute position considering EPUB iframes
+    //     const frame = highlightEl.ownerDocument?.defaultView?.frameElement;
+    //     let frameOffsetX = 0;
+    //     let frameOffsetY = 0;
+    //     if (frame) {
+    //         const frameRect = frame.getBoundingClientRect();
+    //         frameOffsetX = frameRect.left;
+    //         frameOffsetY = frameRect.top;
+    //     }
+    //
+    //     const containerRect = container.getBoundingClientRect();
+    //     const absLeft = anchorRect.left + frameOffsetX;
+    //     const absTop = anchorRect.top + frameOffsetY;
+    //
+    //     const left = absLeft - containerRect.left;
+    //     const top = absTop - containerRect.top - 34; // 34px offset for the popup
+    //
+    //     const panel = document.createElement("div");
+    //     // Reuse PDF classes for consistent styling
+    //     panel.className = "pdf-active-phrase-actions epub-active-phrase-actions";
+    //     panel.style.position = "absolute";
+    //     panel.style.left = `${Math.max(6, left)}px`;
+    //     panel.style.top = `${Math.max(6, top)}px`;
+    //     panel.style.zIndex = "100"; // Ensure it sits above foliate content
+    //
+    //     const stopBubble = (e) => {
+    //         e.preventDefault();
+    //         e.stopPropagation();
+    //     };
+    //     const stopPropagationOnly = (e) => {
+    //         e.stopPropagation();
+    //     };
+    //     const guardPointerEvents = (el) => {
+    //         if (!el) return;
+    //         el.addEventListener("pointerdown", stopPropagationOnly);
+    //         el.addEventListener("pointerup", stopPropagationOnly);
+    //         el.addEventListener("mousedown", stopPropagationOnly);
+    //         el.addEventListener("mouseup", stopPropagationOnly);
+    //         el.addEventListener("touchstart", stopPropagationOnly, { passive: true });
+    //         el.addEventListener("touchend", stopPropagationOnly, { passive: true });
+    //     };
+    //
+    //     guardPointerEvents(panel);
+    //
+    //     const copyBtn = document.createElement("button");
+    //     copyBtn.type = "button";
+    //     copyBtn.className = "pdf-active-phrase-btn";
+    //     copyBtn.title = "Copy current phrase";
+    //     copyBtn.setAttribute("aria-label", "Copy current phrase");
+    //     copyBtn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>';
+    //     guardPointerEvents(copyBtn);
+    //     copyBtn.addEventListener("click", async (e) => {
+    //         stopBubble(e);
+    //         await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({
+    //             successMessage: "Current phrase copied",
+    //         });
+    //     });
+    //
+    //     const highlightBtn = document.createElement("button");
+    //     highlightBtn.type = "button";
+    //     highlightBtn.className = "pdf-active-phrase-btn";
+    //     if (highlighted) highlightBtn.classList.add("is-active");
+    //     highlightBtn.setAttribute("aria-pressed", highlighted ? "true" : "false");
+    //     highlightBtn.title = highlighted ? "Remove highlight" : "Toggle highlight";
+    //     highlightBtn.setAttribute("aria-label", highlighted ? "Remove highlight" : "Toggle highlight");
+    //     highlightBtn.innerHTML = '<span class="material-symbols-outlined">format_ink_highlighter</span>';
+    //     guardPointerEvents(highlightBtn);
+    //     highlightBtn.addEventListener("click", (e) => {
+    //         stopBubble(e);
+    //         this.app.highlightManager?.toggleCurrentSentenceHighlight?.({ showMessage: true });
+    //     });
+    //
+    //     const commentBtn = document.createElement("button");
+    //     commentBtn.type = "button";
+    //     commentBtn.className = "pdf-active-phrase-btn";
+    //     if (hasComment) commentBtn.classList.add("is-active");
+    //     commentBtn.setAttribute("aria-pressed", hasComment ? "true" : "false");
+    //     commentBtn.title = hasComment ? "Edit comment" : "Add comment";
+    //     commentBtn.setAttribute("aria-label", hasComment ? "Edit comment" : "Add comment");
+    //     commentBtn.innerHTML = '<span class="material-symbols-outlined">comment</span>';
+    //     guardPointerEvents(commentBtn);
+    //     commentBtn.addEventListener("click", async (e) => {
+    //         stopBubble(e);
+    //         await this.app.interactionHandler?.promptCommentForSelection?.([sentenceIndex]);
+    //     });
+    //
+    //     panel.appendChild(copyBtn);
+    //     panel.appendChild(highlightBtn);
+    //     panel.appendChild(commentBtn);
+    //     container.appendChild(panel);
+    //     this._activePhraseActionsEl = panel;
+    //
+    //     // --- Prevent right overflow ---
+    //     requestAnimationFrame(() => {
+    //         if (!panel.isConnected) return;
+    //         const pRect = panel.getBoundingClientRect();
+    //         if (pRect.right > window.innerWidth) {
+    //             const shift = pRect.right - window.innerWidth + 8;
+    //             panel.style.left = `${parseFloat(panel.style.left) - shift}px`;
+    //         }
+    //     });
+    // }
+    _renderActivePhraseActions(highlightEl, sentenceIndex, highlighted, hasComment) {
+        if (!highlightEl || !highlightEl.isConnected) return;
+        this._removeActivePhraseActions();
+
+        const container = this._container;
+        if (!container) return;
+
+        // Get bounding rect of the first line of the highlight
+        const firstChild = highlightEl.firstElementChild || highlightEl;
+        const anchorRect = firstChild.getBoundingClientRect();
+
+        // Calculate absolute position considering EPUB iframes
+        const frame = highlightEl.ownerDocument?.defaultView?.frameElement;
+        let frameOffsetX = 0;
+        let frameOffsetY = 0;
+        if (frame) {
+            const frameRect = frame.getBoundingClientRect();
+            frameOffsetX = frameRect.left;
+            frameOffsetY = frameRect.top;
+        }
+
+        const containerRect = container.getBoundingClientRect();
+
+        // Target the horizontal center of the highlighted phrase
+        const absLeft = anchorRect.left + frameOffsetX + anchorRect.width / 2;
+        const absTop = anchorRect.top + frameOffsetY;
+
+        const left = absLeft - containerRect.left;
+        const top = absTop - containerRect.top - 34; // 34px offset for the popup
+
+        const panel = document.createElement("div");
+        panel.className = "pdf-active-phrase-actions epub-active-phrase-actions";
+        panel.style.position = "absolute";
+        panel.style.left = `${left}px`;
+        panel.style.top = `${Math.max(6, top)}px`;
+        panel.style.transform = "translateX(-50%)"; // Center visually
+        panel.style.zIndex = "100";
+
+        const stopBubble = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+        const stopPropagationOnly = (e) => {
+            e.stopPropagation();
+        };
+        const guardPointerEvents = (el) => {
+            if (!el) return;
+            el.addEventListener("pointerdown", stopPropagationOnly);
+            el.addEventListener("pointerup", stopPropagationOnly);
+            el.addEventListener("mousedown", stopPropagationOnly);
+            el.addEventListener("mouseup", stopPropagationOnly);
+            el.addEventListener("touchstart", stopPropagationOnly, { passive: true });
+            el.addEventListener("touchend", stopPropagationOnly, { passive: true });
+        };
+
+        guardPointerEvents(panel);
+
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.className = "pdf-active-phrase-btn";
+        copyBtn.title = "Copy current phrase";
+        copyBtn.setAttribute("aria-label", "Copy current phrase");
+        copyBtn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>';
+        guardPointerEvents(copyBtn);
+        copyBtn.addEventListener("click", async (e) => {
+            stopBubble(e);
+            await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({
+                successMessage: "Current phrase copied",
+            });
+        });
+
+        const highlightBtn = document.createElement("button");
+        highlightBtn.type = "button";
+        highlightBtn.className = "pdf-active-phrase-btn";
+        if (highlighted) highlightBtn.classList.add("is-active");
+        highlightBtn.setAttribute("aria-pressed", highlighted ? "true" : "false");
+        highlightBtn.title = highlighted ? "Remove highlight" : "Toggle highlight";
+        highlightBtn.setAttribute("aria-label", highlighted ? "Remove highlight" : "Toggle highlight");
+        highlightBtn.innerHTML = '<span class="material-symbols-outlined">format_ink_highlighter</span>';
+        guardPointerEvents(highlightBtn);
+        highlightBtn.addEventListener("click", (e) => {
+            stopBubble(e);
+            this.app.highlightManager?.toggleCurrentSentenceHighlight?.({ showMessage: true });
+        });
+
+        const commentBtn = document.createElement("button");
+        commentBtn.type = "button";
+        commentBtn.className = "pdf-active-phrase-btn";
+        if (hasComment) commentBtn.classList.add("is-active");
+        commentBtn.setAttribute("aria-pressed", hasComment ? "true" : "false");
+        commentBtn.title = hasComment ? "Edit comment" : "Add comment";
+        commentBtn.setAttribute("aria-label", hasComment ? "Edit comment" : "Add comment");
+        commentBtn.innerHTML = '<span class="material-symbols-outlined">comment</span>';
+        guardPointerEvents(commentBtn);
+        commentBtn.addEventListener("click", async (e) => {
+            stopBubble(e);
+            await this.app.interactionHandler?.promptCommentForSelection?.([sentenceIndex]);
+        });
+
+        panel.appendChild(copyBtn);
+        panel.appendChild(highlightBtn);
+        panel.appendChild(commentBtn);
+        container.appendChild(panel);
+        this._activePhraseActionsEl = panel;
+
+        // --- Prevent both left and right overflow ---
+        requestAnimationFrame(() => {
+            if (!panel.isConnected) return;
+            const pRect = panel.getBoundingClientRect();
+
+            if (pRect.right > window.innerWidth) {
+                // If bleeding off the right side
+                const shift = pRect.right - window.innerWidth + 8;
+                panel.style.left = `${parseFloat(panel.style.left) - shift}px`;
+            } else if (pRect.left < 0) {
+                // If bleeding off the left side
+                const shift = Math.abs(pRect.left) + 8;
+                panel.style.left = `${parseFloat(panel.style.left) + shift}px`;
+            }
+        });
+    }
+
+    _handleDrawAnnotation(event) {
+        const detail = event?.detail;
+        if (!detail?.draw) return;
+        const annotationColor = detail.annotation?.color;
+        const cfi = detail.annotation?.value;
+        const color = annotationColor || this._activeHighlightColor;
+
+        let opacity = null;
+        let isActive = false;
+
+        // Detect if this annotation belongs to the active sentence
+        if (
+            annotationColor === this._activeHighlightColor ||
+            (!annotationColor && this._activeAnnotationValue === cfi)
+        ) {
+            opacity = "0.18";
+            isActive = true;
+        } else if (annotationColor === this._hoverHighlightColor) {
+            opacity = "0.12";
+        }
+
+        const drawHighlight = (rects, options = {}) => {
+            const el = Overlayer.highlight(rects, options);
+            if (opacity !== null) {
+                el.style.opacity = opacity;
+            }
+
+            // Only attach the action popup to the active sentence
+            if (isActive && rects.length > 0) {
+                const state = this.app.state;
+                const sentenceIndex = state.sentences?.findIndex((s) => s.cfi === cfi) ?? -1;
+
+                if (sentenceIndex >= 0) {
+                    const savedData = state.savedHighlights?.get(sentenceIndex);
+                    const isHighlighted = !!savedData;
+                    const hasComment = typeof savedData?.comment === "string" && savedData.comment.trim().length > 0;
+
+                    // Defer UI placement briefly to ensure Foliate has attached 'el' to the DOM
+                    requestAnimationFrame(() => {
+                        this._renderActivePhraseActions(el, sentenceIndex, isHighlighted, hasComment);
+                    });
+                }
+            }
+            return el;
+        };
+
+        try {
+            detail.draw(drawHighlight, { color });
+        } catch (error) {
+            console.warn("[EPUBRenderer] Failed to draw annotation", error);
+        }
+    }
+
     renderHoverHighlightFullDoc() {
         const { state } = this.app;
         if (!this.view || !state?.sentences?.length) {
@@ -352,6 +648,25 @@ export class EPUBRenderer {
         return sentence;
     }
 
+    // OLD
+    // scrollSentenceIntoView(sentence) {
+    //     if (!sentence?.cfi || !this.view?.resolveCFI || !this.view?.renderer?.scrollToAnchor) return;
+    //     try {
+    //         const resolved = this.view.resolveCFI(sentence.cfi);
+    //         if (!resolved?.anchor) return;
+    //         const contents = this.view.renderer.getContents?.() ?? [];
+    //         const target = contents.find((entry) => entry.index === resolved.index);
+    //         const doc = target?.doc;
+    //         if (!doc) return;
+    //         const range = resolved.anchor(doc);
+    //         if (range) {
+    //             this.view.renderer.scrollToAnchor(range, true);
+    //             this._clearTextSelections();
+    //         }
+    //     } catch (error) {
+    //         console.debug("[EPUBRenderer] Unable to scroll into view", error);
+    //     }
+    // }
     scrollSentenceIntoView(sentence) {
         if (!sentence?.cfi || !this.view?.resolveCFI || !this.view?.renderer?.scrollToAnchor) return;
         try {
@@ -361,8 +676,24 @@ export class EPUBRenderer {
             const target = contents.find((entry) => entry.index === resolved.index);
             const doc = target?.doc;
             if (!doc) return;
+
             const range = resolved.anchor(doc);
             if (range) {
+                // If we are in scrolled mode, force the element to the center of the viewport
+                if (this.view.renderer.getAttribute("flow") === "scrolled") {
+                    const el =
+                        range.startContainer.nodeType === 3 /* Node.TEXT_NODE */
+                            ? range.startContainer.parentElement
+                            : range.startContainer;
+
+                    if (el && typeof el.scrollIntoView === "function") {
+                        el.scrollIntoView({ behavior: "smooth", block: "center" });
+                        this._clearTextSelections();
+                        return;
+                    }
+                }
+
+                // Fallback for paginated or if scrollIntoView fails
                 this.view.renderer.scrollToAnchor(range, true);
                 this._clearTextSelections();
             }
@@ -437,31 +768,6 @@ export class EPUBRenderer {
         this.setupInteractionListeners();
     }
 
-    _handleDrawAnnotation(event) {
-        const detail = event?.detail;
-        if (!detail?.draw) return;
-        const annotationColor = detail.annotation?.color;
-        const color = annotationColor || this._activeHighlightColor;
-        let opacity = null;
-        if (annotationColor === this._activeHighlightColor) {
-            opacity = "0.18";
-        } else if (annotationColor === this._hoverHighlightColor) {
-            opacity = "0.12";
-        }
-        const drawHighlight = (rects, options = {}) => {
-            const el = Overlayer.highlight(rects, options);
-            if (opacity !== null) {
-                el.style.opacity = opacity;
-            }
-            return el;
-        };
-        try {
-            detail.draw(drawHighlight, { color });
-        } catch (error) {
-            console.warn("[EPUBRenderer] Failed to draw annotation", error);
-        }
-    }
-
     _clearTextSelections() {
         if (typeof this.view?.deselect === "function") {
             try {
@@ -490,13 +796,28 @@ export class EPUBRenderer {
         }
     }
 
+    // OLD
+    // _applyReaderStyles() {
+    //     if (!this.view?.renderer) return;
+    //     if (typeof this.view.renderer.setStyles === "function") {
+    //         // this.view.renderer.setStyles(buildReaderCSS(this._readerSettings));
+    //     }
+    //     if (!this.view.renderer.hasAttribute("flow")) {
+    //         this.view.renderer.setAttribute("flow", "paginated");
+    //     }
+    //     if (typeof this.view.renderer.next === "function") {
+    //         this.view.renderer.next();
+    //     }
+    // }
+    //
     _applyReaderStyles() {
         if (!this.view?.renderer) return;
         if (typeof this.view.renderer.setStyles === "function") {
             // this.view.renderer.setStyles(buildReaderCSS(this._readerSettings));
         }
+        // Switch from "paginated" to "scrolled" to prevent phrases from splitting across pages
         if (!this.view.renderer.hasAttribute("flow")) {
-            this.view.renderer.setAttribute("flow", "paginated");
+            this.view.renderer.setAttribute("flow", "scrolled");
         }
         if (typeof this.view.renderer.next === "function") {
             this.view.renderer.next();
@@ -629,6 +950,7 @@ export class EPUBRenderer {
             } catch (error) {
                 console.debug("[EPUBRenderer] Unable to delete previous annotation", error);
             }
+            this._removeActivePhraseActions();
         }
 
         try {

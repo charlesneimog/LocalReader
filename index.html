@@ -565,7 +565,9 @@
             <div
                 class="mx-auto w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-xl border border-white/20 dark:border-background-dark/20 bg-white/70 dark:bg-background-dark/70 shadow-2xl"
             >
-                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+                <div
+                    class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700"
+                >
                     <div>
                         <h2 class="text-xl font-bold text-slate-800 dark:text-slate-100">Help</h2>
                         <p class="text-xs text-slate-500 dark:text-slate-400">LocalReader shortcuts and controls</p>
@@ -581,8 +583,12 @@
                 </div>
 
                 <div class="p-4 space-y-4">
-                    <section class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20">
-                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">Desktop / Keyboard</h3>
+                    <section
+                        class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20"
+                    >
+                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">
+                            Desktop / Keyboard
+                        </h3>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                             <div class="flex items-center gap-2">
                                 <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">Space</kbd>
@@ -593,7 +599,9 @@
                                 <span>Highlight current sentence</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">1 2 3 4</kbd>
+                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs"
+                                    >1 2 3 4</kbd
+                                >
                                 <span>Select highlight color preset</span>
                             </div>
                             <div class="flex items-center gap-2">
@@ -615,12 +623,19 @@
                         </div>
                     </section>
 
-                    <section class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20">
-                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">Smartphone / Tablet</h3>
+                    <section
+                        class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20"
+                    >
+                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">
+                            Smartphone / Tablet
+                        </h3>
                         <div class="space-y-2 text-sm text-slate-700 dark:text-slate-200">
                             <div class="flex items-start gap-2">
                                 <span class="material-symbols-outlined text-base text-primary mt-0.5">touch_app</span>
-                                <span>Tap the highlighter icon to open the highlight menu and choose color/comments.</span>
+                                <span
+                                    >Tap the highlighter icon to open the highlight menu and choose
+                                    color/comments.</span
+                                >
                             </div>
                             <div class="flex items-start gap-2">
                                 <span class="material-symbols-outlined text-base text-primary mt-0.5">gesture</span>
@@ -636,16 +651,22 @@
                             </div>
                             <div class="flex items-start gap-2">
                                 <span class="material-symbols-outlined text-base text-primary mt-0.5">settings</span>
-                                <span>Open Settings for voice, speed, translation mode, orientation lock, and help.</span>
+                                <span
+                                    >Open Settings for voice, speed, translation mode, orientation lock, and help.</span
+                                >
                             </div>
                         </div>
                     </section>
 
-                    <section class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20">
-                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">Highlight Menu Tips</h3>
+                    <section
+                        class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20"
+                    >
+                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">
+                            Highlight Menu Tips
+                        </h3>
                         <p class="text-sm text-slate-700 dark:text-slate-200">
-                            Use <span class="font-semibold">1 2 3 4</span> on desktop to switch colors instantly, or open
-                            the highlight popup to pick custom colors and add comments.
+                            Use <span class="font-semibold">1 2 3 4</span> on desktop to switch colors instantly, or
+                            open the highlight popup to pick custom colors and add comments.
                         </p>
                     </section>
                 </div>
@@ -723,6 +744,7 @@
                 <div class="mx-2 h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
 
                 <button
+                    id="prev-page"
                     title="Go to previous sentence"
                     aria-label="Go to previous sentence"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"
@@ -742,6 +764,7 @@
                 </button>
 
                 <button
+                    id="next-page"
                     title="Go to next sentence"
                     aria-label="Go to next sentence"
                     class="flex items-center justify-center rounded p-2 hover:bg-primary/10 dark:hover:bg-primary/20"

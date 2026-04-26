@@ -46,10 +46,10 @@ export class ControlsManager {
         this.lockBtn = document.getElementById("lock-screen");
 
         // Translate
-        this.toggleTranslateBtn = document.getElementById("toggle-translate");
+        // this.toggleTranslateBtn = document.getElementById("toggle-translate");
 
         // Read translation (use translated sentence for TTS)
-        this.toggleReadTranslationBtn = document.getElementById("toggle-read-translation");
+        // this.toggleReadTranslationBtn = document.getElementById("toggle-read-translation");
 
         // Default highlight color
         this.app.highlightManager?.setSelectedHighlightColor("#ffda76");
@@ -227,33 +227,6 @@ export class ControlsManager {
         }
         on(this.exportHighlightsBtn, "click", () => app.exportManager.exportPdfWithHighlights());
 
-        // Translate toggle (auto translate every spoken sentence)
-        if (this.toggleTranslateBtn) {
-            // Initialize UI from persisted value (app will also load into state).
-            const raw = localStorage.getItem("config.autoTranslate");
-            const enabled = raw === "1" || raw === "true";
-            this.reflectAutoTranslateToggle(enabled);
-
-            on(this.toggleTranslateBtn, "click", () => {
-                const next = !app.isAutoTranslateEnabled?.();
-                app.setAutoTranslateEnabled?.(next);
-                this.showInfo(next ? "Auto-translate: ON" : "Auto-translate: OFF", 1500);
-            });
-        }
-
-        // Read translation toggle (replace spoken text with translated text)
-        if (this.toggleReadTranslationBtn) {
-            const raw = localStorage.getItem("config.readTranslation");
-            const enabled = raw === "1" || raw === "true";
-            this.reflectReadTranslationToggle(enabled);
-
-            on(this.toggleReadTranslationBtn, "click", () => {
-                const next = !app.isReadTranslationEnabled?.();
-                app.setReadTranslationEnabled?.(next);
-                this.showInfo(next ? "Read translation: ON" : "Read translation: OFF", 1500);
-            });
-        }
-
         if (this.highlightColorButtons?.length) {
             this.highlightColorButtons.forEach((btn) => {
                 btn.setAttribute("aria-pressed", "false");
@@ -422,14 +395,6 @@ export class ControlsManager {
         // Match the styling used by other toggles (e.g. fullscreen).
         this.toggleTranslateBtn.classList.toggle("bg-primary/10", active);
         this.toggleTranslateBtn.classList.toggle("text-primary", active);
-    }
-
-    reflectReadTranslationToggle(enabled) {
-        if (!this.toggleReadTranslationBtn) return;
-        const active = !!enabled;
-        this.toggleReadTranslationBtn.setAttribute("aria-pressed", active ? "true" : "false");
-        this.toggleReadTranslationBtn.classList.toggle("bg-primary/10", active);
-        this.toggleReadTranslationBtn.classList.toggle("text-primary", active);
     }
 
     orientationChange() {

@@ -4,6 +4,13 @@ import { Overlayer } from "./../../../thirdparty/foliate-js/overlayer.js";
 const ACTIVE_SENTENCE_COLOR = "rgb(120, 190, 255)";
 const HOVER_SENTENCE_COLOR = "rgb(148, 255, 206)";
 
+const DEFAULT_READER_SETTINGS = Object.freeze({
+    spacing: 1.5,
+    justify: true,
+    hyphenate: true,
+    fontSize: 100, // percentage: 50-200
+});
+
 export class EPUBRenderer {
     constructor(app, loader) {
         this.app = app;
@@ -18,6 +25,9 @@ export class EPUBRenderer {
         this._boundHighlight = null;
         this._boundLoad = null;
         this._boundDrawAnnotation = null;
+        this._boundZoomKeydown = null;
+        this._boundTouchStart = null;
+        this._initialTouchDistance = 0;
 
         this._activeDocs = new Set();
         this._docListeners = [];
@@ -30,12 +40,12 @@ export class EPUBRenderer {
         this._activeHighlightColor = ACTIVE_SENTENCE_COLOR;
         this._hoverHighlightColor = HOVER_SENTENCE_COLOR;
 
-        const DEFAULT_READER_SETTINGS = Object.freeze({
-            spacing: 1.5,
-            justify: true,
-            hyphenate: true,
-        });
         this._readerSettings = { ...DEFAULT_READER_SETTINGS };
+
+        // Font size constraints
+        this._MIN_FONT_SIZE = 50;
+        this._MAX_FONT_SIZE = 200;
+        this._FONT_SIZE_STEP = 10;
 
         this._playbarRoot = null;
         this._playbarOriginalParent = null;
@@ -44,6 +54,11 @@ export class EPUBRenderer {
 
         // Track persistent annotation values we created for saved highlights
         this._persistentAnnotationValues = new Set();
+
+        this._boundZoomKeydown = this._handleZoomKeydown.bind(this);
+        this._boundTouchStart = this._handleTouchStart.bind(this);
+        this._boundTouchMove = this._handleTouchMove.bind(this);
+        this._boundTouchEnd = this._handleTouchEnd.bind(this);
 
         window.addEventListener("resize", this._boundResize, { passive: true });
     }
@@ -123,6 +138,38 @@ export class EPUBRenderer {
     pdateHighlightDisplay() {
         return this.updateHighlightDisplay();
     }
+
+    /**
+     * Increase font size by step
+     */
+    increaseFontSize() {
+        this.setFontSize(this._readerSettings.fontSize + this._FONT_SIZE_STEP);
+    }
+
+    /**
+     * Decrease font size by step
+     */
+    decreaseFontSize() {
+        this.setFontSize(this._readerSettings.fontSize - this._FONT_SIZE_STEP);
+    }
+
+    /**
+     * Set font size with constraints
+     * @param {number} size - Font size as percentage (50-200)
+     */
+    setFontSize(size) {
+        size = Math.max(this._MIN_FONT_SIZE, Math.min(this._MAX_FONT_SIZE, size));
+        this._readerSettings.fontSize = size;
+        this._applyReaderStyles();
+    }
+
+    /**
+     * Get current font size
+     */
+    getFontSize() {
+        return this._readerSettings.fontSize;
+    }
+
     setReaderSettings(settings = {}) {
         this._readerSettings = { ...DEFAULT_READER_SETTINGS, ...settings };
     }
@@ -176,6 +223,7 @@ export class EPUBRenderer {
         view.addEventListener("draw-annotation", this._boundDrawAnnotation);
 
         this._bindGlobalKeys();
+        this._bindZoomListeners();
 
         await view.open(source);
 
@@ -187,6 +235,7 @@ export class EPUBRenderer {
 
     reset() {
         this._unbindGlobalKeys();
+        this._unbindZoomListeners();
 
         for (const doc of this._activeDocs) {
             try {
@@ -858,6 +907,22 @@ export class EPUBRenderer {
         this._globalKeysBound = false;
     }
 
+    _bindZoomListeners() {
+        if (!this._container) return;
+        window.addEventListener("keydown", this._boundZoomKeydown, { passive: false });
+        this._container.addEventListener("touchstart", this._boundTouchStart, { passive: true });
+        this._container.addEventListener("touchmove", this._boundTouchMove, { passive: false });
+        this._container.addEventListener("touchend", this._boundTouchEnd, { passive: true });
+    }
+
+    _unbindZoomListeners() {
+        if (!this._container) return;
+        window.removeEventListener("keydown", this._boundZoomKeydown);
+        this._container.removeEventListener("touchstart", this._boundTouchStart);
+        this._container.removeEventListener("touchmove", this._boundTouchMove);
+        this._container.removeEventListener("touchend", this._boundTouchEnd);
+    }
+
     _handleDirectionalKeydown(event) {
         if (!this.view) return;
         const tag = event.target?.tagName || "";
@@ -870,6 +935,67 @@ export class EPUBRenderer {
             event.preventDefault();
             this.view.goRight();
         }
+    }
+
+    _handleZoomKeydown(event) {
+        if (!this.view) return;
+        const tag = event.target?.tagName || "";
+        if (/^(INPUT|TEXTAREA|SELECT)$/i.test(tag)) return;
+
+        // Ctrl/Cmd + Plus or Ctrl/Cmd + Equals (zoom in)
+        if ((event.ctrlKey || event.metaKey) && (event.key === "+" || event.key === "=")) {
+            event.preventDefault();
+            this.increaseFontSize();
+        }
+        // Ctrl/Cmd + Minus (zoom out)
+        else if ((event.ctrlKey || event.metaKey) && event.key === "-") {
+            event.preventDefault();
+            this.decreaseFontSize();
+        }
+        // Ctrl/Cmd + 0 (reset to default)
+        else if ((event.ctrlKey || event.metaKey) && event.key === "0") {
+            event.preventDefault();
+            this.setFontSize(100);
+        }
+    }
+
+    _handleTouchStart(event) {
+        if (event.touches.length !== 2) {
+            this._initialTouchDistance = 0;
+            return;
+        }
+        const touch1 = event.touches[0];
+        const touch2 = event.touches[1];
+        const dx = touch1.clientX - touch2.clientX;
+        const dy = touch1.clientY - touch2.clientY;
+        this._initialTouchDistance = Math.sqrt(dx * dx + dy * dy);
+    }
+
+    _handleTouchMove(event) {
+        if (event.touches.length !== 2 || this._initialTouchDistance === 0) return;
+        event.preventDefault();
+
+        const touch1 = event.touches[0];
+        const touch2 = event.touches[1];
+        const dx = touch1.clientX - touch2.clientX;
+        const dy = touch1.clientY - touch2.clientY;
+        const currentDistance = Math.sqrt(dx * dx + dy * dy);
+
+        // Calculate zoom delta
+        const delta = currentDistance - this._initialTouchDistance;
+        if (Math.abs(delta) > 10) {
+            // Only trigger if significant pinch
+            if (delta > 0) {
+                this.increaseFontSize();
+            } else {
+                this.decreaseFontSize();
+            }
+            this._initialTouchDistance = currentDistance;
+        }
+    }
+
+    _handleTouchEnd(event) {
+        this._initialTouchDistance = 0;
     }
 
     _handleViewLoad(event) {
@@ -924,9 +1050,21 @@ export class EPUBRenderer {
     //
     _applyReaderStyles() {
         if (!this.view?.renderer) return;
+        
+        // Build CSS with font size
+        const fontSize = this._readerSettings.fontSize || 100;
+        const css = `
+            * { font-size: calc(1em * ${fontSize / 100}) !important; }
+        `;
+        
         if (typeof this.view.renderer.setStyles === "function") {
-            // this.view.renderer.setStyles(buildReaderCSS(this._readerSettings));
+            try {
+                this.view.renderer.setStyles(css);
+            } catch (error) {
+                console.debug("[EPUBRenderer] Error applying styles", error);
+            }
         }
+        
         // Switch from "paginated" to "scrolled" to prevent phrases from splitting across pages
         if (!this.view.renderer.hasAttribute("flow")) {
             this.view.renderer.setAttribute("flow", "scrolled");

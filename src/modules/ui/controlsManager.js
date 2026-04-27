@@ -225,7 +225,7 @@ export class ControlsManager {
         if (this.saveCommentBtn && !isAuthButton(this.saveCommentBtn)) {
             on(this.saveCommentBtn, "click", () => app.highlightManager.editCurrentSentenceComment());
         }
-        on(this.exportHighlightsBtn, "click", () => app.exportManager.exportPdfWithHighlights());
+        on(this.exportHighlightsBtn, "click", () => app.exportManager.exportHighlights());
 
         if (this.highlightColorButtons?.length) {
             this.highlightColorButtons.forEach((btn) => {

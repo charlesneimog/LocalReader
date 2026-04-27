@@ -75,6 +75,7 @@ export class EPUBLoader {
                 state.autoAdvanceActive = false;
                 state.playingSentenceIndex = -1;
                 state.sentences = [];
+                state.savedHighlights = new Map();
                 state.pageSentencesIndex?.clear?.();
                 state.hoveredSentenceIndex = -1;
                 state.currentSentenceIndex = -1;
@@ -178,6 +179,7 @@ export class EPUBLoader {
             if (state.sentences?.length) {
                 let startIndex = Math.max(0, state.currentSentenceIndex ?? 0);
                 let resumeVoiceId = null;
+                let loadedHighlightsFromServer = false;
                 
                 // First, try to load from server if enabled
                 if (this.app.serverSync?.isEnabled() && state.currentEpubKey) {
@@ -196,9 +198,10 @@ export class EPUBLoader {
                             console.log(`[EPUBLoader] Restored voice from server: ${resumeVoiceId}`);
                         }
                         
-                        // Update highlights from server if available
-                        if (serverData.highlights && serverData.highlights.size > 0) {
+                        // Update highlights from server when present (including empty map)
+                        if (serverData.highlights instanceof Map) {
                             state.savedHighlights = serverData.highlights;
+                            loadedHighlightsFromServer = true;
                             console.log(`[EPUBLoader] Restored ${serverData.highlights.size} highlights from server`);
                             
                             // Also save to local storage
@@ -222,11 +225,22 @@ export class EPUBLoader {
                     }
                 }
 
+                // If server did not provide highlights, restore them from local storage.
+                if (!loadedHighlightsFromServer && state.currentEpubKey) {
+                    state.savedHighlights = this.app.highlightsStorage.loadSavedHighlights(state.currentEpubKey);
+                }
+
+                if (state.savedHighlights.size) {
+                    const lastSaved = Array.from(state.savedHighlights.values()).pop();
+                    if (lastSaved?.color) state.selectedHighlightColor = lastSaved.color;
+                }
+
                 if (resume && resumeVoiceId) {
                     await this._applySavedVoice(resumeVoiceId);
                 }
 
                 await this.renderer.renderSentence(startIndex, { suppressScroll: true });
+                await this.renderer.updateHighlightDisplay();
             } else {
                 this.app.ui.showInfo("No readable text detected in EPUB.");
             }

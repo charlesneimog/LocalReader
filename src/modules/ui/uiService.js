@@ -821,6 +821,7 @@ export class UIService {
 
         const tText = document.createElement("div");
         tText.className = "text-lg font-medium text-slate-900 dark:text-white";
+        tText.setAttribute("data-translate-popup-text", "true");
 
         tText.textContent = translatedText || "(empty)";
         body.appendChild(tText);

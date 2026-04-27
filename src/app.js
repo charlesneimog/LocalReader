@@ -843,6 +843,10 @@ _setupDocumentTranslationPrompt() {
         return this.exportManager.exportPdfWithHighlights();
     }
 
+    exportHighlights() {
+        return this.exportManager.exportHighlights();
+    }
+
     saveCurrentSentenceHighlight(color) {
         return this.highlightManager.saveCurrentSentenceHighlight(color);
     }

@@ -648,8 +648,7 @@ export class ServerSync {
         }
 
         const warningKey = `${appVersion}|${serverVersion}`;
-        const warningMsg = `⚠️ Version mismatch: app v${appVersion} and server v${serverVersion}. Update one side to keep sync stable.`;
-
+        const warningMsg = `⚠️ Version mismatch: app v${appVersion} and server v${serverVersion}.`;
         console.warn("[ServerSync] Version mismatch detected", {
             appVersion,
             serverVersion,

@@ -2,7 +2,7 @@ import "./../../../thirdparty/foliate-js/view.js";
 import { Overlayer } from "./../../../thirdparty/foliate-js/overlayer.js";
 
 const ACTIVE_SENTENCE_COLOR = "rgb(120, 190, 255)";
-const HOVER_SENTENCE_COLOR = "rgb(148, 206, 255)";
+const HOVER_SENTENCE_COLOR = "rgb(148, 255, 206)";
 
 export class EPUBRenderer {
     constructor(app, loader) {
@@ -57,6 +57,16 @@ export class EPUBRenderer {
         const { state } = this.app;
         if (!this.view || !state) return;
 
+        const activeCfi =
+            state.currentSentence?.cfi ||
+            state.sentences?.[
+                typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                    ? state.playingSentenceIndex
+                    : state.currentSentenceIndex
+            ]?.cfi ||
+            this._activeAnnotationValue ||
+            null;
+
         // Remove any previously created persistent annotations
         if (this._persistentAnnotationValues && this._persistentAnnotationValues.size) {
             for (const val of Array.from(this._persistentAnnotationValues)) {
@@ -78,6 +88,8 @@ export class EPUBRenderer {
                     const sentence = state.sentences?.[sentenceIndex];
                     const cfi = sentence?.cfi;
                     if (!cfi) continue;
+                    // Active sentence is drawn separately by _applySentenceHighlight.
+                    if (activeCfi && cfi === activeCfi) continue;
                     const color = highlightData?.color || null;
                     // Add annotation for saved highlight; don't await to keep UI responsive
                     this.view.addAnnotation({ value: cfi, color }).catch(() => {});
@@ -640,10 +652,7 @@ export class EPUBRenderer {
         let isActive = false;
 
         // Detect if this annotation belongs to the active sentence
-        if (
-            annotationColor === this._activeHighlightColor ||
-            (!annotationColor && this._activeAnnotationValue === cfi)
-        ) {
+        if (this._activeAnnotationValue && this._activeAnnotationValue === cfi) {
             opacity = "0.18";
             isActive = true;
         } else if (annotationColor === this._hoverHighlightColor) {
@@ -1060,6 +1069,7 @@ export class EPUBRenderer {
 
     async _applySentenceHighlight(cfi) {
         if (!this.view || !cfi) return;
+        const previousValue = this._activeAnnotationValue;
         if (this._activeAnnotationValue) {
             try {
                 await this.view.deleteAnnotation({ value: this._activeAnnotationValue });
@@ -1069,14 +1079,41 @@ export class EPUBRenderer {
             this._removeActivePhraseActions();
         }
 
+        // Restore previous active sentence as a persistent saved highlight when applicable.
+        if (previousValue && previousValue !== cfi) {
+            const previousSavedColor = this._getSavedHighlightColorByCfi(previousValue);
+            if (previousSavedColor) {
+                this.view.addAnnotation({ value: previousValue, color: previousSavedColor }).catch(() => {});
+                this._persistentAnnotationValues.add(previousValue);
+            }
+        }
+
+        const activeSavedColor = this._getSavedHighlightColorByCfi(cfi);
+        const activeColor = activeSavedColor || this._activeHighlightColor;
+
         try {
-            await this.view.addAnnotation({ value: cfi, color: this._activeHighlightColor });
+            await this.view.addAnnotation({ value: cfi, color: activeColor });
             this._activeAnnotationValue = cfi;
             this._clearTextSelections();
         } catch (error) {
             console.warn("[EPUBRenderer] Failed to apply highlight", error);
             this._activeAnnotationValue = null;
         }
+    }
+
+    _getSavedHighlightColorByCfi(cfi) {
+        if (!cfi) return null;
+        const state = this.app?.state;
+        const saved = state?.savedHighlights;
+        if (!state || !(saved instanceof Map) || !saved.size || !Array.isArray(state.sentences)) return null;
+
+        for (const [sentenceIndex, highlightData] of saved.entries()) {
+            if (!highlightData?.color) continue;
+            const sentenceCfi = state.sentences?.[sentenceIndex]?.cfi;
+            if (sentenceCfi === cfi) return highlightData.color;
+        }
+
+        return null;
     }
 
     _applyHoverHighlight(cfi) {

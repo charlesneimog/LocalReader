@@ -70,6 +70,16 @@ export class InteractionHandler {
         return this._getSelectionTextForCopy();
     }
 
+    _getHoveredTranslatePopupTextForCopy() {
+        const popup = this.app.ui?._translatePopupEl;
+        if (!popup || !popup.isConnected) return "";
+        if (!popup.matches(":hover")) return "";
+
+        const textEl = popup.querySelector("[data-translate-popup-text]");
+        const translated = textEl?.textContent || "";
+        return this._normalizeSelectionText(String(translated), { singleLine: true });
+    }
+
     async copyCurrentPhraseToClipboard({ successMessage = "Current phrase copied" } = {}) {
         const text = this.getCurrentPhraseTextForCopy({ fallbackToSelection: true });
         if (!text) return false;
@@ -88,11 +98,14 @@ export class InteractionHandler {
         const isCopy = (e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.key === "c" || e.key === "C");
         if (!isCopy) return;
 
-        const text = this.getCurrentPhraseTextForCopy({ fallbackToSelection: true });
+        const translatedPopupText = this._getHoveredTranslatePopupTextForCopy();
+        const text = translatedPopupText || this.getCurrentPhraseTextForCopy({ fallbackToSelection: true });
         if (!text) return;
 
         e.preventDefault();
-        await this._copyTextToClipboard(text, { successMessage: "Current phrase copied" });
+        await this._copyTextToClipboard(text, {
+            successMessage: translatedPopupText ? "Translated phrase copied" : "Current phrase copied",
+        });
     }
 
     _clearPdfTextSelectionOverlays() {

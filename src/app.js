@@ -814,13 +814,6 @@ _setupDocumentTranslationPrompt() {
         this._handleViewportHeightChange(this.viewportManager.getCurrentHeight());
         await this._ensureAriaRegions();
         await this._loadInitialPDF();
-
-        // Warm up TTS in the background so the UI doesn't appear frozen on slow/offline networks.
-        if (!this.network?.isOffline?.()) {
-            this.ttsEngine
-                .ensurePiper(this.config.DEFAULT_PIPER_VOICE)
-                .catch((err) => console.warn("[TTS] Piper warm-up failed (will retry on demand)", err));
-        }
     }
 
     // Public API methods preserving original signatures:
@@ -831,6 +824,9 @@ _setupDocumentTranslationPrompt() {
         }
 
         const result = await this.pdfLoader.loadPDF(file, options);
+        if (file !== null) {
+            void this.ttsEngine.prepareVoicesList();
+        }
         this.serverSync?.startAutoSync();
         return result;
     }
@@ -841,6 +837,9 @@ _setupDocumentTranslationPrompt() {
             if (overlay) overlay.style.display = "none";
         }
         const result = await this.epubLoader.loadEPUB(file, options);
+        if (file !== null) {
+            void this.ttsEngine.prepareVoicesList();
+        }
         this.serverSync?.startAutoSync();
         return result;
     }

@@ -143,18 +143,6 @@ export class PDFLoader {
                 };
                 document.getElementById("pdf-open")?.classList.remove("fa-beat");
             } else {
-                if (!state.piperInstance) {
-                    try {
-                        await app.ttsEngine.ensurePiper(config.DEFAULT_PIPER_VOICE);
-                    } catch (err) {
-                        console.error("Error ensuring Piper instance:", err);
-                        app.ui.showInfo("Error: " + err.message);
-                        document.body.style.cursor = "default";
-                        this.app.ui.updatePlayButton(state.playerState.DONE);
-                        return;
-                    }
-                }
-                await app.ttsEngine.initVoices();
                 document.getElementById("pdf-open")?.classList.add("fa-beat");
                 document.getElementById("play-toggle-icon")?.classList.toggle("disabled");
                 return;

@@ -118,6 +118,30 @@ export class TTSEngine {
         throw new Error(OFFLINE_VOICE_MESSAGE);
     }
 
+    async prepareVoicesList({ silent = true } = {}) {
+        if (this.voices) {
+            await this.initVoices();
+            return;
+        }
+
+        try {
+            this.voices = await this.getVoicesLists();
+            await this.initVoices();
+        } catch (err) {
+            if (!silent) {
+                if (this._isOfflineVoiceError(err)) {
+                    this.app.ui?.showInfo?.(OFFLINE_VOICE_MESSAGE);
+                    return;
+                }
+                this.app.ui?.showInfo?.("Failed to load voice list.");
+            }
+
+            if (!this._isOfflineVoiceError(err)) {
+                console.warn("[TTS] Failed to load voices list", err);
+            }
+        }
+    }
+
     async ensureAudioContext() {
         const { state, config } = this.app;
         if (!state.audioCtx) {

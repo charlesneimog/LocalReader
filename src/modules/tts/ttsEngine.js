@@ -38,6 +38,58 @@ export class TTSEngine {
         return this.app?.network?.isOffline?.() === true;
     }
 
+    _isOfflineVoiceError(error) {
+        if (!error) return false;
+        const message = String(error?.message || error);
+        if (message === OFFLINE_VOICE_MESSAGE) return true;
+        if (!this._isOffline()) return false;
+        return /no available backend found|WebAssembly\.instantiate|CompileError|\bwasm\b/i.test(message);
+    }
+
+    isOfflineVoiceError(error) {
+        return this._isOfflineVoiceError(error);
+    }
+
+    async _assertOfflineAsset(url, { expectWasm = false } = {}) {
+        try {
+            const response = await this.app.network.fetch(url, {}, { allowOfflineCache: true, cacheOnly: true });
+            if (!response || !response.ok) {
+                throw new Error(OFFLINE_VOICE_MESSAGE);
+            }
+            if (expectWasm) {
+                const contentType = response.headers?.get("Content-Type") || "";
+                if (/text\/html/i.test(contentType)) {
+                    throw new Error(OFFLINE_VOICE_MESSAGE);
+                }
+            }
+        } catch (err) {
+            throw new Error(OFFLINE_VOICE_MESSAGE);
+        }
+    }
+
+    async _assertOfflineCoreAssets({
+        ortJsUrl,
+        ortWasmRoot,
+        phonemizerJsUrl,
+        phonemizerWasmUrl,
+        phonemizerDataUrl,
+    }) {
+        if (!this._isOffline()) return;
+
+        await this._assertOfflineAsset(ortJsUrl);
+        const ortFiles = [
+            "ort-wasm-simd.wasm",
+            "ort-wasm-simd-threaded.jsep.mjs",
+            "ort-wasm-simd-threaded.jsep.wasm",
+        ];
+        for (const file of ortFiles) {
+            await this._assertOfflineAsset(`${ortWasmRoot}${file}`, { expectWasm: file.endsWith(".wasm") });
+        }
+        await this._assertOfflineAsset(phonemizerJsUrl);
+        await this._assertOfflineAsset(phonemizerWasmUrl, { expectWasm: true });
+        await this._assertOfflineAsset(phonemizerDataUrl);
+    }
+
     async getVoicesLists() {
         const url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json";
         const cache = await caches.open("piper-voices-v1");
@@ -168,6 +220,14 @@ export class TTSEngine {
             const phonemizerWasmUrl = `${baseUrl}thirdparty/piper/piper_phonemize.wasm`;
             const phonemizerDataUrl = `${baseUrl}thirdparty/piper/piper_phonemize.data`;
 
+            await this._assertOfflineCoreAssets({
+                ortJsUrl,
+                ortWasmRoot,
+                phonemizerJsUrl,
+                phonemizerWasmUrl,
+                phonemizerDataUrl,
+            });
+
             if (!this.initialized) {
                 await this.client.init({
                     modelBuffer,
@@ -196,7 +256,10 @@ export class TTSEngine {
 
             return state.piperInstance;
         } catch (err) {
-            console.error("Failed to initialize Piper:", err);
+            const offlineVoiceError = this._isOfflineVoiceError(err);
+            if (!offlineVoiceError) {
+                console.error("Failed to initialize Piper:", err);
+            }
             this.initialized = false;
             this.voiceId = null;
             state.piperInstance = null;
@@ -207,6 +270,9 @@ export class TTSEngine {
                 } catch (_) { }
             }
             this.client = null;
+            if (offlineVoiceError) {
+                throw new Error(OFFLINE_VOICE_MESSAGE);
+            }
             throw err;
         } finally {
             document.body.style.cursor = "default";
@@ -233,12 +299,17 @@ export class TTSEngine {
     async buildPiperAudio(sentence, voice, text) {
         const { state, config } = this.app;
 
+        const isOfflineVoiceError = (error) => this._isOfflineVoiceError(error);
+
         async function retryAsync(fn, tries = 3, gap = 300) {
             let last;
             for (let i = 0; i < tries; i++) {
                 try {
                     return await fn();
                 } catch (e) {
+                    if (isOfflineVoiceError(e)) {
+                        throw e;
+                    }
                     last = e;
                     if (i < tries - 1) await delay(gap);
                 }
@@ -400,7 +471,7 @@ export class TTSEngine {
             await this.buildPiperAudio(s, voice, norm);
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
         } catch (err) {
-            if (err?.message === OFFLINE_VOICE_MESSAGE) {
+            if (this._isOfflineVoiceError(err)) {
                 s.audioError = err;
                 this.app.ui?.showInfo?.(OFFLINE_VOICE_MESSAGE);
                 this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });

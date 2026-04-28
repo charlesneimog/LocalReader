@@ -35,9 +35,8 @@ export class AudioManager {
 
         const voiceSelect = document.getElementById("voice-select");
         const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-        void this.app.ttsEngine.ensurePiper(selectedVoice).catch((err) => {
-            console.warn("[TTS] Piper warm-up during EPUB playback start failed", err);
-        });
+        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "EPUB");
+        if (!canWarmup) return;
 
         await this.app.epubLoader.ensureLayoutFilteringReady();
         if (!this._isContextActive(context)) return;
@@ -176,9 +175,8 @@ export class AudioManager {
         const { config, state } = this.app;
         const voiceSelect = document.getElementById("voice-select");
         const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-        void this.app.ttsEngine.ensurePiper(selectedVoice).catch((err) => {
-            console.warn("[TTS] Piper warm-up during PDF playback start failed", err);
-        });
+        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "PDF");
+        if (!canWarmup) return;
         try {
             await this.app.pdfLoader.ensureLayoutFilteringReady();
         } catch (err) {
@@ -343,6 +341,40 @@ export class AudioManager {
             state.audioCtx = null;
         }
 
+    }
+
+    async _warmupVoiceForPlayback(selectedVoice, label) {
+        const offline = this.app.network?.isOffline?.() === true;
+        if (!offline) {
+            void this.app.ttsEngine.ensurePiper(selectedVoice).catch((err) => {
+                if (this.app.ttsEngine.isOfflineVoiceError?.(err)) {
+                    const msg =
+                        typeof err?.message === "string" && err.message.trim()
+                            ? err.message
+                            : "This voice is not available offline. Please connect to the internet to download it first.";
+                    this.app.ui?.showInfo?.(msg);
+                    return;
+                }
+                console.warn(`[TTS] Piper warm-up during ${label} playback start failed`, err);
+            });
+            return true;
+        }
+
+        try {
+            await this.app.ttsEngine.ensurePiper(selectedVoice);
+            return true;
+        } catch (err) {
+            if (this.app.ttsEngine.isOfflineVoiceError?.(err)) {
+                const msg =
+                    typeof err?.message === "string" && err.message.trim()
+                        ? err.message
+                        : "This voice is not available offline. Please connect to the internet to download it first.";
+                this.app.ui?.showInfo?.(msg);
+                return false;
+            }
+            console.warn(`[TTS] Piper warm-up during ${label} playback start failed`, err);
+            return false;
+        }
     }
 
     async stopPlayback(fade = true, options = {}) {

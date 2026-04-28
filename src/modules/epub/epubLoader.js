@@ -37,14 +37,25 @@ export class EPUBLoader {
     }
 
     async applyCSS(view, url) {
-        const response = await fetch(url);
-        const css = await response.text();
-        view.setStyles(css);
+        try {
+            const css = await this.app.network.fetchText(url, {}, { allowOfflineCache: true });
+            view.setStyles(css);
+        } catch (error) {
+            console.warn("[EPUBLoader] Failed to load EPUB CSS", error);
+        }
     }
 
     async loadEPUB(input, options = {}) {
         const { resume = true, existingKey = null } = options ?? {};
         const state = this.app.state;
+
+        if (this.app.network?.isOffline?.()) {
+            const raw = typeof input === "string" ? input.trim() : "";
+            if (/^https?:\/\//i.test(raw)) {
+                this.app.ui?.showInfo?.("Offline mode: remote EPUBs are not available.");
+                return;
+            }
+        }
 
         try {
             this.app.ui.showInfo("Loading EPUB...");

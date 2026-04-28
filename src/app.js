@@ -2,6 +2,7 @@ import { CONFIG } from "./config.js";
 import { EventBus } from "./core/eventBus.js";
 import { StateManager } from "./core/stateManager.js";
 import { CacheManager } from "./core/cacheManager.js";
+import { NetworkService } from "./core/networkService.js";
 import { EVENTS } from "./constants/events.js";
 
 import * as helperFns from "./modules/utils/helpers.js";
@@ -44,6 +45,7 @@ export class PDFTTSApp {
         this.state = new StateManager(this);
         this.eventBus = new EventBus();
         this.cache = new CacheManager(this.state);
+        this.network = new NetworkService(this);
 
         // Runtime settings
         this._autoTranslateCache = new Map();
@@ -84,6 +86,7 @@ export class PDFTTSApp {
         this._setupAutoTranslate();
         this._setupReadTranslation();
         this._setupDocumentTranslationPrompt();
+        this._setupNetworkHandlers();
 
         this.showSavedPDFs();
 
@@ -129,6 +132,11 @@ export class PDFTTSApp {
     }
 
     async translateCurrentSentence() {
+        if (this.network?.isOffline?.()) {
+            this.ui?.showInfo?.("Translation requires an internet connection.");
+            return;
+        }
+
         const { state } = this;
         if (!state?.sentences?.length) {
             this.ui?.showInfo?.("Load a document first");
@@ -144,7 +152,16 @@ export class PDFTTSApp {
         if (!text) return;
 
         this.ui?.showInfo?.("Translating...");
-        const result = await this.serverSync.translateText(text);
+        let result = null;
+        try {
+            result = await this.serverSync.translateText(text);
+        } catch (err) {
+            if (NetworkService.isOfflineError(err) || err?.message === "Translation requires an internet connection.") {
+                this.ui?.showInfo?.("Translation requires an internet connection.");
+                return;
+            }
+            throw err;
+        }
         if (!result) return;
 
         await this.ui?.showTranslatePopup?.({
@@ -297,8 +314,14 @@ export class PDFTTSApp {
         }
     }
 
-    setAutoTranslateEnabled(enabled) {
-        const value = !!enabled;
+    setAutoTranslateEnabled(enabled, { suppressNotice = false } = {}) {
+        let value = !!enabled;
+        if (value && this.network?.isOffline?.()) {
+            value = false;
+            if (!suppressNotice) {
+                this.ui?.showInfo?.("Translation requires an internet connection.");
+            }
+        }
         this.state.autoTranslateEnabled = value;
         localStorage.setItem("config.autoTranslate", value ? "1" : "0");
         this.controlsManager?.reflectAutoTranslateToggle?.(value);
@@ -310,8 +333,14 @@ export class PDFTTSApp {
         return !!this.state.autoTranslateEnabled;
     }
 
-    setReadTranslationEnabled(enabled) {
-        const value = !!enabled;
+    setReadTranslationEnabled(enabled, { suppressNotice = false } = {}) {
+        let value = !!enabled;
+        if (value && this.network?.isOffline?.()) {
+            value = false;
+            if (!suppressNotice) {
+                this.ui?.showInfo?.("Translation requires an internet connection.");
+            }
+        }
         this.state.readTranslationEnabled = value;
         localStorage.setItem("config.readTranslation", value ? "1" : "0");
         this.controlsManager?.reflectReadTranslationToggle?.(value);
@@ -386,7 +415,39 @@ _setupDocumentTranslationPrompt() {
         });
     }
 
+    _setupNetworkHandlers() {
+        this.eventBus.on(EVENTS.NETWORK_OFFLINE, () => this._handleOffline());
+        this.eventBus.on(EVENTS.NETWORK_ONLINE, () => this._handleOnline());
+
+        this.network?.start?.();
+        this.network?.refreshStatus?.({ emit: true });
+    }
+
+    _handleOffline() {
+        try {
+            this.serverSync?.stopAutoSync?.();
+        } catch {
+            // ignore
+        }
+
+        const wasTranslationEnabled = this.isAutoTranslateEnabled() || this.isReadTranslationEnabled();
+        if (wasTranslationEnabled) {
+            this.setAutoTranslateEnabled(false, { suppressNotice: true });
+            this.setReadTranslationEnabled(false, { suppressNotice: true });
+            this.ui?.showInfo?.("Translation requires an internet connection.");
+        }
+    }
+
+    _handleOnline() {
+        const hasActiveDoc = !!(this.state?.currentPdfKey || this.state?.currentEpubKey);
+        if (hasActiveDoc && this.serverSync?.isEnabled?.()) {
+            this.serverSync.startAutoSync();
+        }
+    }
+
     async _maybePromptTranslationForNewDoc(docType) {
+        if (this.network?.isOffline?.()) return;
+
         // Dynamically get the key based on document type
         const promptKey = docType === "epub" ? this.state.currentEpubKey : this.state.currentPdfKey;
         if (!promptKey) return;
@@ -531,6 +592,7 @@ _setupDocumentTranslationPrompt() {
 
     async _syncTtsVoiceWithTranslationTarget(targetLanguage) {
         if (!this.isReadTranslationEnabled()) return;
+        if (this.network?.isOffline?.()) return;
 
         const nextVoice = this._pickVoiceForLanguage(targetLanguage);
         if (!nextVoice) return;
@@ -556,6 +618,7 @@ _setupDocumentTranslationPrompt() {
 
     async ensureReadTranslationVoiceReady() {
         if (!this.isReadTranslationEnabled()) return;
+        if (this.network?.isOffline?.()) return;
         await this._syncTtsVoiceWithTranslationTarget(this._getTranslationTargetLanguage());
     }
 
@@ -591,6 +654,7 @@ _setupDocumentTranslationPrompt() {
     }
 
     prefetchSentenceTranslationForTTS(index) {
+        if (this.network?.isOffline?.()) return;
         if (!this.isReadTranslationEnabled()) return;
         if (!Number.isFinite(index) || index < 0) return;
         const sentence = this.state?.sentences?.[index];
@@ -621,6 +685,7 @@ _setupDocumentTranslationPrompt() {
         const base = (fallbackText || "").trim();
         if (!base) return "";
         if (!this.isReadTranslationEnabled()) return base;
+        if (this.network?.isOffline?.()) return base;
 
         const key = this._getReadTranslationKey(index);
         const cached = this._readTranslationCache.get(key);
@@ -696,6 +761,7 @@ _setupDocumentTranslationPrompt() {
     }
 
     _prefetchSentenceTranslation(index) {
+        if (this.network?.isOffline?.()) return;
         if (!this.isAutoTranslateEnabled()) return;
         if (!Number.isFinite(index) || index < 0) return;
         if (this._autoTranslateCache.has(index)) return;
@@ -750,9 +816,11 @@ _setupDocumentTranslationPrompt() {
         await this._loadInitialPDF();
 
         // Warm up TTS in the background so the UI doesn't appear frozen on slow/offline networks.
-        this.ttsEngine
-            .ensurePiper(this.config.DEFAULT_PIPER_VOICE)
-            .catch((err) => console.warn("[TTS] Piper warm-up failed (will retry on demand)", err));
+        if (!this.network?.isOffline?.()) {
+            this.ttsEngine
+                .ensurePiper(this.config.DEFAULT_PIPER_VOICE)
+                .catch((err) => console.warn("[TTS] Piper warm-up failed (will retry on demand)", err));
+        }
     }
 
     // Public API methods preserving original signatures:

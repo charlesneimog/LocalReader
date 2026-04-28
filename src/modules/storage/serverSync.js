@@ -1,3 +1,5 @@
+import { NetworkService } from "../../core/networkService.js";
+
 export class ServerSync {
     constructor(app) {
         this.app = app;
@@ -32,6 +34,16 @@ export class ServerSync {
         }
     }
 
+    _isOffline() {
+        return this.app?.network?.isOffline?.() === true;
+    }
+
+    _blockIfOffline({ showMessage = false, message = "Offline mode: network requests are disabled." } = {}) {
+        if (!this._isOffline()) return false;
+        if (showMessage) this.app.ui?.showInfo?.(message);
+        return true;
+    }
+
     _setReloadSuppressionWindow(ms = 15000) {
         // Some service-worker helpers (e.g. coi-serviceworker) may trigger reloads on certain
         // update/degrade events; avoid reloading while an API call is in flight.
@@ -62,6 +74,7 @@ export class ServerSync {
     }
 
     async apiFetch(path, { method = "GET", body = null, withAuth = true } = {}) {
+        this.app.network.assertOnline("Offline mode: network requests are disabled.");
         const serverUrl = this.getServerUrl();
         if (!serverUrl) throw new Error("No server URL configured");
 
@@ -82,6 +95,9 @@ export class ServerSync {
                 { withAuth },
             );
         } catch (error) {
+            if (NetworkService.isOfflineError(error)) {
+                throw error;
+            }
             console.error("[ServerSync] Network error during API request", {
                 method,
                 path,
@@ -258,7 +274,7 @@ export class ServerSync {
         const baseHeaders = options.headers || {};
         const headers = withAuth ? this._withAuthHeaders(baseHeaders) : baseHeaders;
         const requestOptions = this._buildPnaAwareFetchOptions(url, { ...options, headers });
-        return fetch(url, requestOptions);
+        return this.app.network.fetch(url, requestOptions);
     }
 
     _addAutoSyncListener(element, type, handler, options) {
@@ -361,6 +377,7 @@ export class ServerSync {
     }
 
     async _maybePullServerStateUpdates() {
+        if (this._isOffline()) return;
         const now = Date.now();
         if (now - this.lastServerPullCheck < this.serverPullIntervalMs) return;
         this.lastServerPullCheck = now;
@@ -372,6 +389,7 @@ export class ServerSync {
     }
 
     queuePositionSync(fileId, sentenceIndex, { debounceMs } = {}) {
+        if (this._isOffline()) return;
         if (!this.isEnabled()) return;
         if (!fileId) return;
         if (!Number.isFinite(sentenceIndex) || sentenceIndex < 0) return;
@@ -394,6 +412,7 @@ export class ServerSync {
     }
 
     queueVoiceSync(fileId, voice, { debounceMs } = {}) {
+        if (this._isOffline()) return;
         if (!this.isEnabled()) return;
         if (!fileId) return;
         if (typeof voice !== "string" || !voice.trim()) return;
@@ -416,6 +435,7 @@ export class ServerSync {
     }
 
     async pullServerStateUpdates() {
+        if (this._isOffline()) return;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) return;
 
@@ -587,6 +607,7 @@ export class ServerSync {
     }
 
     async deleteFileOnServer(fileId) {
+        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) return false;
 
@@ -606,6 +627,7 @@ export class ServerSync {
     }
 
     async checkServerAvailability() {
+        if (this._isOffline()) return false;
         return await this.pingServer(false);
     }
 
@@ -662,6 +684,9 @@ export class ServerSync {
     }
 
     async pingServer(showMessages = true) {
+        if (this._blockIfOffline({ showMessage: showMessages })) {
+            return false;
+        }
         const serverUrl = this.getServerUrl();
         if (!serverUrl) {
             const msg = "No server URL configured";
@@ -747,13 +772,16 @@ export class ServerSync {
     async _translateTextWithGoogleFallback(text, { target = null } = {}) {
         const payloadText = (text || "").trim();
         if (!payloadText) return null;
+        if (this._isOffline()) {
+            this.app.network.assertOnline("Translation requires an internet connection.");
+        }
 
         const targetLang = this._resolveTranslationTarget(target);
         const url =
             "https://translate.googleapis.com/translate_a/single" +
             `?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(payloadText)}`;
 
-        const res = await fetch(url);
+        const res = await this._fetch(url, { method: "GET" }, { withAuth: false });
         if (!res.ok) return null;
 
         const data = await res.json().catch(() => null);
@@ -775,6 +803,7 @@ export class ServerSync {
     async translateText(text, { target = null } = {}) {
         const payloadText = (text || "").trim();
         if (!payloadText) return null;
+        this.app.network.assertOnline("Translation requires an internet connection.");
         const effectiveTarget = this._resolveTranslationTarget(target);
 
         const serverUrl = this.getServerUrl();
@@ -801,6 +830,9 @@ export class ServerSync {
             }
             return data;
         } catch (e) {
+            if (NetworkService.isOfflineError(e)) {
+                throw e;
+            }
             this.app.ui?.showInfo?.("⚠️ Translate request failed");
             return null;
         }
@@ -826,6 +858,7 @@ export class ServerSync {
     }
 
     async uploadFile(file, fileId, format, voice = null) {
+        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) {
             console.warn("[ServerSync] No server URL configured");
@@ -877,6 +910,7 @@ export class ServerSync {
     }
 
     async syncPosition(fileId, sentenceIndex) {
+        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId || sentenceIndex < 0) return false;
 
@@ -924,6 +958,7 @@ export class ServerSync {
     }
 
     async syncVoice(fileId, voice) {
+        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId || !voice) return false;
 
@@ -971,6 +1006,7 @@ export class ServerSync {
     }
 
     async syncTranslationSettings(fileId, { target, mode } = {}) {
+        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) return false;
 
@@ -1023,6 +1059,7 @@ export class ServerSync {
     }
 
     async syncHighlights(fileId, highlights) {
+        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) return false;
 
@@ -1095,6 +1132,9 @@ export class ServerSync {
     }
 
     async loadPositionAndHighlightsFromServer(fileId) {
+        if (this._isOffline()) {
+            return { position: null, voice: null, highlights: null, translationTarget: null, translationMode: null };
+        }
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) {
             // console.log("[ServerSync] Cannot load from server - no URL or file ID");
@@ -1173,6 +1213,7 @@ export class ServerSync {
     }
 
     async findFileIdOnServer(localFileId) {
+        if (this._isOffline()) return null;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) return null;
 
@@ -1222,6 +1263,7 @@ export class ServerSync {
     }
 
     async ensureFileOnServer() {
+        if (this._isOffline()) return false;
         const { state } = this.app;
         if (!this.isEnabled()) return false;
 
@@ -1363,6 +1405,7 @@ export class ServerSync {
     }
 
     async syncAll() {
+        if (this._isOffline()) return;
         if (this.isSyncing || !this.isEnabled()) return;
 
         const { state } = this.app;
@@ -1409,7 +1452,7 @@ export class ServerSync {
     startAutoSync() {
         this.stopAutoSync();
 
-        if (!this.isEnabled()) {
+        if (this._isOffline() || !this.isEnabled()) {
             // console.log("[ServerSync] Auto-sync disabled - no server configured");
             return;
         }
@@ -1417,6 +1460,7 @@ export class ServerSync {
 
         const onWake = async () => {
             if (!this._autoSyncEnabled) return;
+            if (this._isOffline()) return;
             await this._maybePullServerStateUpdates();
             // Keep downloads up to date when the app regains focus/network.
             await this.syncFromServer();
@@ -1460,6 +1504,7 @@ export class ServerSync {
     }
 
     async manualSync() {
+        if (this._blockIfOffline({ showMessage: true })) return;
         this.app.ui?.showInfo?.("Syncing to server...");
         await this.syncAll();
         if (this.lastSyncTime > 0) {
@@ -1468,6 +1513,7 @@ export class ServerSync {
     }
 
     async syncFromServer() {
+        if (this._isOffline()) return;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) {
             // console.log("[ServerSync] No server configured for download");
@@ -1597,6 +1643,7 @@ export class ServerSync {
     }
 
     async downloadFile(fileInfo) {
+        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) return false;
 

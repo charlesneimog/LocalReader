@@ -7,7 +7,10 @@ import {
     hasUsableSpeechText,
 } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
-import { PiperWorkerClient } from "./piper-client.js";
+import { PiperWorkerClient, getCachedModel, getCachedJSON } from "./piper-client.js";
+
+const OFFLINE_VOICE_MESSAGE =
+    "This voice is not available offline. Please connect to the internet to download it first.";
 
 export class TTSEngine {
     constructor(app) {
@@ -31,24 +34,36 @@ export class TTSEngine {
         this.initialized = false;
     }
 
+    _isOffline() {
+        return this.app?.network?.isOffline?.() === true;
+    }
+
     async getVoicesLists() {
         const url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json";
         const cache = await caches.open("piper-voices-v1");
 
-        try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error("Network response not ok");
+        if (!this._isOffline()) {
+            try {
+                const response = await this.app.network.fetch(url);
+                if (!response.ok) {
+                    throw new Error("Network response not ok");
+                }
+                await cache.put(url, response.clone());
+                return await response.json();
+            } catch (err) {
+                const cached = await cache.match(url);
+                if (cached) {
+                    return await cached.json();
+                }
+                throw new Error("Failed to fetch voices.json and no cache available");
             }
-            await cache.put(url, response.clone());
-            return await response.json();
-        } catch (err) {
-            const cached = await cache.match(url);
-            if (cached) {
-                return await cached.json();
-            }
-            throw new Error("Failed to fetch voices.json and no cache available");
         }
+
+        const cached = await cache.match(url);
+        if (cached) {
+            return await cached.json();
+        }
+        throw new Error(OFFLINE_VOICE_MESSAGE);
     }
 
     async ensureAudioContext() {
@@ -88,9 +103,12 @@ export class TTSEngine {
             });
 
         try {
-            return await this.initializingPromise;
-        } finally {
+            const instance = await this.initializingPromise;
             this.app.ui.showInfo("AI Natural Voices Loaded!");
+            return instance;
+        } catch (err) {
+            throw err;
+        } finally {
             this.initializingPromise = null;
         }
     }
@@ -128,10 +146,20 @@ export class TTSEngine {
             const MODEL_URL = this.huggingFaceRoot + modelFile;
             const CONFIG_URL = this.huggingFaceRoot + configFile;
 
+            const allowNetwork = !this._isOffline();
+            const fetcher = this.app.network.fetch.bind(this.app.network);
+
             const modelBuffer = await getCachedModel(modelFile, MODEL_URL, {
                 onProgress: (pct) => ui.showMessage(`Downloading model: ${pct.toFixed(2)}%`, 1200),
+                allowNetwork,
+                offlineErrorMessage: OFFLINE_VOICE_MESSAGE,
+                fetcher,
             });
-            const voiceConfig = await getCachedJSON(configFile, CONFIG_URL);
+            const voiceConfig = await getCachedJSON(configFile, CONFIG_URL, {
+                allowNetwork,
+                offlineErrorMessage: OFFLINE_VOICE_MESSAGE,
+                fetcher,
+            });
 
             const baseUrl = getWebsiteRoot();
             const ortJsUrl = `${baseUrl}thirdparty/ort/ort.js`;
@@ -372,6 +400,12 @@ export class TTSEngine {
             await this.buildPiperAudio(s, voice, norm);
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
         } catch (err) {
+            if (err?.message === OFFLINE_VOICE_MESSAGE) {
+                s.audioError = err;
+                this.app.ui?.showInfo?.(OFFLINE_VOICE_MESSAGE);
+                this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
+                return;
+            }
             s.audioError = err;
             const retryCount = (Number.isFinite(s._restartRetryCount) ? s._restartRetryCount : 0) + 1;
             s._restartRetryCount = retryCount;

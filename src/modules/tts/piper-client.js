@@ -192,8 +192,17 @@ async function getCachedModel(key, url, options) {
         return buffer;
     }
     console.log("Fetching model from network...");
-
-    const response = await fetch(url);
+    const opts = options && typeof options === "object" ? options : {};
+    const allowNetwork = opts.allowNetwork !== false;
+    const offlineErrorMessage =
+        typeof opts.offlineErrorMessage === "string" && opts.offlineErrorMessage.trim()
+            ? opts.offlineErrorMessage
+            : "Offline mode: resource not available in cache.";
+    if (!allowNetwork) {
+        throw new Error(offlineErrorMessage);
+    }
+    const fetcher = typeof opts.fetcher === "function" ? opts.fetcher : fetch;
+    const response = await fetcher(url);
     if (!response.ok) throw new Error(`Failed to load model: ${response.status}`);
 
     const contentLengthHeader = response.headers.get("Content-Length");
@@ -261,14 +270,24 @@ async function loadJSON(key) {
     const jsonString = await loadModel(key);
     return jsonString ? JSON.parse(jsonString) : null;
 }
-async function getCachedJSON(key, url) {
+async function getCachedJSON(key, url, options) {
     let data = await loadJSON(key);
     if (data) {
         // console.log("Loaded config from cache.");
         return data;
     }
     console.log("Fetching config from network...");
-    const response = await fetch(url);
+    const opts = options && typeof options === "object" ? options : {};
+    const allowNetwork = opts.allowNetwork !== false;
+    const offlineErrorMessage =
+        typeof opts.offlineErrorMessage === "string" && opts.offlineErrorMessage.trim()
+            ? opts.offlineErrorMessage
+            : "Offline mode: resource not available in cache.";
+    if (!allowNetwork) {
+        throw new Error(offlineErrorMessage);
+    }
+    const fetcher = typeof opts.fetcher === "function" ? opts.fetcher : fetch;
+    const response = await fetcher(url);
     if (!response.ok) throw new Error(`Failed to load config: ${response.status}`);
     data = await response.json();
     await saveJSON(key, data);
@@ -280,3 +299,5 @@ async function getCachedJSON(key, url) {
 window.PiperWorkerClient = PiperWorkerClient;
 window.getCachedModel = getCachedModel;
 window.getCachedJSON = getCachedJSON;
+
+export { getCachedModel, getCachedJSON };

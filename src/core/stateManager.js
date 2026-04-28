@@ -11,6 +11,9 @@ export class StateManager {
         this.playingSentenceIndex = -1;
         this.deviceScale = window.devicePixelRatio || 1;
 
+        // Network
+        this.isOffline = false;
+
         this.currentDocumentType = "pdf";
         this.epubSpine = null;
         this.epubNavigation = null;

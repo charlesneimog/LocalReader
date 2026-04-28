@@ -134,7 +134,10 @@ export class ExportManager {
                     throw new Error("Original file object not available for export");
                 }
             } else if (state.currentPdfDescriptor.type === "url") {
-                const response = await fetch(state.currentPdfDescriptor.url);
+                const response = await this.app.network.fetch(state.currentPdfDescriptor.url);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
+                }
                 pdfBytes = await response.arrayBuffer();
             } else {
                 throw new Error("Cannot export: unsupported PDF source");

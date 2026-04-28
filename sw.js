@@ -1,4 +1,4 @@
-const APP_VERSION = "0.22.0+0";
+const APP_VERSION = "0.23.0+0";
 const IDB_VERSION = 1;
 const cacheName = `LocalReader-v${APP_VERSION}`;
 const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
@@ -216,6 +216,7 @@ const serializeHeaders = (headers) =>
     );
 
 const storeRequest = async ({ url, method, body, headers, mode, credentials }) => {
+    if (isOffline()) return;
     const serializedHeaders = serializeHeaders(headers);
     try {
         let storedBody = body;
@@ -279,6 +280,7 @@ const getRequests = async () => {
 };
 
 const retryRequests = async () => {
+    if (isOffline()) return;
     const reqs = await getRequests();
     const requests = reqs.map(({ url, method, headers: serializedHeaders, body, mode, credentials }) => {
         const headers = new Headers(serializedHeaders);
@@ -315,27 +317,30 @@ const cacheLocalFiles = async () => {
 
 const installHandler = (e) => {
     console.log("[SW] Installing service worker v" + APP_VERSION);
+    const offline = isOffline();
     e.waitUntil(
         Promise.all([
             // Cache local files
-            cacheLocalFiles(),
+            offline ? Promise.resolve() : cacheLocalFiles(),
             // Cache external resources with proper error handling
-            caches.open(cacheName).then((cache) =>
-                Promise.allSettled(
-                    externalResources.map((url) =>
-                        fetch(url, { mode: "cors", cache: "no-cache" })
-                            .then((response) => {
-                                if (response.ok) {
-                                    return cache.put(url, response);
-                                }
-                                console.warn(`[SW] Failed to cache external: ${url}`);
-                            })
-                            .catch((err) => {
-                                console.warn(`[SW] Error caching external ${url}:`, err);
-                            }),
-                    ),
-                ),
-            ),
+            offline
+                ? Promise.resolve()
+                : caches.open(cacheName).then((cache) =>
+                      Promise.allSettled(
+                          externalResources.map((url) =>
+                              fetch(url, { mode: "cors", cache: "no-cache" })
+                                  .then((response) => {
+                                      if (response.ok) {
+                                          return cache.put(url, response);
+                                      }
+                                      console.warn(`[SW] Failed to cache external: ${url}`);
+                                  })
+                                  .catch((err) => {
+                                      console.warn(`[SW] Error caching external ${url}:`, err);
+                                  }),
+                          ),
+                      ),
+                  ),
             // Create IndexedDB
             createIndexedDB(IDBConfig),
             // Open runtime cache
@@ -417,17 +422,31 @@ const fetchHandler = async (e) => {
             try {
                 const urlObj = new URL(url);
 
+                if (isOffline()) {
+                    const cachedResponse = await caches.match(request, { ignoreVary: true, ignoreSearch: false });
+                    if (cachedResponse) {
+                        const normalized = cachedResponse.redirected
+                            ? await cleanRedirect(cachedResponse)
+                            : cachedResponse;
+                        return applyCoepHeaders(normalized);
+                    }
+
+                    if (request.mode === "navigate") {
+                        const offlinePage = await caches.match(resolvePath("/index.html"));
+                        return applyCoepHeaders(offlinePage) || offlinePage;
+                    }
+
+                    return new Response("Offline", {
+                        status: 503,
+                        statusText: "Service Unavailable",
+                        headers: { "Content-Type": "text/plain" },
+                    });
+                }
+
                 // Never let the SW interfere with API calls (same-origin or cross-origin).
                 // Return the fetch Promise directly so network/CORS failures surface as-is.
                 if (urlObj.pathname === "/api" || urlObj.pathname.startsWith("/api/")) {
                     return fetch(request);
-                }
-
-                // Handle offline retry for important requests
-                if (isOffline() && isRequestEligibleForRetry(request)) {
-                    await storeRequest(request);
-                    const cachedResponse = await caches.match(resolvePath("/index.html"));
-                    return applyCoepHeaders(cachedResponse) || new Response("Offline", { status: 503 });
                 }
 
                 // Strategy 1: Cache First for local assets
@@ -533,6 +552,9 @@ const messageHandler = async ({ data }) => {
             break;
         }
         case "retry-requests": {
+            if (isOffline()) {
+                break;
+            }
             if (!("sync" in self.registration)) {
                 console.log("retry requests when Background Sync is not supported");
                 await retryRequests();
@@ -553,6 +575,7 @@ const messageHandler = async ({ data }) => {
 };
 
 const syncHandler = async (e) => {
+    if (isOffline()) return;
     console.log("sync event with tag:", e.tag);
     const { tag } = e;
     switch (tag) {

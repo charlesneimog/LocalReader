@@ -1,10 +1,12 @@
 services:
-  localreader-server:
-    build: .
-    ports:
-      - "8997:8000"
-    volumes:
-      - ./data:/app/data
-    env_file:
-      - .env
-    restart: unless-stopped
+    localreader-server:
+        mem_limit: 256m
+        build: .
+        ports:
+            - "8997:8000"
+        volumes:
+            - ./data:/app/data
+        env_file:
+            - .env
+        restart: unless-stopped
+

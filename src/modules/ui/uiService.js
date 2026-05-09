@@ -874,9 +874,20 @@ export class UIService {
         }
     }
 
-    updatePlayButton(value) {
+    updatePlayButton(value, options = {}) {
         const { state } = this.app;
         if (!this.playBarIcon) return;
+
+        const force = options?.force === true;
+        const allowLoading = force || state.playbackPending || state.documentLoading;
+
+        if (value === state.playerState.LOADING && !allowLoading) {
+            return;
+        }
+
+        if (value === state.playerState.DONE && !force && (state.playbackPending || state.documentLoading)) {
+            return;
+        }
 
         if (value === state.playerState.LOADING) {
             this.isLoading = true;

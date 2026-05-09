@@ -26,6 +26,8 @@ export class StateManager {
         this.currentSource = null;
         this.currentGain = null;
         this.isPlaying = false;
+        this.playbackPending = false;
+        this.documentLoading = false;
         this.autoAdvanceActive = false;
         this.stopRequested = false;
         this.generationEnabled = false;

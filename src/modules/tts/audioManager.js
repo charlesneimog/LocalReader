@@ -9,10 +9,16 @@ export class AudioManager {
         this._playbackContextId = 0;
     }
 
-    async playCurrentSentence() {
+    async playCurrentSentence(options = {}) {
         const { state } = this.app;
+        const { userInitiated = false } = options;
         if (state.isPlaying) {
             return;
+        }
+
+        if (userInitiated) {
+            state.playbackPending = true;
+            this.app.ui.updatePlayButton(state.playerState.LOADING);
         }
 
         const context = {
@@ -23,6 +29,10 @@ export class AudioManager {
 
         const playPromise = this._playCurrentSentence(context);
         this._playPromise = playPromise.finally(() => {
+            if (!state.isPlaying && state.playbackPending) {
+                state.playbackPending = false;
+                this.app.ui.updatePlayButton(state.playerState.DONE);
+            }
             if (this._playPromise === playPromise) {
                 this._playPromise = null;
             }
@@ -146,6 +156,7 @@ export class AudioManager {
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
+            state.playbackPending = false;
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -289,6 +300,7 @@ export class AudioManager {
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
             this.app.pdfRenderer.updateHighlightFullDoc();
+            state.playbackPending = false;
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -381,6 +393,8 @@ export class AudioManager {
         const { state, config } = this.app;
         const { clearContext = true, emitEvent = true } = options;
 
+        const wasPending = state.playbackPending;
+
         state.stopRequested = true;
 
         const source = state.currentSource;
@@ -438,6 +452,7 @@ export class AudioManager {
         state.currentSource = null;
         state.currentGain = null;
         state.isPlaying = false;
+        state.playbackPending = false;
         state.autoAdvanceActive = false;
         state.playingSentenceIndex = -1;
 
@@ -451,6 +466,10 @@ export class AudioManager {
         if (clearContext) {
             this._playbackContext = null;
         }
+
+        if (wasPending && !state.isPlaying) {
+            this.app.ui.updatePlayButton(state.playerState.DONE);
+        }
     }
 
     togglePlay() {
@@ -460,8 +479,7 @@ export class AudioManager {
             state.autoAdvanceActive = false;
             this.app.ui.updatePlayButton(state.playerState.PAUSE);
         } else {
-            this.playCurrentSentence();
-            this.app.ui.updatePlayButton(state.playerState.PLAY);
+            this.playCurrentSentence({ userInitiated: true });
         }
     }
 

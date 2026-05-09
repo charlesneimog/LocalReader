@@ -58,6 +58,9 @@ export class EPUBLoader {
         }
 
         try {
+            if (state) {
+                state.documentLoading = true;
+            }
             this.app.ui.showInfo("Loading EPUB...");
             this.app.ui.updatePlayButton(state.playerState.LOADING);
 
@@ -83,6 +86,7 @@ export class EPUBLoader {
                 state.currentSource = null;
                 state.currentGain = null;
                 state.isPlaying = false;
+                state.playbackPending = false;
                 state.autoAdvanceActive = false;
                 state.playingSentenceIndex = -1;
                 state.sentences = [];
@@ -246,12 +250,13 @@ export class EPUBLoader {
                     if (lastSaved?.color) state.selectedHighlightColor = lastSaved.color;
                 }
 
-                if (resume && resumeVoiceId) {
-                    await this._applySavedVoice(resumeVoiceId);
-                }
-
                 await this.renderer.renderSentence(startIndex, { suppressScroll: true });
                 await this.renderer.updateHighlightDisplay();
+
+                const preloadVoiceId = this._resolveVoiceForPreload(resume ? resumeVoiceId : null);
+                if (preloadVoiceId) {
+                    this._scheduleVoicePreload(preloadVoiceId);
+                }
             } else {
                 this.app.ui.showInfo("No readable text detected in EPUB.");
             }
@@ -259,51 +264,77 @@ export class EPUBLoader {
             this.renderer.setupInteractionListeners();
             this.app.interactionHandler.setupInteractionListeners();
 
-            this.app.ui.updatePlayButton(state.playerState.DONE);
             this.app.ui.showInfo("EPUB loaded successfully.");
         } catch (error) {
             console.error("EPUB load error", error);
             this.app.ui.showInfo(`Error loading EPUB: ${error.message}`);
             this.reset();
         } finally {
+            if (state) {
+                state.documentLoading = false;
+            }
             this.app.ui.updatePlayButton(state.playerState.DONE);
         }
     }
 
-    async _applySavedVoice(voiceId) {
+    _resolveVoiceForPreload(savedVoiceId) {
+        const trimmedSaved = typeof savedVoiceId === "string" ? savedVoiceId.trim() : "";
+        if (trimmedSaved) return trimmedSaved;
+
+        const voiceSelect = document.getElementById("voice-select");
+        const selected = typeof voiceSelect?.value === "string" ? voiceSelect.value.trim() : "";
+        if (selected) return selected;
+
+        const fallback = typeof this.app?.config?.DEFAULT_PIPER_VOICE === "string" ? this.app.config.DEFAULT_PIPER_VOICE : "";
+        return fallback.trim() || null;
+    }
+
+    _scheduleVoicePreload(voiceId) {
+        const trimmed = typeof voiceId === "string" ? voiceId.trim() : "";
+        if (!trimmed) return;
+        const schedule = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (cb) => setTimeout(cb, 0);
+        schedule(() => {
+            void this._applySavedVoice(trimmed, { silent: true });
+        });
+    }
+
+    async _applySavedVoice(voiceId, options = {}) {
         if (typeof voiceId !== "string") return;
         const trimmedVoiceId = voiceId.trim();
         if (!trimmedVoiceId) return;
 
+        const silent = options?.silent === true;
+
         const { app } = this;
         const voiceSelect = document.getElementById("voice-select");
-        const options = voiceSelect ? Array.from(voiceSelect.options || []) : [];
+        const selectOptions = voiceSelect ? Array.from(voiceSelect.options || []) : [];
         const voiceAvailable =
-            options.some((opt) => opt.value === trimmedVoiceId) || app.config.PIPER_VOICES.includes(trimmedVoiceId);
+            selectOptions.some((opt) => opt.value === trimmedVoiceId) ||
+            app.config.PIPER_VOICES.includes(trimmedVoiceId);
 
         if (!voiceAvailable) {
             console.warn(`Saved voice ${trimmedVoiceId} not available, skipping restore.`);
             return;
         }
 
+        if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
+            voiceSelect.value = trimmedVoiceId;
+        }
+
         if (app.state.currentPiperVoice === trimmedVoiceId && app.state.piperInstance) {
-            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
-                voiceSelect.value = trimmedVoiceId;
-            }
             return;
         }
 
         try {
-            await app.ttsEngine.ensurePiper(trimmedVoiceId);
-            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
-                voiceSelect.value = trimmedVoiceId;
-            }
+            await app.ttsEngine.ensurePiper(trimmedVoiceId, { silent });
         } catch (error) {
             console.warn(`Failed to restore saved voice ${trimmedVoiceId}:`, error);
-            app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
+            if (!silent) {
+                app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
+            }
             if (!app.state.currentPiperVoice) {
                 try {
-                    await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE);
+                    await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE, { silent });
                 } catch (fallbackError) {
                     console.warn("Fallback to default voice failed:", fallbackError);
                 }

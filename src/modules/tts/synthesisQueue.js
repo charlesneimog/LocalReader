@@ -37,7 +37,7 @@ export class TTSQueueManager {
         const idle = this.active === 0 && this.queue.length === 0;
         sentence.prefetchQueued = true;
         priority ? this.queue.unshift(idx) : this.queue.push(idx);
-        if (idle && !state.isPlaying) {
+        if (idle && state.playbackPending && !state.isPlaying) {
             this.app.ui.updatePlayButton(state.playerState.LOADING);
         }
         this.run();
@@ -72,8 +72,7 @@ export class TTSQueueManager {
         try {
             await this.app.ttsEngine.synthesizeSequential(idx);
             // if sentence is same as current sentence, then begin playback immediately
-            if (idx === state.currentSentenceIndex && !state.isPlaying) {
-                this.app.ui.updatePlayButton(state.playerState.DONE);
+            if (idx === state.currentSentenceIndex && !state.isPlaying && state.playbackPending) {
                 this.app.audioManager.playCurrentSentence();
             }
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
@@ -85,7 +84,7 @@ export class TTSQueueManager {
             this.active--;
             this.inFlight.delete(idx);
             this.run();
-            if (this.active === 0 && this.queue.length === 0 && !state.isPlaying) {
+            if (this.active === 0 && this.queue.length === 0 && !state.isPlaying && !state.playbackPending) {
                 this.app.ui.updatePlayButton(state.playerState.DONE);
             }
         }

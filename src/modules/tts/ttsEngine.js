@@ -150,15 +150,20 @@ export class TTSEngine {
         return state.audioCtx;
     }
 
-    async ensurePiper(voiceId) {
+    async ensurePiper(voiceId, options = {}) {
         const { state, config } = this.app;
         const targetVoiceId = voiceId || config.DEFAULT_PIPER_VOICE;
+        const silent =
+            typeof options.silent === "boolean" ? options.silent : !(state && state.playbackPending === true);
+        const showUi = !silent;
 
         if (this.initialized && this.voiceId === targetVoiceId && state.piperInstance) {
             return state.piperInstance;
         }
 
-        this.app.ui.showInfo("Loading AI Natural Voices...");
+        if (showUi) {
+            this.app.ui.showInfo("Loading AI Natural Voices...");
+        }
         if (this.initializingPromise) {
             if (this.pendingVoiceId && this.pendingVoiceId !== targetVoiceId) {
                 await this.initializingPromise.catch(() => { });
@@ -169,7 +174,7 @@ export class TTSEngine {
         }
 
         this.pendingVoiceId = targetVoiceId;
-        this.initializingPromise = this._initializeVoice(targetVoiceId)
+        this.initializingPromise = this._initializeVoice(targetVoiceId, { silent })
             .then(async () => {
                 await this.initVoices();
                 return state.piperInstance;
@@ -180,7 +185,9 @@ export class TTSEngine {
 
         try {
             const instance = await this.initializingPromise;
-            this.app.ui.showInfo("AI Natural Voices Loaded!");
+            if (showUi) {
+                this.app.ui.showInfo("AI Natural Voices Loaded!");
+            }
             return instance;
         } catch (err) {
             throw err;
@@ -189,10 +196,13 @@ export class TTSEngine {
         }
     }
 
-    async _initializeVoice(voiceId) {
+    async _initializeVoice(voiceId, options = {}) {
         const { ui, state } = this.app;
-        ui.updatePlayButton(state.playerState.LOADING);
-        document.body.style.cursor = "wait";
+        const silent = options?.silent === true;
+        const showUi = !silent;
+        if (showUi) {
+            document.body.style.cursor = "wait";
+        }
 
         try {
             if (!this.client) {
@@ -206,7 +216,6 @@ export class TTSEngine {
 
             const voice = this.voices[voiceId];
             if (!voice) {
-                ui.updatePlayButton(state.playerState.DONE);
                 throw new Error(`Unknown voice: ${voiceId}. Available voices: ${Object.keys(this.voices).join(", ")}`);
             }
 
@@ -215,7 +224,6 @@ export class TTSEngine {
             const configFile = filePaths.find((f) => f.endsWith(".onnx.json"));
 
             if (!modelFile || !configFile) {
-                ui.updatePlayButton(state.playerState.DONE);
                 throw new Error(`Voice ${voiceId} is missing required model or config files.`);
             }
 
@@ -226,7 +234,7 @@ export class TTSEngine {
             const fetcher = this.app.network.fetch.bind(this.app.network);
 
             const modelBuffer = await getCachedModel(modelFile, MODEL_URL, {
-                onProgress: (pct) => ui.showMessage(`Downloading model: ${pct.toFixed(2)}%`, 1200),
+                onProgress: showUi ? (pct) => ui.showMessage(`Downloading model: ${pct.toFixed(2)}%`, 1200) : undefined,
                 allowNetwork,
                 offlineErrorMessage: OFFLINE_VOICE_MESSAGE,
                 fetcher,
@@ -299,8 +307,9 @@ export class TTSEngine {
             }
             throw err;
         } finally {
-            document.body.style.cursor = "default";
-            ui.updatePlayButton(state.playerState.DONE);
+            if (showUi) {
+                document.body.style.cursor = "default";
+            }
         }
     }
 

@@ -823,6 +823,9 @@ _setupDocumentTranslationPrompt() {
             nopdf.style.display = "none";
         }
 
+        if (file !== null) {
+            void this.ttsEngine.prepareVoicesList();
+        }
         const result = await this.pdfLoader.loadPDF(file, options);
         if (file !== null) {
             void this.ttsEngine.prepareVoicesList();
@@ -835,6 +838,9 @@ _setupDocumentTranslationPrompt() {
         if (file !== null) {
             const overlay = document.getElementById("no-pdf-overlay");
             if (overlay) overlay.style.display = "none";
+        }
+        if (file !== null) {
+            void this.ttsEngine.prepareVoicesList();
         }
         const result = await this.epubLoader.loadEPUB(file, options);
         if (file !== null) {

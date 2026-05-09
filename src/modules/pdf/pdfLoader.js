@@ -333,6 +333,8 @@ export class PDFLoader {
                 this._scheduleVoicePreload(preloadVoiceId);
             }
 
+            this._scheduleSentencePrewarm();
+
             app.ui.showInfo(`Total sentences: ${state.sentences.length}`);
             app.interactionHandler.setupInteractionListeners();
             app.controlsManager.reflectSelectedHighlightColor();
@@ -492,6 +494,45 @@ export class PDFLoader {
         const schedule = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (cb) => setTimeout(cb, 0);
         schedule(() => {
             void this._applySavedVoice(trimmed, { silent: true });
+        });
+    }
+
+    _scheduleSentencePrewarm() {
+        const { app } = this;
+        const { state } = app || {};
+        if (!state?.sentences?.length) return;
+        if (typeof app.isReadTranslationEnabled === "function" && app.isReadTranslationEnabled()) return;
+
+        const idx =
+            typeof state.currentSentenceIndex === "number" && state.currentSentenceIndex >= 0
+                ? state.currentSentenceIndex
+                : 0;
+        const sentence = state.sentences[idx];
+        if (!sentence || sentence.audioReady || sentence.audioInProgress) return;
+        if (!sentence.layoutProcessed || !sentence.isTextToRead) return;
+
+        const schedule = typeof requestIdleCallback === "function"
+            ? (cb) => requestIdleCallback(cb, { timeout: 1500 })
+            : (cb) => setTimeout(cb, 0);
+
+        schedule(() => {
+            if (!state || state.isPlaying || state.playbackPending) return;
+            const current = state.sentences[idx];
+            if (!current || current.audioReady || current.audioInProgress) return;
+
+            const wasEnabled = state.generationEnabled;
+            if (!state.generationEnabled) {
+                state.generationEnabled = true;
+            }
+
+            Promise.resolve()
+                .then(() => app.ttsEngine.synthesizeSequential(idx))
+                .catch((err) => console.debug("[PDFLoader] Warmup synthesis failed", err))
+                .finally(() => {
+                    if (!wasEnabled && !state.isPlaying && !state.playbackPending) {
+                        state.generationEnabled = false;
+                    }
+                });
         });
     }
 

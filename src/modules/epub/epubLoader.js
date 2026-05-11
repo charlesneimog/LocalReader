@@ -12,6 +12,7 @@ export class EPUBLoader {
         this._sentencesPromise = null;
         this._sectionSentenceMap = new Map();
         this._localeHint = null;
+        this._voicePreloadTimer = null;
 
         this.app.epubRenderer = this.renderer;
     }
@@ -294,10 +295,28 @@ export class EPUBLoader {
     _scheduleVoicePreload(voiceId) {
         const trimmed = typeof voiceId === "string" ? voiceId.trim() : "";
         if (!trimmed) return;
-        const schedule = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (cb) => setTimeout(cb, 0);
-        schedule(() => {
+        if (typeof this.app?.isReadTranslationEnabled === "function" && this.app.isReadTranslationEnabled()) {
+            return;
+        }
+        this._clearVoicePreloadTimer();
+        this._voicePreloadTimer = setTimeout(() => {
+            this._voicePreloadTimer = null;
+            if (typeof this.app?.isReadTranslationEnabled === "function" && this.app.isReadTranslationEnabled()) {
+                return;
+            }
             void this._applySavedVoice(trimmed, { silent: true });
-        });
+        }, 600);
+    }
+
+    _clearVoicePreloadTimer() {
+        if (this._voicePreloadTimer) {
+            clearTimeout(this._voicePreloadTimer);
+            this._voicePreloadTimer = null;
+        }
+    }
+
+    cancelVoicePreload() {
+        this._clearVoicePreloadTimer();
     }
 
     _scheduleSentencePrewarm() {
@@ -345,8 +364,12 @@ export class EPUBLoader {
         if (!trimmedVoiceId) return;
 
         const silent = options?.silent === true;
+        const allowDuringReadTranslation = options?.allowDuringReadTranslation === true;
 
         const { app } = this;
+        if (!allowDuringReadTranslation && typeof app.isReadTranslationEnabled === "function" && app.isReadTranslationEnabled()) {
+            return;
+        }
         const voiceSelect = document.getElementById("voice-select");
         const selectOptions = voiceSelect ? Array.from(voiceSelect.options || []) : [];
         const voiceAvailable =

@@ -346,6 +346,8 @@ export class PDFTTSApp {
         this.controlsManager?.reflectReadTranslationToggle?.(value);
         if (!value) this._resetReadTranslationCache();
         if (value) {
+            this.pdfLoader?.cancelVoicePreload?.();
+            this.epubLoader?.cancelVoicePreload?.();
             this._syncTtsVoiceWithTranslationTarget(this._getTranslationTargetLanguage()).catch((err) => {
                 console.warn("[translation] failed to sync voice with translation target", err);
             });

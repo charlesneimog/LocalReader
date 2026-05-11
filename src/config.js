@@ -1,8 +1,8 @@
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
     VERSION_MAJOR: 0,
-    VERSION_MINOR: 24,
-    VERSION_PATCH: 5,
+    VERSION_MINOR: 25,
+    VERSION_PATCH: 0,
     VERSION_BUILD: 0,
 
     // Rendering

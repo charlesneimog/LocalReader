@@ -388,7 +388,11 @@ export class PDFLoader {
         const { state } = app;
 
         const keepPending = userInitiated || state.playbackPending === true;
-        app.audioManager.stopPlayback(true);
+        const stopOptions = keepPending ? { clearContext: false, emitEvent: false } : undefined;
+        app.audioManager.stopPlayback(true, stopOptions);
+        if (keepPending) {
+            state.stopRequested = false;
+        }
         state.autoAdvanceActive = false;
         state.layoutFilteringReady = false;
         state.generationEnabled = true;

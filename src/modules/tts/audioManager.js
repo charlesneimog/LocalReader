@@ -24,6 +24,7 @@ export class AudioManager {
         const context = {
             id: this._playbackContextId++,
             sentenceIndex: state.currentSentenceIndex,
+            userInitiated: userInitiated,
         };
         this._playbackContext = context;
 
@@ -77,7 +78,7 @@ export class AudioManager {
         sentence = ensuredSentence;
         context.sentenceIndex = state.currentSentenceIndex;
 
-        await this.app.ttsEngine.ensureAudioContext();
+        await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
         if (!this._isContextActive(context)) return;
 
         if (!state.generationEnabled) {
@@ -189,7 +190,9 @@ export class AudioManager {
         const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "PDF");
         if (!canWarmup) return;
         try {
-            await this.app.pdfLoader.ensureLayoutFilteringReady();
+            await this.app.pdfLoader.ensureLayoutFilteringReady({
+                userInitiated: context?.userInitiated === true,
+            });
         } catch (err) {
             console.error("Layout preparation failed:", err);
             if (this._isContextActive(context)) {
@@ -220,7 +223,7 @@ export class AudioManager {
         sentence = ensuredSentence;
         context.sentenceIndex = state.currentSentenceIndex;
 
-        await this.app.ttsEngine.ensureAudioContext();
+        await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
         if (!this._isContextActive(context)) return;
 
         if (!state.generationEnabled) {

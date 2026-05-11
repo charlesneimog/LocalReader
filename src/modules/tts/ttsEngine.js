@@ -142,11 +142,22 @@ export class TTSEngine {
         }
     }
 
-    async ensureAudioContext() {
+    async ensureAudioContext(options = {}) {
         const { state, config } = this.app;
-        if (!state.audioCtx) {
+        const resume = options?.resume === true;
+
+        if (!state.audioCtx || state.audioCtx.state === "closed") {
             state.audioCtx = new window.AudioContext(config.AUDIO_CONTEXT_OPTIONS);
         }
+
+        if (resume && state.audioCtx?.state === "suspended") {
+            try {
+                await state.audioCtx.resume();
+            } catch (error) {
+                console.debug("[TTS] AudioContext resume blocked", error);
+            }
+        }
+
         return state.audioCtx;
     }
 

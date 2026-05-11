@@ -353,7 +353,7 @@ export class PDFLoader {
         }
     }
 
-    async ensureLayoutFilteringReady({ forceRebuild = false } = {}) {
+    async ensureLayoutFilteringReady({ forceRebuild = false, userInitiated = false } = {}) {
         const { app } = this;
         const { state } = app;
 
@@ -366,11 +366,15 @@ export class PDFLoader {
         }
 
         if (state.layoutFilteringPromise) {
+            if (userInitiated) {
+                state.playbackPending = true;
+                app.ui.updatePlayButton(state.playerState.LOADING);
+            }
             app.ui.showInfo("Finishing layout analysis...");
             return state.layoutFilteringPromise;
         }
 
-        const promise = this._prepareLayoutFiltering({ forceRebuild });
+        const promise = this._prepareLayoutFiltering({ forceRebuild, userInitiated });
         state.layoutFilteringPromise = promise;
         try {
             await promise;
@@ -379,10 +383,11 @@ export class PDFLoader {
         }
     }
 
-    async _prepareLayoutFiltering({ forceRebuild = false } = {}) {
+    async _prepareLayoutFiltering({ forceRebuild = false, userInitiated = false } = {}) {
         const { app } = this;
         const { state } = app;
 
+        const keepPending = userInitiated || state.playbackPending === true;
         app.audioManager.stopPlayback(true);
         state.autoAdvanceActive = false;
         state.layoutFilteringReady = false;
@@ -390,6 +395,10 @@ export class PDFLoader {
         state.audioCache.clear();
         app.ttsQueue.reset();
         state.prefetchedPages.clear();
+
+        if (keepPending) {
+            state.playbackPending = true;
+        }
 
         for (const sentence of state.sentences) {
             if (!sentence) continue;
@@ -416,7 +425,9 @@ export class PDFLoader {
         const prevSentence = state.currentSentence || null;
         const prevIndex = state.currentSentenceIndex;
 
-        app.ui.updatePlayButton(state.playerState.LOADING);
+        if (keepPending) {
+            app.ui.updatePlayButton(state.playerState.LOADING);
+        }
         app.ui.showInfo("Preparing current page for playback...");
 
         const targetPages = new Set();

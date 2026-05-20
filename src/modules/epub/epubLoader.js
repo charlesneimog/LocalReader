@@ -196,30 +196,32 @@ export class EPUBLoader {
                 let startIndex = Math.max(0, state.currentSentenceIndex ?? 0);
                 let resumeVoiceId = null;
                 let loadedHighlightsFromServer = false;
-                
+
                 // First, try to load from server if enabled
                 if (this.app.serverSync?.isEnabled() && state.currentEpubKey) {
                     try {
-                        const serverData = await this.app.serverSync.loadPositionAndHighlightsFromServer(state.currentEpubKey);
-                        
+                        const serverData = await this.app.serverSync.loadPositionAndHighlightsFromServer(
+                            state.currentEpubKey,
+                        );
+
                         // Update position from server if available
                         if (serverData.position !== null && serverData.position >= 0) {
                             startIndex = Math.min(Math.max(serverData.position, 0), state.sentences.length - 1);
                             console.log(`[EPUBLoader] Restored position from server: ${startIndex}`);
                         }
-                        
+
                         // Update voice from server if available
                         if (resume && serverData.voice) {
                             resumeVoiceId = serverData.voice;
                             console.log(`[EPUBLoader] Restored voice from server: ${resumeVoiceId}`);
                         }
-                        
+
                         // Update highlights from server when present (including empty map)
                         if (serverData.highlights instanceof Map) {
                             state.savedHighlights = serverData.highlights;
                             loadedHighlightsFromServer = true;
                             console.log(`[EPUBLoader] Restored ${serverData.highlights.size} highlights from server`);
-                            
+
                             // Also save to local storage
                             this.app.highlightsStorage.saveHighlights(state.currentEpubKey, serverData.highlights);
                         }
@@ -227,7 +229,7 @@ export class EPUBLoader {
                         console.warn("[EPUBLoader] Failed to load from server, using local data:", error);
                     }
                 }
-                
+
                 // If no server data, load from local storage
                 if (startIndex === 0 && resume && state.currentEpubKey) {
                     const saved = this.app.progressManager.loadSavedPosition(state.currentEpubKey, "epub");
@@ -288,7 +290,8 @@ export class EPUBLoader {
         const selected = typeof voiceSelect?.value === "string" ? voiceSelect.value.trim() : "";
         if (selected) return selected;
 
-        const fallback = typeof this.app?.config?.DEFAULT_PIPER_VOICE === "string" ? this.app.config.DEFAULT_PIPER_VOICE : "";
+        const fallback =
+            typeof this.app?.config?.DEFAULT_PIPER_VOICE === "string" ? this.app.config.DEFAULT_PIPER_VOICE : "";
         return fallback.trim() || null;
     }
 
@@ -333,9 +336,10 @@ export class EPUBLoader {
         if (!sentence || sentence.audioReady || sentence.audioInProgress) return;
         if (!sentence.layoutProcessed || !sentence.isTextToRead) return;
 
-        const schedule = typeof requestIdleCallback === "function"
-            ? (cb) => requestIdleCallback(cb, { timeout: 1500 })
-            : (cb) => setTimeout(cb, 0);
+        const schedule =
+            typeof requestIdleCallback === "function"
+                ? (cb) => requestIdleCallback(cb, { timeout: 1500 })
+                : (cb) => setTimeout(cb, 0);
 
         schedule(() => {
             if (!state || state.isPlaying || state.playbackPending) return;
@@ -367,7 +371,11 @@ export class EPUBLoader {
         const allowDuringReadTranslation = options?.allowDuringReadTranslation === true;
 
         const { app } = this;
-        if (!allowDuringReadTranslation && typeof app.isReadTranslationEnabled === "function" && app.isReadTranslationEnabled()) {
+        if (
+            !allowDuringReadTranslation &&
+            typeof app.isReadTranslationEnabled === "function" &&
+            app.isReadTranslationEnabled()
+        ) {
             return;
         }
         const voiceSelect = document.getElementById("voice-select");
@@ -396,13 +404,13 @@ export class EPUBLoader {
             if (!silent) {
                 app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
             }
-            if (!app.state.currentPiperVoice) {
-                try {
-                    await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE, { silent });
-                } catch (fallbackError) {
-                    console.warn("Fallback to default voice failed:", fallbackError);
-                }
-            }
+            // if (!app.state.currentPiperVoice) {
+            //     try {
+            //         // await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE, { silent });
+            //     } catch (fallbackError) {
+            //         console.warn("Fallback to default voice failed:", fallbackError);
+            //     }
+            // }
         }
     }
 

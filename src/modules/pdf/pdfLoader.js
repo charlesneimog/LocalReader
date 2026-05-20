@@ -251,29 +251,29 @@ export class PDFLoader {
 
             let startIndex = 0;
             let resumeVoiceId = null;
-            
+
             // First, try to load from server if enabled
             if (app.serverSync?.isEnabled() && state.currentPdfKey) {
                 try {
                     const serverData = await app.serverSync.loadPositionAndHighlightsFromServer(state.currentPdfKey);
-                    
+
                     // Update position from server if available
                     if (serverData.position !== null && serverData.position >= 0) {
                         startIndex = Math.min(Math.max(serverData.position, 0), state.sentences.length - 1);
                         //console.log(`[PDFLoader] Restored position from server: ${startIndex}`);
                     }
-                    
+
                     // Update voice from server if available
                     if (resume && serverData.voice) {
                         resumeVoiceId = serverData.voice;
                         //console.log(`[PDFLoader] Restored voice from server: ${resumeVoiceId}`);
                     }
-                    
+
                     // Update highlights from server if available
                     if (serverData.highlights && serverData.highlights.size > 0) {
                         state.savedHighlights = serverData.highlights;
                         //console.log(`[PDFLoader] Restored ${serverData.highlights.size} highlights from server`);
-                        
+
                         // Also save to local storage
                         app.highlightsStorage?.saveHighlights?.(state.currentPdfKey, serverData.highlights);
                     }
@@ -301,7 +301,7 @@ export class PDFLoader {
                     console.warn("[PDFLoader] Failed to load from server, using local data:", error);
                 }
             }
-            
+
             // If no server data, load from local storage
             if (startIndex === 0 && state.currentPdfKey) {
                 const saved = app.progressManager.loadSavedPosition(state.currentPdfKey);
@@ -551,7 +551,8 @@ export class PDFLoader {
         const selected = typeof voiceSelect?.value === "string" ? voiceSelect.value.trim() : "";
         if (selected) return selected;
 
-        const fallback = typeof this.app?.config?.DEFAULT_PIPER_VOICE === "string" ? this.app.config.DEFAULT_PIPER_VOICE : "";
+        const fallback =
+            typeof this.app?.config?.DEFAULT_PIPER_VOICE === "string" ? this.app.config.DEFAULT_PIPER_VOICE : "";
         return fallback.trim() || null;
     }
 
@@ -596,9 +597,10 @@ export class PDFLoader {
         if (!sentence || sentence.audioReady || sentence.audioInProgress) return;
         if (!sentence.layoutProcessed || !sentence.isTextToRead) return;
 
-        const schedule = typeof requestIdleCallback === "function"
-            ? (cb) => requestIdleCallback(cb, { timeout: 1500 })
-            : (cb) => setTimeout(cb, 0);
+        const schedule =
+            typeof requestIdleCallback === "function"
+                ? (cb) => requestIdleCallback(cb, { timeout: 1500 })
+                : (cb) => setTimeout(cb, 0);
 
         schedule(() => {
             if (!state || state.isPlaying || state.playbackPending) return;
@@ -631,7 +633,11 @@ export class PDFLoader {
         const silent = options?.silent === true;
         const allowDuringReadTranslation = options?.allowDuringReadTranslation === true;
 
-        if (!allowDuringReadTranslation && typeof app.isReadTranslationEnabled === "function" && app.isReadTranslationEnabled()) {
+        if (
+            !allowDuringReadTranslation &&
+            typeof app.isReadTranslationEnabled === "function" &&
+            app.isReadTranslationEnabled()
+        ) {
             return;
         }
 
@@ -661,13 +667,13 @@ export class PDFLoader {
             if (!silent) {
                 app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
             }
-            if (!app.state.currentPiperVoice) {
-                try {
-                    await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE, { silent });
-                } catch (fallbackErr) {
-                    console.warn("Fallback to default voice failed:", fallbackErr);
-                }
-            }
+            // if (!app.state.currentPiperVoice) {
+            //     try {
+            //         await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE, { silent });
+            //     } catch (fallbackErr) {
+            //         console.warn("Fallback to default voice failed:", fallbackErr);
+            //     }
+            // }
         }
     }
 

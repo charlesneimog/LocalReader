@@ -433,6 +433,29 @@ export class TTSEngine {
         });
         sentence._restartRetryCount = 0;
         delete sentence._restartAttempted;
+
+        // Persist a small snapshot of the synthesized audio for this sentence so it
+        // can be restored on subsequent loads (improves smartphone perceived latency).
+        try {
+            const storageKey = state.currentPdfKey || state.currentEpubKey || null;
+            if (storageKey) {
+                const docType = state.currentDocumentType === "epub" ? "epub" : "pdf";
+                const compound = this.app.progressManager._progressKey(docType, storageKey);
+                const voiceSpeed = `${voice}|${state.CURRENT_SPEED}`;
+                // prefer a blob if available, otherwise fall back to wavBuffer
+                let blobToStore = null;
+                if (effectiveBlob instanceof Blob) blobToStore = effectiveBlob;
+                else if (wavBuffer instanceof ArrayBuffer) blobToStore = new Blob([wavBuffer], { type: "audio/wav" });
+                if (blobToStore) {
+                    // Don't await too long; fire-and-forget
+                    this.app.progressManager.saveSentenceAudio(compound, sentence.index, voiceSpeed, blobToStore, {
+                        wordBoundaries,
+                    }).catch((err) => console.debug("[ProgressManager] saveSentenceAudio failed", err));
+                }
+            }
+        } catch (e) {
+            console.debug("[TTSEngine] persist audio failed", e);
+        }
     }
 
     async synthesizeSequential(idx) {
@@ -562,7 +585,8 @@ export class TTSEngine {
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             indices.push(state.currentSentenceIndex);
         }
-        const prefetchAhead = state.isPlaying ? config.PREFETCH_AHEAD : 0;
+        // Ensure we always persist at least the next 3 sentences for offline/mobile
+        const prefetchAhead = state.isPlaying ? config.PREFETCH_AHEAD : Math.min(3, config.PREFETCH_AHEAD || 3);
         const base = state.currentSentenceIndex;
         for (let i = base + 1; i <= base + prefetchAhead && i < state.sentences.length; i++) {
             this.app.ttsQueue.add(i);

@@ -88,6 +88,34 @@ export class PDFTTSApp {
         this._setupDocumentTranslationPrompt();
         this._setupNetworkHandlers();
 
+        // Clean up already-read saved audio snapshots to limit storage on smartphones
+        this.eventBus.on(EVENTS.AUDIO_PLAYBACK_END, ({ index } = {}) => {
+            try {
+                const { state } = this;
+                const storageKey = state.currentPdfKey || state.currentEpubKey || null;
+                if (!storageKey || !Number.isFinite(index)) return;
+                const docType = state.currentDocumentType === "epub" ? "epub" : "pdf";
+                const compound = this.progressManager._progressKey(docType, storageKey);
+                const voice = state.currentPiperVoice || this.config.DEFAULT_PIPER_VOICE;
+                const voiceSpeed = `${voice}|${state.CURRENT_SPEED}`;
+                const KEEP_BEHIND = 1; // keep last 1 sentence before current
+                const cutoff = Math.max(0, index - KEEP_BEHIND - 1);
+                // Remove older indices up to cutoff (fire-and-forget)
+                for (let i = 0; i <= cutoff; i++) {
+                    // remove from DB
+                    this.progressManager.removeSentenceAudio(compound, i, voiceSpeed).catch(() => {});
+                    // remove from in-memory cache if present
+                    const s = state.sentences[i];
+                    if (s && typeof s.normalizedText === "string") {
+                        const key = `${voice}|${state.CURRENT_SPEED}|${s.normalizedText}`;
+                        if (state.audioCache.has(key)) state.audioCache.delete(key);
+                    }
+                }
+            } catch (e) {
+                console.debug("[App] audio cleanup failed", e);
+            }
+        });
+
         this.showSavedPDFs();
 
         // app version

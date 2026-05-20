@@ -1,4 +1,4 @@
-const APP_VERSION = "0.27.1+0";
+const APP_VERSION = "0.27.2+0";
 const IDB_VERSION = 1;
 const cacheName = `LocalReader-v${APP_VERSION}`;
 const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;

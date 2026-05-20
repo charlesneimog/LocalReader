@@ -319,6 +319,51 @@ export class PDFLoader {
                 await app.pdfRenderer.renderFullDocumentIfNeeded();
             }
 
+            // Attempt to restore small per-sentence audio snapshots around resume index
+            try {
+                const storageKey = state.currentPdfKey || state.currentEpubKey || null;
+                if (storageKey) {
+                    const docType = state.currentDocumentType === "epub" ? "epub" : "pdf";
+                    const compound = app.progressManager._progressKey(docType, storageKey);
+                    const base = Math.min(Math.max(startIndex, 0), state.sentences.length - 1);
+                    const from = Math.max(0, base - 3);
+                    const to = Math.min(state.sentences.length - 1, base + 3);
+                    const voice = state.currentPiperVoice || app.config.DEFAULT_PIPER_VOICE;
+                    const voiceSpeed = `${voice}|${state.CURRENT_SPEED}`;
+                    for (let i = from; i <= to; i++) {
+                        try {
+                            const rec = await app.progressManager.loadSentenceAudio(compound, i, voiceSpeed);
+                            if (rec && rec.blob) {
+                                try {
+                                    const ab = await rec.blob.arrayBuffer();
+                                    const decoded = await app.ttsEngine.safeDecodeAudioData(ab);
+                                    const key = `${voice}|${state.CURRENT_SPEED}|${state.sentences[i].normalizedText || state.sentences[i].text}`;
+                                    state.audioCache.set(key, {
+                                        audioBlob: rec.blob,
+                                        wavBlob: rec.blob,
+                                        audioBuffer: decoded,
+                                        wordBoundaries: rec.meta?.wordBoundaries || [],
+                                    });
+                                    const s = state.sentences[i];
+                                    if (s) {
+                                        s.audioBuffer = decoded;
+                                        s.audioReady = true;
+                                        s.lastVoice = voice;
+                                        s.lastSpeed = state.CURRENT_SPEED;
+                                    }
+                                } catch (err) {
+                                    console.debug("[PDFLoader] restore sentence audio failed", err);
+                                }
+                            }
+                        } catch (err) {
+                            /* ignore individual load errors */
+                        }
+                    }
+                }
+            } catch (err) {
+                console.debug("[PDFLoader] restore audio snapshots failed", err);
+            }
+
             // Load highlights from local storage if not already loaded from server
             if (!state.savedHighlights || state.savedHighlights.size === 0) {
                 state.savedHighlights = app.highlightsStorage.loadSavedHighlights(state.currentPdfKey);
@@ -342,6 +387,12 @@ export class PDFLoader {
 
             app.eventBus.emit(EVENTS.PDF_LOADED, { pages: state.pdf.numPages, sentences: state.sentences.length });
             app.eventBus.emit(EVENTS.SENTENCES_PARSED, state.sentences);
+            // Kick a small persistent prefetch so next 3 sentences are synthesized and saved
+            try {
+                Promise.resolve().then(() => app.ttsEngine.schedulePrefetch());
+            } catch (e) {
+                /* ignore */
+            }
             const header = document.getElementById("previous-pdf-header");
             header.classList.add("hidden");
         } catch (e) {

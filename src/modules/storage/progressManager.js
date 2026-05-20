@@ -119,7 +119,8 @@ export class ProgressManager {
 
     async _openDb() {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open("PDFStorage", 2);
+            // bumped version to create an `audio` store for sentence audio snapshots
+            const request = indexedDB.open("PDFStorage", 3);
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains("pdfs")) {
@@ -128,9 +129,71 @@ export class ProgressManager {
                 if (!db.objectStoreNames.contains("epubs")) {
                     db.createObjectStore("epubs");
                 }
+                if (!db.objectStoreNames.contains("audio")) {
+                    // key will be compoundKey::index::voice|speed
+                    db.createObjectStore("audio");
+                }
             };
             request.onsuccess = (event) => resolve(event.target.result);
             request.onerror = () => reject(request.error);
+        });
+    }
+
+    async saveSentenceAudio(compoundKey, index, voiceSpeedKey, blob, meta = {}) {
+        if (!compoundKey || !Number.isFinite(index) || !blob) return;
+        const key = `${compoundKey}::${index}::${voiceSpeedKey}`;
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("audio", "readwrite");
+            const store = tx.objectStore("audio");
+            const payload = { blob, meta: { ...meta, ts: Date.now() } };
+            store.put(payload, key);
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
+            };
+            tx.onerror = () => {
+                db.close();
+                reject(tx.error);
+            };
+        });
+    }
+
+    async loadSentenceAudio(compoundKey, index, voiceSpeedKey) {
+        if (!compoundKey || !Number.isFinite(index) || !voiceSpeedKey) return null;
+        const key = `${compoundKey}::${index}::${voiceSpeedKey}`;
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("audio", "readonly");
+            const store = tx.objectStore("audio");
+            const req = store.get(key);
+            req.onsuccess = () => {
+                db.close();
+                resolve(req.result || null);
+            };
+            req.onerror = () => {
+                db.close();
+                reject(req.error);
+            };
+        });
+    }
+
+    async removeSentenceAudio(compoundKey, index, voiceSpeedKey) {
+        if (!compoundKey || !Number.isFinite(index) || !voiceSpeedKey) return;
+        const key = `${compoundKey}::${index}::${voiceSpeedKey}`;
+        const db = await this._openDb();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("audio", "readwrite");
+            const store = tx.objectStore("audio");
+            const req = store.delete(key);
+            req.onsuccess = () => {
+                db.close();
+                resolve(true);
+            };
+            req.onerror = () => {
+                db.close();
+                reject(req.error);
+            };
         });
     }
 

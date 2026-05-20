@@ -133,11 +133,6 @@ export class PDFLoader {
         const { state, config } = app;
         state.playbackPending = false;
         state.documentLoading = true;
-        try {
-            performance.mark && performance.mark("book-enter");
-        } catch (e) {
-            /* ignore */
-        }
         app.ui.updatePlayButton(state.playerState.LOADING);
         document.body.style.cursor = "wait";
         try {
@@ -253,12 +248,6 @@ export class PDFLoader {
 
             // Build sentences (now with layout filtering)
             await app.sentenceParser.buildSentences(1);
-            try {
-                performance.mark && performance.mark("sentence-parse-done");
-                performance.measure && performance.measure("sentence-parse", "book-enter", "sentence-parse-done");
-            } catch (e) {
-                /* ignore */
-            }
 
             let startIndex = 0;
             let resumeVoiceId = null;

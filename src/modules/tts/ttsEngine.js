@@ -297,21 +297,6 @@ export class TTSEngine {
             state.currentPiperVoice = voiceId;
             state.piperInstance.availableVoices = this.voices;
 
-            // Minimal prefetch: enqueue current + next 2 sentences to reduce first-play latency
-            try {
-                if (Array.isArray(state.sentences) && state.sentences.length) {
-                    const base = Number.isFinite(state.currentSentenceIndex) && state.currentSentenceIndex >= 0 ? state.currentSentenceIndex : 0;
-                    for (let k = 0; k < 3 && base + k < state.sentences.length; k++) {
-                        // mark first as immediate
-                        this.app.ttsQueue.add(base + k, k === 0);
-                    }
-                    // kick the queue runner if available
-                    this.app.ttsQueue.run && this.app.ttsQueue.run();
-                }
-            } catch (e) {
-                console.debug("[TTSEngine] prefetch on model-ready failed", e);
-            }
-
             return state.piperInstance;
         } catch (err) {
             const offlineVoiceError = this._isOfflineVoiceError(err);

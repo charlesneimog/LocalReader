@@ -207,89 +207,80 @@ export class SentenceParser {
             buffer = [];
         };
 
-        // Process words in small chunks so the main thread yields and avoids jank on mobile.
-        // Minimal change: process `CHUNK` words per tick using `setTimeout`.
-        const CHUNK = 200;
-        let i = 0;
-        const self = this;
-        const step = () => {
-            const end = Math.min(wordsToProcess.length, i + CHUNK);
-            for (; i < end; i++) {
-                const w = wordsToProcess[i];
-                const tokenView = getVisibleTokenOutsideParentheses(w?.str, parenDepth);
-                const tokenForParsing = tokenView.visibleText.trim();
-                const tokenAffectsParsing = tokenForParsing.length > 0;
-                let gapBreak = false;
+        for (let i = 0; i < wordsToProcess.length; i++) {
+            const w = wordsToProcess[i];
+            const tokenView = getVisibleTokenOutsideParentheses(w?.str, parenDepth);
+            const tokenForParsing = tokenView.visibleText.trim();
+            const tokenAffectsParsing = tokenForParsing.length > 0;
+            let gapBreak = false;
 
-                if (layoutRegions) {
-                    const regionKey = getRegionKey(w);
-                    if (tokenAffectsParsing) {
-                        if (!suppressGapChecksFromParentheses && lastRegionKey !== null && regionKey !== lastRegionKey && buffer.length) {
-                            gapBreak = true;
-                        }
-                        lastRegionKey = regionKey;
-                    }
-                }
-
-                const { x: canonX, y: canonY, width: canonWidth, height: canonHeight } = getCanonicalGeom(w);
-
-                if (!layoutRegions && tokenAffectsParsing && !suppressGapChecksFromParentheses) {
-                    if (config.SPLIT_ON_LINE_GAP && lastY !== null) {
-                        const verticalDelta = Math.abs(lastY - canonY);
-                        if (lastHeight && verticalDelta > lastHeight * config.LINE_GAP_THRESHOLD) {
-                            gapBreak = true;
-                        }
-                    }
-
-                    if (!gapBreak && lastParsingWordGeom) {
-                        const { x: lastX, width: lastWidth, height: lastH } = lastParsingWordGeom;
-                        const horizontalGap = canonX - (lastX + lastWidth);
-                        const em = lastH || canonHeight || 0;
-                        const wordGapThresholdEm = Number.isFinite(config.WORD_GAP_THRESHOLD_EM)
-                            ? config.WORD_GAP_THRESHOLD_EM
-                            : 2.5;
-                        const gapThreshold = em > 0 ? em * wordGapThresholdEm : config.TOLERANCE;
-
-                        if (horizontalGap > gapThreshold) {
-                            gapBreak = true;
-                        }
-                    }
-                }
-
-                if (gapBreak && buffer.length) flush();
-
-                buffer.push(w);
-
-                if ((tokenAffectsParsing && isSentenceEnd(tokenForParsing)) || (config.BREAK_ON_LINE && w.lineBreak && tokenAffectsParsing)) {
-                    flush();
-                }
-
+            // When layout regions are available, split primarily on region changes (columns/blocks),
+            // not on arbitrary x/y padding heuristics.
+            if (layoutRegions) {
+                const regionKey = getRegionKey(w);
                 if (tokenAffectsParsing) {
-                    lastY = canonY;
-                    lastHeight = canonHeight;
-                    lastParsingWordGeom = {
-                        x: canonX,
-                        width: canonWidth,
-                        height: canonHeight,
-                    };
-                    suppressGapChecksFromParentheses = false;
+                    if (!suppressGapChecksFromParentheses && lastRegionKey !== null && regionKey !== lastRegionKey && buffer.length) {
+                        gapBreak = true;
+                    }
+                    lastRegionKey = regionKey;
                 }
-
-                if (!tokenAffectsParsing || tokenView.depth > 0) {
-                    suppressGapChecksFromParentheses = true;
-                }
-
-                parenDepth = tokenView.depth;
             }
 
-            if (i < wordsToProcess.length) {
-                setTimeout(step, 0);
-            } else {
+            const { x: canonX, y: canonY, width: canonWidth, height: canonHeight } = getCanonicalGeom(w);
+
+            // Fallback heuristics (only if we don't have layout regions)
+            if (!layoutRegions && tokenAffectsParsing && !suppressGapChecksFromParentheses) {
+                // Check vertical gap
+                if (config.SPLIT_ON_LINE_GAP && lastY !== null) {
+                    const verticalDelta = Math.abs(lastY - canonY);
+                    if (lastHeight && verticalDelta > lastHeight * config.LINE_GAP_THRESHOLD) {
+                        gapBreak = true;
+                    }
+                }
+
+                // Check horizontal gap
+                if (!gapBreak && lastParsingWordGeom) {
+                    const { x: lastX, width: lastWidth, height: lastH } = lastParsingWordGeom;
+                    const horizontalGap = canonX - (lastX + lastWidth);
+                    const em = lastH || canonHeight || 0;
+                    const wordGapThresholdEm = Number.isFinite(config.WORD_GAP_THRESHOLD_EM)
+                        ? config.WORD_GAP_THRESHOLD_EM
+                        : 2.5;
+                    const gapThreshold = em > 0 ? em * wordGapThresholdEm : config.TOLERANCE;
+
+                    if (horizontalGap > gapThreshold) {
+                        gapBreak = true;
+                    }
+                }
+            }
+
+            if (gapBreak && buffer.length) flush();
+
+            buffer.push(w);
+
+            if ((tokenAffectsParsing && isSentenceEnd(tokenForParsing)) || (config.BREAK_ON_LINE && w.lineBreak && tokenAffectsParsing)) {
                 flush();
             }
-        };
 
-        step();
+            if (tokenAffectsParsing) {
+                lastY = canonY;
+                lastHeight = canonHeight;
+                lastParsingWordGeom = {
+                    x: canonX,
+                    width: canonWidth,
+                    height: canonHeight,
+                };
+                suppressGapChecksFromParentheses = false;
+            }
+
+            if (!tokenAffectsParsing || tokenView.depth > 0) {
+                suppressGapChecksFromParentheses = true;
+            }
+
+            parenDepth = tokenView.depth;
+        }
+
+        flush(); // Flush any remaining words
     }
 
     applyLayoutFilteringToPage(pageNumber) {

@@ -76,20 +76,24 @@ export class AudioManager {
         }
 
         sentence = ensuredSentence;
+        if (!state.generationEnabled) {
+            state.generationEnabled = true;
+        }
+        // Kick off rolling prefetch as soon as we have a valid sentence.
+        this.app.ttsEngine.schedulePrefetch();
         context.sentenceIndex = state.currentSentenceIndex;
 
         await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
         if (!this._isContextActive(context)) return;
 
-        if (!state.generationEnabled) {
-            state.generationEnabled = true;
-        }
-
         let attempts = 0;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
             if (attempts === 0) {
-                this.app.ttsQueue.add(state.currentSentenceIndex, true);
+                this.app.ttsQueue.add(state.currentSentenceIndex, {
+                    priority: "critical",
+                    force: true,
+                });
                 this.app.ttsQueue.run();
             }
             attempts += 1;
@@ -221,20 +225,24 @@ export class AudioManager {
         }
 
         sentence = ensuredSentence;
+        if (!state.generationEnabled) {
+            state.generationEnabled = true;
+        }
+        // Kick off rolling prefetch as soon as we have a valid sentence.
+        this.app.ttsEngine.schedulePrefetch();
         context.sentenceIndex = state.currentSentenceIndex;
 
         await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
         if (!this._isContextActive(context)) return;
 
-        if (!state.generationEnabled) {
-            state.generationEnabled = true;
-        }
-
         let attempts = 0;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
             if (attempts === 0) {
-                this.app.ttsQueue.add(state.currentSentenceIndex, true);
+                this.app.ttsQueue.add(state.currentSentenceIndex, {
+                    priority: "critical",
+                    force: true,
+                });
                 this.app.ttsQueue.run();
             }
             attempts += 1;
@@ -529,6 +537,8 @@ export class AudioManager {
         sentence.audioReady = false;
         sentence.audioBuffer = null;
         sentence.audioError = null;
+        sentence.audioInProgress = false;
+        sentence.rendering = false;
         sentence.prefetchQueued = false;
         sentence.wordBoundaries = [];
     }
@@ -587,6 +597,7 @@ export class AudioManager {
 
         try {
             await this.app.pdfRenderer.renderSentence(finishedIndex + 1, { autoAdvance: true });
+            this.app.ttsEngine.schedulePrefetch();
         } catch (err) {
             console.warn("Auto-advance render failed", err);
             state.autoAdvanceActive = false;

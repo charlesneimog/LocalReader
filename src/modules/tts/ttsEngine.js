@@ -24,6 +24,7 @@ export class TTSEngine {
         this._renderAheadPages = new Set();
         this._restartAttemptedCount = 0;
         this._resetPromise = null;
+        this.PREFETCH_TARGET = Number.isFinite(app.config?.PREFETCH_TARGET) ? app.config.PREFETCH_TARGET : 5;
 
         const scriptSrc = (document.currentScript && document.currentScript.src) || window.location.href;
         const scriptDir = scriptSrc.substring(0, scriptSrc.lastIndexOf("/"));
@@ -468,139 +469,198 @@ export class TTSEngine {
         }
         if (s.audioInProgress) return;
 
-        const baseText = s.readableText && s.readableText.trim().length ? s.readableText : s.text;
-        if (!baseText || !baseText.trim().length) {
-            s.audioError = new Error("No readable text available for synthesis");
-            return;
-        }
-
-        const sourceText = await this.app.getSentenceSpeechText?.(idx, baseText);
-        if (!sourceText || !sourceText.trim().length) {
-            s.audioError = new Error("No speech text available for synthesis");
-            return;
-        }
-
-        if (this.app.isReadTranslationEnabled?.()) {
-            try {
-                await this.app.ensureReadTranslationVoiceReady?.();
-            } catch (err) {
-                console.warn("[TTS] Failed to align voice with translation target", err);
-            }
-        }
-
-        const voiceSelect = document.getElementById("voice-select");
-        const voice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-
-        if (!hasUsableSpeechText(sourceText)) {
-            this._markSentenceAsSilent(s);
-            return;
-        }
-
-        const norm = normalizeText(sourceText);
-
-        if (
-            s.audioReady &&
-            s.lastVoice === voice &&
-            s.lastSpeed === state.CURRENT_SPEED &&
-            typeof s.normalizedText === "string" &&
-            s.normalizedText === norm
-        ) {
-            return;
-        }
-
-        s.normalizedText = norm;
-        const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;
-        if (state.audioCache.has(cacheKey)) {
-            const cached = state.audioCache.get(cacheKey);
-            Object.assign(s, {
-                audioBlob: cached.audioBlob || null,
-                wavBlob: cached.wavBlob || null,
-                audioBuffer: cached.audioBuffer,
-                audioReady: true,
-                lastVoice: voice,
-                lastSpeed: state.CURRENT_SPEED,
-                audioError: null,
-                audioInProgress: false,
-                prefetchQueued: false,
-                wordBoundaries: cached.wordBoundaries || [],
-            });
-            s._restartRetryCount = 0;
-            delete s._restartAttempted;
-            return;
-        }
-
-        s.audioInProgress = true;
-        s.audioError = null;
-
-        this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_START, { index: idx });
-
+        s.rendering = true;
         try {
-            await this.buildPiperAudio(s, voice, norm);
-            this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
-        } catch (err) {
-            if (this._isOfflineVoiceError(err)) {
-                s.audioError = err;
-                this.app.ui?.showInfo?.(OFFLINE_VOICE_MESSAGE);
-                this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
+            const baseText = s.readableText && s.readableText.trim().length ? s.readableText : s.text;
+            if (!baseText || !baseText.trim().length) {
+                s.audioError = new Error("No readable text available for synthesis");
                 return;
             }
-            s.audioError = err;
-            const retryCount = (Number.isFinite(s._restartRetryCount) ? s._restartRetryCount : 0) + 1;
-            s._restartRetryCount = retryCount;
-            const reason = err?.message || "unknown synthesis error";
-            this.app.ui.showMessage(
-                `TTS warning: restarting engine (attempt ${retryCount}). Audio generation will keep retrying. If this continues, reloading the page will help.`,
-                3200,
-            );
-            this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
-            try {
-                await this.resetEngine({
-                    clearCache: true,
-                    reason,
-                    preservePlayback: true,
-                    attempt: retryCount,
+
+            const sourceText = await this.app.getSentenceSpeechText?.(idx, baseText);
+            if (!sourceText || !sourceText.trim().length) {
+                s.audioError = new Error("No speech text available for synthesis");
+                return;
+            }
+
+            if (this.app.isReadTranslationEnabled?.()) {
+                try {
+                    await this.app.ensureReadTranslationVoiceReady?.();
+                } catch (err) {
+                    console.warn("[TTS] Failed to align voice with translation target", err);
+                }
+            }
+
+            const voiceSelect = document.getElementById("voice-select");
+            const voice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
+
+            if (!hasUsableSpeechText(sourceText)) {
+                this._markSentenceAsSilent(s);
+                return;
+            }
+
+            const norm = normalizeText(sourceText);
+
+            if (
+                s.audioReady &&
+                s.lastVoice === voice &&
+                s.lastSpeed === state.CURRENT_SPEED &&
+                typeof s.normalizedText === "string" &&
+                s.normalizedText === norm
+            ) {
+                return;
+            }
+
+            s.normalizedText = norm;
+            const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;
+            if (state.audioCache.has(cacheKey)) {
+                const cached = state.audioCache.get(cacheKey);
+                Object.assign(s, {
+                    audioBlob: cached.audioBlob || null,
+                    wavBlob: cached.wavBlob || null,
+                    audioBuffer: cached.audioBuffer,
+                    audioReady: true,
+                    lastVoice: voice,
+                    lastSpeed: state.CURRENT_SPEED,
+                    audioError: null,
+                    audioInProgress: false,
+                    prefetchQueued: false,
+                    wordBoundaries: cached.wordBoundaries || [],
                 });
-                const retrySentence = this.app.state.sentences[idx];
-                if (retrySentence) {
-                    retrySentence.audioError = null;
-                    retrySentence.audioInProgress = false;
+                s._restartRetryCount = 0;
+                delete s._restartAttempted;
+                return;
+            }
+
+            s.audioInProgress = true;
+            s.audioError = null;
+
+            this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_START, { index: idx });
+
+            try {
+                await this.buildPiperAudio(s, voice, norm);
+                this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
+            } catch (err) {
+                if (this._isOfflineVoiceError(err)) {
+                    s.audioError = err;
+                    this.app.ui?.showInfo?.(OFFLINE_VOICE_MESSAGE);
+                    this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
+                    return;
                 }
-                if (this.app.state.generationEnabled && this.app.ttsQueue) {
-                    this.app.ttsQueue.add(idx, true);
-                    this.app.ttsQueue.run();
+                s.audioError = err;
+                const retryCount = (Number.isFinite(s._restartRetryCount) ? s._restartRetryCount : 0) + 1;
+                s._restartRetryCount = retryCount;
+                const reason = err?.message || "unknown synthesis error";
+                this.app.ui.showMessage(
+                    `TTS warning: restarting engine (attempt ${retryCount}). Audio generation will keep retrying. If this continues, reloading the page will help.`,
+                    3200,
+                );
+                this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
+                try {
+                    await this.resetEngine({
+                        clearCache: true,
+                        reason,
+                        preservePlayback: true,
+                        attempt: retryCount,
+                    });
+                    const retrySentence = this.app.state.sentences[idx];
+                    if (retrySentence) {
+                        retrySentence.audioError = null;
+                        retrySentence.audioInProgress = false;
+                        retrySentence.rendering = false;
+                    }
+                    if (this.app.state.generationEnabled && this.app.ttsQueue) {
+                        const baseIndex =
+                            Number.isFinite(state.playingSentenceIndex) && state.playingSentenceIndex >= 0
+                                ? state.playingSentenceIndex
+                                : state.currentSentenceIndex;
+                        let priority = "normal";
+                        if (idx === baseIndex) {
+                            priority = "critical";
+                        } else if (Number.isFinite(baseIndex) && (idx === baseIndex + 1 || idx === baseIndex + 2)) {
+                            priority = "high";
+                        }
+                        this.app.ttsQueue.add(idx, { priority, force: true });
+                        this.app.ttsQueue.run();
+                    }
+                } catch (resetErr) {
+                    console.error("Failed to reset TTS engine:", resetErr);
                 }
-            } catch (resetErr) {
-                console.error("Failed to reset TTS engine:", resetErr);
             }
         } finally {
             s.audioInProgress = false;
+            s.rendering = false;
         }
     }
 
     schedulePrefetch() {
         const { state, config } = this.app;
         if (!state.generationEnabled) return;
-        const indices = [];
-        if (state.currentSentenceIndex >= 0) {
-            this.app.ttsQueue.add(state.currentSentenceIndex, true);
-            indices.push(state.currentSentenceIndex);
-        }
-        // Ensure we always persist at least the next 3 sentences for offline/mobile
-        const prefetchAhead = state.isPlaying ? config.PREFETCH_AHEAD : Math.min(3, config.PREFETCH_AHEAD || 3);
-        const base = state.currentSentenceIndex;
-        for (let i = base + 1; i <= base + prefetchAhead && i < state.sentences.length; i++) {
-            this.app.ttsQueue.add(i);
+        if (!Array.isArray(state.sentences) || !state.sentences.length) return;
+
+        const baseIndex =
+            Number.isFinite(state.playingSentenceIndex) && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+        if (!Number.isFinite(baseIndex) || baseIndex < 0) return;
+
+        const target =
+            Number.isFinite(this.PREFETCH_TARGET) && this.PREFETCH_TARGET > 0
+                ? this.PREFETCH_TARGET
+                : Number.isFinite(config.PREFETCH_TARGET) && config.PREFETCH_TARGET > 0
+                    ? config.PREFETCH_TARGET
+                    : 5;
+
+        // Keep a rolling buffer ahead of playback; assign higher priority to the nearest sentences.
+        let readyCount = 0;
+        let pendingCount = 0;
+        let highAssigned = 0;
+        const renderCandidates = [];
+
+        for (let i = baseIndex + 1; i < state.sentences.length && readyCount + pendingCount < target; i++) {
+            const sentence = state.sentences[i];
+            if (!sentence) continue;
+
+            if (sentence.layoutProcessed && !sentence.isTextToRead) continue;
+
+            const speechText =
+                sentence.readableText && sentence.readableText.trim().length ? sentence.readableText : sentence.text;
+            if (!hasUsableSpeechText(speechText)) continue;
+            if (sentence.audioError) continue;
+
+            if (sentence.audioReady && sentence.audioBuffer) {
+                readyCount++;
+                continue;
+            }
+
+            if (sentence.rendering || sentence.audioInProgress || sentence.prefetchQueued) {
+                pendingCount++;
+                renderCandidates.push(i);
+                continue;
+            }
+
+            const useHigh = i <= baseIndex + 2 || highAssigned < 2;
+            const priority = useHigh ? "high" : "normal";
+            if (useHigh) highAssigned++;
+
+            this.app.ttsQueue.add(i, { priority });
             this.app.prefetchSentenceTranslationForTTS?.(i);
+            pendingCount++;
+            renderCandidates.push(i);
         }
 
-        if (state.currentSentenceIndex >= 0) {
-            this.app.prefetchSentenceTranslationForTTS?.(state.currentSentenceIndex);
+        if (Number.isFinite(baseIndex) && baseIndex >= 0) {
+            this.app.prefetchSentenceTranslationForTTS?.(baseIndex);
         }
 
-        if (indices.length) {
+        if (renderCandidates.length) {
             Promise.resolve()
-                .then(() => this._renderSentencesAhead(indices))
+                .then(() => this._renderSentencesAhead(renderCandidates))
                 .catch((err) => console.warn("[TTSEngine] Prefetch render failed", err));
+        }
+
+        if (pendingCount > 0) {
+            this.app.ttsQueue.run();
         }
     }
 
@@ -610,6 +670,8 @@ export class TTSEngine {
         sentence.audioReady = false;
         sentence.audioBuffer = null;
         sentence.audioError = null;
+        sentence.audioInProgress = false;
+        sentence.rendering = false;
         sentence.prefetchQueued = false;
         sentence.wordBoundaries = [];
     }
@@ -729,6 +791,7 @@ export class TTSEngine {
                         sentence.audioInProgress = false;
                         sentence.audioError = null;
                         sentence.prefetchQueued = false;
+                        sentence.rendering = false;
                         continue;
                     }
 
@@ -741,6 +804,7 @@ export class TTSEngine {
                     sentence.audioBuffer = null;
                     sentence.audioReady = false;
                     sentence.audioInProgress = false;
+                    sentence.rendering = false;
                     sentence.lastVoice = null;
                     sentence.lastSpeed = null;
                     sentence.audioError = null;

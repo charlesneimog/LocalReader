@@ -188,6 +188,7 @@ export class SentenceParser {
                 audioBuffer: null,
                 audioReady: false,
                 audioInProgress: false,
+                rendering: false,
                 audioError: null,
                 lastVoice: null,
                 lastSpeed: null,

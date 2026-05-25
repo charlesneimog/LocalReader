@@ -795,13 +795,11 @@ export class EPUBRenderer {
         }
 
         if (!options?.autoAdvance && state.generationEnabled) {
-            this.app.ttsQueue.add(idx, true);
-            const ahead = this.app.config?.PREFETCH_AHEAD ?? 0;
-            for (let i = 1; i <= ahead; i++) {
-                const target = idx + i;
-                if (target < state.sentences.length) this.app.ttsQueue.add(target);
-            }
-            this.app.ttsQueue.run();
+            this.app.ttsQueue.add(idx, {
+                priority: "critical",
+                force: true,
+            });
+            this.app.ttsEngine.schedulePrefetch();
         }
 
         this.app.progressManager.saveProgress();

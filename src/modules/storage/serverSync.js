@@ -803,10 +803,14 @@ export class ServerSync {
     async translateText(text, { target = null } = {}) {
         const payloadText = (text || "").trim();
         if (!payloadText) return null;
+
         this.app.network.assertOnline("Translation requires an internet connection.");
+
         const effectiveTarget = this._resolveTranslationTarget(target);
 
         const serverUrl = this.getServerUrl();
+
+        // no server -> google only
         if (!serverUrl) {
             try {
                 return await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
@@ -815,27 +819,80 @@ export class ServerSync {
             }
         }
 
-        try {
-            const response = await this._fetch(`${serverUrl}/api/translate`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: payloadText, target: effectiveTarget }),
-            });
+        const serverPromise = (async () => {
+            try {
+                const response = await this._fetch(`${serverUrl}/api/translate`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        text: payloadText,
+                        target: effectiveTarget,
+                    }),
+                });
 
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                const msg = data?.error || `Translate failed: ${response.status} ${response.statusText}`;
-                this.app.ui?.showInfo?.(msg);
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error(data?.error || `Translate failed: ${response.status}`);
+                }
+
+                return data;
+            } catch (e) {
+                if (NetworkService.isOfflineError(e)) {
+                    throw e;
+                }
+
                 return null;
             }
-            return data;
-        } catch (e) {
-            if (NetworkService.isOfflineError(e)) {
-                throw e;
+        })();
+
+        const googlePromise = (async () => {
+            // delay google start by 200ms
+            await new Promise((resolve) => setTimeout(resolve, 200));
+
+            try {
+                return await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
+            } catch {
+                return null;
             }
-            this.app.ui?.showInfo?.("⚠️ Translate request failed");
-            return null;
-        }
+        })();
+
+        return await new Promise((resolve, reject) => {
+            let finished = false;
+            let failures = 0;
+
+            const tryResolve = (result) => {
+                if (finished) return;
+
+                if (result) {
+                    finished = true;
+                    resolve(result);
+                    return;
+                }
+
+                failures++;
+
+                if (failures >= 2) {
+                    finished = true;
+                    resolve(null);
+                }
+            };
+
+            serverPromise.then(tryResolve).catch((e) => {
+                if (NetworkService.isOfflineError(e)) {
+                    reject(e);
+                    return;
+                }
+
+                tryResolve(null);
+            });
+
+            googlePromise.then(tryResolve).catch(() => {
+                tryResolve(null);
+            });
+        });
     }
 
     async checkFileExists(fileId) {

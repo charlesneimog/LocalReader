@@ -1219,7 +1219,10 @@ export class PDFRenderer {
                 `Sentence ${sentence.index + 1} is outside readable layout regions. Select another sentence to play.`,
             );
         } else if (!skipTTS) {
-            this.app.ttsQueue.add(state.currentSentenceIndex, true);
+            this.app.ttsQueue.add(state.currentSentenceIndex, {
+                priority: "critical",
+                force: true,
+            });
             this.app.ttsQueue.run();
         }
 
@@ -1249,7 +1252,7 @@ export class PDFRenderer {
                         if (!candidate) return;
                         if (!candidate.layoutProcessed || !candidate.isTextToRead) return;
                         if (!candidate.audioReady && !candidate.audioInProgress) {
-                            this.app.ttsQueue.add(nextReadableIdx, true);
+                            this.app.ttsQueue.add(nextReadableIdx, { priority: "high" });
                             this.app.ttsQueue.run();
                         }
                     };

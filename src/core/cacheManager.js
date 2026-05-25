@@ -20,6 +20,7 @@ export class CacheManager {
             s.audioReady = false;
             s.audioError = null;
             s.audioInProgress = false;
+            s.rendering = false;
             s.prefetchQueued = false;
             s.lastVoice = null;
             s.lastSpeed = null;
@@ -39,6 +40,7 @@ export class CacheManager {
             s.audioReady = false;
             s.audioError = null;
             s.audioInProgress = false;
+            s.rendering = false;
             s.prefetchQueued = false;
             s.lastVoice = null;
             s.lastSpeed = null;

@@ -97,23 +97,34 @@ export class AudioManager {
         await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
         if (!this._isContextActive(context)) return;
 
-        let attempts = 0;
+        const maxWaitMs = context?.userInitiated ? 60000 : 15000;
+        const startTs = Date.now();
+        let queued = false;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
-            if (attempts === 0) {
+            if (!queued) {
                 this.app.ttsQueue.add(state.currentSentenceIndex, {
                     priority: "critical",
                     force: true,
                 });
                 this.app.ttsQueue.run();
+                queued = true;
             }
-            attempts += 1;
             try {
-                await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
+                await waitFor(() => sentence.audioReady || sentence.audioError, 2000);
             } catch {}
             if (!this._isContextActive(context)) return;
             if (sentence.audioReady && sentence.audioBuffer) break;
-            if (sentence.audioError || state.stopRequested || attempts >= 3) {
+            if (sentence.audioError || state.stopRequested) {
+                break;
+            }
+            const elapsed = Date.now() - startTs;
+            const stillWorking =
+                sentence.audioInProgress ||
+                sentence.rendering ||
+                state.piperLoading ||
+                !!this.app.ttsEngine?.initializingPromise;
+            if (!stillWorking || elapsed >= maxWaitMs) {
                 break;
             }
         }
@@ -248,23 +259,34 @@ export class AudioManager {
         await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
         if (!this._isContextActive(context)) return;
 
-        let attempts = 0;
+        const maxWaitMs = context?.userInitiated ? 60000 : 15000;
+        const startTs = Date.now();
+        let queued = false;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
-            if (attempts === 0) {
+            if (!queued) {
                 this.app.ttsQueue.add(state.currentSentenceIndex, {
                     priority: "critical",
                     force: true,
                 });
                 this.app.ttsQueue.run();
+                queued = true;
             }
-            attempts += 1;
             try {
-                await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
+                await waitFor(() => sentence.audioReady || sentence.audioError, 2000);
             } catch {}
             if (!this._isContextActive(context)) return;
             if (sentence.audioReady && sentence.audioBuffer) break;
-            if (sentence.audioError || state.stopRequested || attempts >= 3) {
+            if (sentence.audioError || state.stopRequested) {
+                break;
+            }
+            const elapsed = Date.now() - startTs;
+            const stillWorking =
+                sentence.audioInProgress ||
+                sentence.rendering ||
+                state.piperLoading ||
+                !!this.app.ttsEngine?.initializingPromise;
+            if (!stillWorking || elapsed >= maxWaitMs) {
                 break;
             }
         }
@@ -358,6 +380,15 @@ export class AudioManager {
         if (!state.pdf && !state.epub) {
             ui.showInfo("Load a document before playing.");
             return;
+        }
+
+        if (context?.userInitiated && this.app.isReadTranslationEnabled?.()) {
+            try {
+                await this.app.ensureReadTranslationVoiceReady?.();
+            } catch (error) {
+                console.warn("[TTS] Read translation voice sync failed", error);
+            }
+            if (!this._isContextActive(context)) return;
         }
 
         try {

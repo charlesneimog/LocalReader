@@ -248,6 +248,207 @@ export class PDFTTSApp {
         return normalized;
     }
 
+    _normalizeLanguageCode(raw) {
+        const token = String(raw || "")
+            .trim()
+            .replace(/_/g, "-");
+        if (!token) return null;
+
+        const lower = token.toLowerCase();
+        if (/^[a-z]{2,3}$/.test(lower)) return lower;
+
+        const parts = lower.split("-");
+        if (parts.length === 2 && /^[a-z]{2,3}$/.test(parts[0]) && /^[a-z0-9]{2,4}$/.test(parts[1])) {
+            return `${parts[0]}-${parts[1].toUpperCase()}`;
+        }
+
+        return null;
+    }
+
+    _extractLanguageFromMetadata(value) {
+        if (Array.isArray(value)) {
+            for (const entry of value) {
+                const normalized = this._normalizeLanguageCode(entry);
+                if (normalized) return normalized;
+            }
+            return null;
+        }
+
+        if (typeof value === "string") {
+            const trimmed = value.trim();
+            if (!trimmed) return null;
+            const token = trimmed.split(/[\s,;]+/)[0];
+            return this._normalizeLanguageCode(token);
+        }
+
+        return null;
+    }
+
+    _getLanguageLabel(languageCode) {
+        const primary = this._normalizeLanguageCode(languageCode)?.split("-")[0] || "";
+        const map = {
+            en: "English",
+            pt: "Portuguese",
+            es: "Spanish",
+            fr: "French",
+            de: "German",
+            it: "Italian",
+            ja: "Japanese",
+            zh: "Chinese",
+        };
+        return map[primary] || languageCode || "";
+    }
+
+    async getDocumentOriginalLanguage() {
+        const { state } = this;
+        const cached = this._normalizeLanguageCode(state.documentOriginalLanguage);
+        if (cached) return cached;
+
+        let resolved = null;
+
+        if (state.currentDocumentType === "epub") {
+            const metaLang =
+                state.epubMetadata?.language ||
+                state.epubMetadata?.lang ||
+                state.epubMetadata?.["dc:language"] ||
+                null;
+            resolved = this._extractLanguageFromMetadata(metaLang);
+        }
+
+        if (!resolved && state.currentDocumentType === "pdf" && state.pdf?.getMetadata) {
+            try {
+                const meta = await state.pdf.getMetadata();
+                const infoLang = meta?.info?.Language || meta?.info?.Lang || null;
+                const metaLang = typeof meta?.metadata?.get === "function" ? meta.metadata.get("dc:language") : null;
+                resolved = this._extractLanguageFromMetadata(infoLang || metaLang);
+            } catch {
+                resolved = null;
+            }
+        }
+
+        if (!resolved && typeof state.lastDetectedSourceLanguage === "string") {
+            resolved = this._normalizeLanguageCode(state.lastDetectedSourceLanguage);
+        }
+
+        if (resolved) {
+            state.documentOriginalLanguage = resolved;
+        }
+
+        return resolved || null;
+    }
+
+    async handleTranslationFailure({ target = null } = {}) {
+        const { state } = this;
+        if (!this.isReadTranslationEnabled()) return;
+
+        const baseIndex =
+            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+        if (Number.isFinite(baseIndex) && baseIndex >= 0) {
+            this.cache.clearAudioFrom(baseIndex);
+        }
+        this._resetReadTranslationCache();
+        this._resetAutoTranslateCache();
+
+        if (state.translationFallbackPromptShown) return;
+
+        const originalLang = await this.getDocumentOriginalLanguage();
+        if (!originalLang) {
+            state.translationFallbackPromptShown = true;
+            await this.ui?.showTranslationFallbackPrompt?.({
+                title: "Translation unavailable",
+                subtitle: "Translation failed",
+                body: [
+                    "Translation failed using both the server and Google Translate.",
+                    "Reading will continue in the original text.",
+                ],
+                acceptLabel: "OK",
+                hideCancel: true,
+            });
+            return;
+        }
+
+        const originalPrimary = originalLang.split("-")[0].toLowerCase();
+        const voicePrimary = this._getVoicePrimaryLanguage(state.currentPiperVoice || "");
+        if (voicePrimary && voicePrimary === originalPrimary) return;
+
+        const targetLang = this._normalizeLanguageCode(target) || this._getTranslationTargetLanguage();
+        const targetPrimary = this._normalizeLanguageCode(targetLang)?.split("-")[0] || "";
+        if (targetPrimary && targetPrimary === originalPrimary) return;
+
+        const label = this._getLanguageLabel(originalLang);
+        if (!label) return;
+
+        state.translationFallbackPromptShown = true;
+
+        const accepted = await this.ui?.showTranslationFallbackPrompt?.({
+            title: "Translation unavailable",
+            subtitle: "Translation failed",
+            body: [
+                "Translation failed using both the server and Google Translate.",
+                `This document appears to be written in ${label}.`,
+                `Would you like to switch the reading language to ${label} instead?`,
+            ],
+            acceptLabel: `Switch to ${label}`,
+            cancelLabel: "Keep current",
+        });
+        if (!accepted) return;
+
+        await this._switchReadingLanguageToOriginal(originalLang);
+    }
+
+    async _switchReadingLanguageToOriginal(languageCode) {
+        const { state } = this;
+        const normalized = this._normalizeLanguageCode(languageCode);
+        if (!normalized) return;
+
+        const label = this._getLanguageLabel(normalized);
+        const wasPlaying = state.isPlaying;
+
+        this._setTranslationTargetLanguage(normalized);
+
+        if (this.isReadTranslationEnabled()) {
+            this.setReadTranslationEnabled(false, { suppressNotice: true });
+        }
+        if (this.isAutoTranslateEnabled()) {
+            this.setAutoTranslateEnabled(false, { suppressNotice: true });
+        }
+
+        this._resetReadTranslationCache();
+        this._resetAutoTranslateCache();
+
+        const nextVoice = this._pickVoiceForLanguage(normalized);
+        if (nextVoice && state.currentPiperVoice !== nextVoice) {
+            const voiceSelect = document.getElementById("voice-select");
+            if (voiceSelect && Array.from(voiceSelect.options || []).some((opt) => opt.value === nextVoice)) {
+                voiceSelect.value = nextVoice;
+            }
+            try {
+                await this.ttsEngine.ensurePiper(nextVoice);
+                const fromIndex = Math.max(0, state.currentSentenceIndex || 0);
+                this.cache.clearAudioFrom(fromIndex);
+            } catch (err) {
+                console.warn("[translation] failed to switch voice during fallback", err);
+            }
+        }
+
+        const idx =
+            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+        if (Number.isFinite(idx) && idx >= 0) {
+            Promise.resolve().then(() => {
+                this.getActiveRenderer().renderSentence(idx, { skipTTS: wasPlaying }).catch(() => {});
+            });
+        }
+
+        this.ttsEngine.schedulePrefetch();
+        if (label) {
+            this.ui?.showInfo?.(`Switched reading language to ${label}.`);
+        }
+    }
+
     _normalizeTranslationMode(mode) {
         const value = String(mode || "")
             .trim()
@@ -464,6 +665,13 @@ _setupDocumentTranslationPrompt() {
         if (wasTranslationEnabled) {
             this.setAutoTranslateEnabled(false, { suppressNotice: true });
             this.setReadTranslationEnabled(false, { suppressNotice: true });
+            const baseIndex =
+                typeof this.state.playingSentenceIndex === "number" && this.state.playingSentenceIndex >= 0
+                    ? this.state.playingSentenceIndex
+                    : this.state.currentSentenceIndex;
+            if (Number.isFinite(baseIndex) && baseIndex >= 0) {
+                this.cache.clearAudioFrom(baseIndex);
+            }
             this.ui?.showInfo?.("Translation requires an internet connection.");
         }
     }
@@ -715,7 +923,10 @@ _setupDocumentTranslationPrompt() {
         const base = (fallbackText || "").trim();
         if (!base) return "";
         if (!this.isReadTranslationEnabled()) return base;
-        if (this.network?.isOffline?.()) return base;
+        if (this.network?.isOffline?.()) {
+            void this.handleTranslationFailure({ target: this._getTranslationTargetLanguage() });
+            return base;
+        }
 
         const key = this._getReadTranslationKey(index);
         const cached = this._readTranslationCache.get(key);

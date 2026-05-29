@@ -134,6 +134,11 @@ body {
     min-height: 40px;
 }
 
+.material-symbols-outlined.animate-spin {
+    display: inline-block;
+    transform-origin: center;
+}
+
 select,
 input[type="color"] {
     font: inherit;

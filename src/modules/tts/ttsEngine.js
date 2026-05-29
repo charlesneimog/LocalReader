@@ -174,6 +174,8 @@ export class TTSEngine {
         }
 
         if (showUi) {
+            state.piperLoading = true;
+            this.app.ui.updatePlayButton(state.playerState.LOADING, { force: true });
             this.app.ui.showInfo("Loading AI Natural Voices...");
         }
         if (this.initializingPromise) {
@@ -204,6 +206,13 @@ export class TTSEngine {
         } catch (err) {
             throw err;
         } finally {
+            if (showUi) {
+                state.piperLoading = false;
+                if (!state.playbackPending && !state.documentLoading) {
+                    const nextState = state.isPlaying ? state.playerState.PLAY : state.playerState.DONE;
+                    this.app.ui.updatePlayButton(nextState, { force: true });
+                }
+            }
             this.initializingPromise = null;
         }
     }

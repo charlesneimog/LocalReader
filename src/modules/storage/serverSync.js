@@ -813,8 +813,25 @@ export class ServerSync {
         // no server -> google only
         if (!serverUrl) {
             try {
-                return await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
+                const result = await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
+                if (result?.detectedSource && this.app?.state) {
+                    this.app.state.lastDetectedSourceLanguage = result.detectedSource;
+                    if (!this.app.state.documentOriginalLanguage) {
+                        this.app.state.documentOriginalLanguage = result.detectedSource;
+                    }
+                }
+                if (!result) {
+                    void this.app?.handleTranslationFailure?.({
+                        target: effectiveTarget,
+                        text: payloadText,
+                    });
+                }
+                return result;
             } catch {
+                void this.app?.handleTranslationFailure?.({
+                    target: effectiveTarget,
+                    text: payloadText,
+                });
                 return null;
             }
         }
@@ -867,6 +884,12 @@ export class ServerSync {
                 if (finished) return;
 
                 if (result) {
+                    if (result?.detectedSource && this.app?.state) {
+                        this.app.state.lastDetectedSourceLanguage = result.detectedSource;
+                        if (!this.app.state.documentOriginalLanguage) {
+                            this.app.state.documentOriginalLanguage = result.detectedSource;
+                        }
+                    }
                     finished = true;
                     resolve(result);
                     return;
@@ -875,6 +898,10 @@ export class ServerSync {
                 failures++;
 
                 if (failures >= 2) {
+                    void this.app?.handleTranslationFailure?.({
+                        target: effectiveTarget,
+                        text: payloadText,
+                    });
                     finished = true;
                     resolve(null);
                 }

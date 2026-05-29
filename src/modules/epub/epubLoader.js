@@ -106,6 +106,9 @@ export class EPUBLoader {
             document.getElementById("previous-pdf-header")?.classList.add("hidden");
 
             if (state) {
+                state.translationFallbackPromptShown = false;
+                state.documentOriginalLanguage = null;
+                state.lastDetectedSourceLanguage = null;
                 state.currentDocumentType = "epub";
                 state.pdf = null;
                 state.pagesCache.clear();

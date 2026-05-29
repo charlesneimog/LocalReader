@@ -58,6 +58,9 @@
                     // Avoid disruptive reloads during user actions (e.g. auth/password reset flows).
                     // If you want a hard-refresh update behavior, re-enable this.
                     console.log("[PWA] New service worker activated (reload suppressed)");
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500);
                 });
 
                 let sw = window.location.href + "sw.js";

@@ -16,9 +16,18 @@ export class AudioManager {
             return;
         }
 
+        if (state.playbackPending && this._playPromise) {
+            return this._playPromise;
+        }
+
         if (userInitiated) {
             state.playbackPending = true;
             this.app.ui.updatePlayButton(state.playerState.LOADING);
+            try {
+                await this.app.ttsEngine.ensureAudioContext({ resume: true });
+            } catch (error) {
+                console.debug("[TTS] AudioContext resume failed", error);
+            }
         }
 
         const context = {
@@ -46,7 +55,9 @@ export class AudioManager {
 
         const voiceSelect = document.getElementById("voice-select");
         const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "EPUB");
+        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "EPUB", {
+            userInitiated: context?.userInitiated === true,
+        });
         if (!canWarmup) return;
 
         await this.app.epubLoader.ensureLayoutFilteringReady();
@@ -58,7 +69,7 @@ export class AudioManager {
         }
 
         if (state.currentSentenceIndex < 0) {
-            await this.app.pdfRenderer.renderSentence(0, { suppressScroll: true });
+            await this.app.getActiveRenderer()?.renderSentence?.(0, { suppressScroll: true });
             if (!this._isContextActive(context)) return;
         }
 
@@ -191,7 +202,9 @@ export class AudioManager {
         const { config, state } = this.app;
         const voiceSelect = document.getElementById("voice-select");
         const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "PDF");
+        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "PDF", {
+            userInitiated: context?.userInitiated === true,
+        });
         if (!canWarmup) return;
         try {
             await this.app.pdfLoader.ensureLayoutFilteringReady({
@@ -366,21 +379,25 @@ export class AudioManager {
 
     }
 
-    async _warmupVoiceForPlayback(selectedVoice, label) {
+    async _warmupVoiceForPlayback(selectedVoice, label, options = {}) {
         const offline = this.app.network?.isOffline?.() === true;
+        const userInitiated = options?.userInitiated === true;
         if (!offline) {
-            void this.app.ttsEngine.ensurePiper(selectedVoice).catch((err) => {
+            try {
+                await this.app.ttsEngine.ensurePiper(selectedVoice, { silent: !userInitiated });
+                return true;
+            } catch (err) {
                 if (this.app.ttsEngine.isOfflineVoiceError?.(err)) {
                     const msg =
                         typeof err?.message === "string" && err.message.trim()
                             ? err.message
                             : "This voice is not available offline. Please connect to the internet to download it first.";
                     this.app.ui?.showInfo?.(msg);
-                    return;
+                    return false;
                 }
                 console.warn(`[TTS] Piper warm-up during ${label} playback start failed`, err);
-            });
-            return true;
+                return false;
+            }
         }
 
         try {
@@ -516,7 +533,7 @@ export class AudioManager {
                 return null;
             }
 
-            await this.app.pdfRenderer.renderSentence(nextIndex, { autoAdvance: true });
+            await this.app.getActiveRenderer()?.renderSentence?.(nextIndex, { autoAdvance: true });
             current = state.currentSentence;
             attempts += 1;
         }

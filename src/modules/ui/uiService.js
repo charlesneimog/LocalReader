@@ -19,6 +19,9 @@ export class UIService {
 
         this._pdfTranslationPromptEl = null;
         this._pdfTranslationPromptCleanup = null;
+
+        this._translationFallbackPromptEl = null;
+        this._translationFallbackPromptCleanup = null;
     }
 
     _hideTranslatePopup() {
@@ -62,6 +65,17 @@ export class UIService {
         if (typeof this._pdfTranslationPromptCleanup === "function") {
             this._pdfTranslationPromptCleanup();
             this._pdfTranslationPromptCleanup = null;
+        }
+    }
+
+    _hideTranslationFallbackPrompt() {
+        if (this._translationFallbackPromptEl) {
+            this._translationFallbackPromptEl.remove();
+            this._translationFallbackPromptEl = null;
+        }
+        if (typeof this._translationFallbackPromptCleanup === "function") {
+            this._translationFallbackPromptCleanup();
+            this._translationFallbackPromptCleanup = null;
         }
     }
 
@@ -317,6 +331,142 @@ export class UIService {
             window.addEventListener("keydown", onKey, { passive: true });
             window.addEventListener("mousedown", onDown, { capture: true });
             this._pdfTranslationPromptCleanup = () => {
+                window.removeEventListener("keydown", onKey);
+                window.removeEventListener("mousedown", onDown, { capture: true });
+            };
+        });
+    }
+
+    async showTranslationFallbackPrompt({
+        title = "Translation unavailable",
+        subtitle = "Translation failed",
+        body = [],
+        acceptLabel = "Switch",
+        cancelLabel = "Keep current",
+        hideCancel = false,
+    } = {}) {
+        this._hideTranslationFallbackPrompt();
+
+        return await new Promise((resolve) => {
+            const closeWith = (result = false) => {
+                this._hideTranslationFallbackPrompt();
+                resolve(result);
+            };
+
+            const backdrop = document.createElement("div");
+            backdrop.className =
+                "fixed inset-0 z-40 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-sm p-3 sm:p-6";
+
+            const panel = document.createElement("div");
+            panel.className =
+                "mx-auto w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-xl border border-white/20 " +
+                "dark:border-background-dark/20 bg-white/70 dark:bg-background-dark/70 shadow-2xl";
+
+            const header = document.createElement("div");
+            header.className =
+                "flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700";
+
+            const titleWrap = document.createElement("div");
+
+            const titleEl = document.createElement("h2");
+            titleEl.className = "text-xl font-bold text-slate-800 dark:text-slate-100";
+            titleEl.textContent = title;
+
+            const subtitleEl = document.createElement("p");
+            subtitleEl.className = "text-xs text-slate-500 dark:text-slate-400";
+            subtitleEl.textContent = subtitle;
+
+            titleWrap.appendChild(titleEl);
+            titleWrap.appendChild(subtitleEl);
+
+            const closeBtn = document.createElement("button");
+            closeBtn.type = "button";
+            closeBtn.className =
+                "p-1 rounded-full text-slate-500 dark:text-slate-300 hover:text-primary dark:hover:text-primary";
+            closeBtn.setAttribute("aria-label", "Close translation notice");
+            const closeIcon = document.createElement("span");
+            closeIcon.className = "material-symbols-outlined";
+            closeIcon.textContent = "close";
+            closeBtn.appendChild(closeIcon);
+            closeBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeWith(false);
+            });
+
+            header.appendChild(titleWrap);
+            header.appendChild(closeBtn);
+
+            const bodyWrap = document.createElement("div");
+            bodyWrap.className = "p-4 space-y-4";
+
+            const section = document.createElement("section");
+            section.className =
+                "rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20";
+
+            const bodyLines = Array.isArray(body) ? body : [body];
+            for (const line of bodyLines) {
+                const text = String(line || "").trim();
+                if (!text) continue;
+                const p = document.createElement("p");
+                p.className = "text-sm text-slate-700 dark:text-slate-200";
+                p.textContent = text;
+                section.appendChild(p);
+            }
+
+            bodyWrap.appendChild(section);
+
+            const footer = document.createElement("div");
+            footer.className = "px-4 pb-4 flex items-center justify-end gap-2";
+
+            if (!hideCancel) {
+                const cancelBtn = document.createElement("button");
+                cancelBtn.type = "button";
+                cancelBtn.className =
+                    "rounded-md px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 " +
+                    "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5";
+                cancelBtn.textContent = cancelLabel;
+                cancelBtn.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeWith(false);
+                });
+                footer.appendChild(cancelBtn);
+            }
+
+            const acceptBtn = document.createElement("button");
+            acceptBtn.type = "button";
+            acceptBtn.className =
+                "rounded-md px-3 py-2 text-sm border border-primary/40 text-slate-900 " +
+                "dark:text-slate-100 hover:bg-primary/10 dark:hover:bg-primary/20";
+            acceptBtn.textContent = acceptLabel;
+            acceptBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeWith(true);
+            });
+            footer.appendChild(acceptBtn);
+
+            panel.appendChild(header);
+            panel.appendChild(bodyWrap);
+            panel.appendChild(footer);
+            backdrop.appendChild(panel);
+            document.body.appendChild(backdrop);
+
+            this._translationFallbackPromptEl = backdrop;
+
+            const onKey = (e) => {
+                if (e.key === "Escape") closeWith(false);
+            };
+            const onDown = (e) => {
+                if (!this._translationFallbackPromptEl) return;
+                if (e.target === panel || panel.contains(e.target)) return;
+                closeWith(false);
+            };
+
+            window.addEventListener("keydown", onKey, { passive: true });
+            window.addEventListener("mousedown", onDown, { capture: true });
+            this._translationFallbackPromptCleanup = () => {
                 window.removeEventListener("keydown", onKey);
                 window.removeEventListener("mousedown", onDown, { capture: true });
             };
@@ -879,13 +1029,13 @@ export class UIService {
         if (!this.playBarIcon) return;
 
         const force = options?.force === true;
-        const allowLoading = force || state.playbackPending || state.documentLoading;
+        const allowLoading = force || state.playbackPending || state.documentLoading || state.piperLoading;
 
         if (value === state.playerState.LOADING && !allowLoading) {
             return;
         }
 
-        if (value === state.playerState.DONE && !force && (state.playbackPending || state.documentLoading)) {
+        if (value === state.playerState.DONE && !force && (state.playbackPending || state.documentLoading || state.piperLoading)) {
             return;
         }
 

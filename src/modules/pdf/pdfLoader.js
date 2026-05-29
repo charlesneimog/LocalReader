@@ -144,6 +144,9 @@ export class PDFLoader {
                     lastModified: file.lastModified,
                     fileObject: file,
                 };
+                state.translationFallbackPromptShown = false;
+                state.documentOriginalLanguage = null;
+                state.lastDetectedSourceLanguage = null;
                 document.getElementById("pdf-open")?.classList.remove("fa-beat");
             } else {
                 document.getElementById("pdf-open")?.classList.add("fa-beat");

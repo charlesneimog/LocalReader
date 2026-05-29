@@ -64,6 +64,9 @@ export class StateManager {
         // Translation
         this.autoTranslateEnabled = false;
         this.readTranslationEnabled = false;
+        this.translationFallbackPromptShown = false;
+        this.documentOriginalLanguage = null;
+        this.lastDetectedSourceLanguage = null;
 
         // Layout Detection Cache
         this.layoutDetectionCache = new Map(); // pageNumber → { detections, validWordIndices, timestamp }

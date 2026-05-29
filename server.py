@@ -17,7 +17,8 @@ from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
 from email.policy import default
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urlparse, parse_qs, unquote, quote
+import unicodedata
 import app
 
 HOST = "0.0.0.0"
@@ -604,7 +605,13 @@ class APIHandler(BaseHTTPRequestHandler):
                 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Disposition", f"attachment; filename=\"{filename}\"")
+                filename = unicodedata.normalize("NFC", filename)
+                ascii_filename = filename.encode("ascii", "ignore").decode("ascii") or "download"
+                quoted_filename = quote(filename)
+                self.send_header(
+                    "Content-Disposition",
+                    f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{quoted_filename}'
+                )
                 self._set_cors_headers()
                 self._set_cross_origin_isolation_headers()
                 self.end_headers()

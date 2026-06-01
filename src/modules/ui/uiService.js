@@ -473,6 +473,207 @@ export class UIService {
         });
     }
 
+    async showTranslationLanguagePrompt({
+        title = "Translation unavailable",
+        subtitle = "Choose the document language to continue reading",
+        body = [],
+        acceptLabel = "Switch voice",
+        cancelLabel = "Keep current",
+        initialLanguage = "",
+    } = {}) {
+        this._hideTranslationFallbackPrompt();
+
+        return await new Promise((resolve) => {
+            const closeWith = (result = null) => {
+                this._hideTranslationFallbackPrompt();
+                resolve(result);
+            };
+
+            const backdrop = document.createElement("div");
+            backdrop.className =
+                "fixed inset-0 z-40 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-sm p-3 sm:p-6";
+
+            const panel = document.createElement("div");
+            panel.className =
+                "mx-auto w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-xl border border-white/20 " +
+                "dark:border-background-dark/20 bg-white/70 dark:bg-background-dark/70 shadow-2xl";
+
+            const header = document.createElement("div");
+            header.className =
+                "flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700";
+
+            const titleWrap = document.createElement("div");
+
+            const titleEl = document.createElement("h2");
+            titleEl.className = "text-xl font-bold text-slate-800 dark:text-slate-100";
+            titleEl.textContent = title;
+
+            const subtitleEl = document.createElement("p");
+            subtitleEl.className = "text-xs text-slate-500 dark:text-slate-400";
+            subtitleEl.textContent = subtitle;
+
+            titleWrap.appendChild(titleEl);
+            titleWrap.appendChild(subtitleEl);
+
+            const closeBtn = document.createElement("button");
+            closeBtn.type = "button";
+            closeBtn.className =
+                "p-1 rounded-full text-slate-500 dark:text-slate-300 hover:text-primary dark:hover:text-primary";
+            closeBtn.setAttribute("aria-label", "Close translation notice");
+            const closeIcon = document.createElement("span");
+            closeIcon.className = "material-symbols-outlined";
+            closeIcon.textContent = "close";
+            closeBtn.appendChild(closeIcon);
+            closeBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeWith(null);
+            });
+
+            header.appendChild(titleWrap);
+            header.appendChild(closeBtn);
+
+            const bodyWrap = document.createElement("div");
+            bodyWrap.className = "p-4 space-y-4";
+
+            const section = document.createElement("section");
+            section.className =
+                "rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20";
+
+            const bodyLines = Array.isArray(body) ? body : [body];
+            for (const line of bodyLines) {
+                const text = String(line || "").trim();
+                if (!text) continue;
+                const p = document.createElement("p");
+                p.className = "text-sm text-slate-700 dark:text-slate-200";
+                p.textContent = text;
+                section.appendChild(p);
+            }
+
+            const langWrap = document.createElement("label");
+            langWrap.className = "block space-y-1";
+
+            const langLabel = document.createElement("div");
+            langLabel.className = "text-xs font-medium text-slate-700 dark:text-slate-200";
+            langLabel.textContent = "Document language";
+
+            const langSelect = document.createElement("select");
+            langSelect.className =
+                "w-full rounded-md border border-slate-200 dark:border-slate-700 " +
+                "bg-white/80 dark:bg-black/20 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm " +
+                "outline-none focus:ring-2 focus:ring-primary";
+
+            const languageOptions = [
+                { value: "pt", label: "Portuguese (pt)" },
+                { value: "en", label: "English (en)" },
+                { value: "es", label: "Spanish (es)" },
+                { value: "fr", label: "French (fr)" },
+                { value: "de", label: "German (de)" },
+                { value: "it", label: "Italian (it)" },
+                { value: "ja", label: "Japanese (ja)" },
+                { value: "zh-CN", label: "Chinese Simplified (zh-CN)" },
+            ];
+
+            for (const optionDef of languageOptions) {
+                const option = document.createElement("option");
+                option.value = optionDef.value;
+                option.textContent = optionDef.label;
+                langSelect.appendChild(option);
+            }
+
+            const customOption = document.createElement("option");
+            customOption.value = "custom";
+            customOption.textContent = "Other (enter code)";
+            langSelect.appendChild(customOption);
+
+            const customInput = document.createElement("input");
+            customInput.type = "text";
+            customInput.placeholder = "e.g. pt-BR";
+            customInput.className =
+                "w-full rounded-md border border-slate-200 dark:border-slate-700 " +
+                "bg-white/80 dark:bg-black/20 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm " +
+                "outline-none focus:ring-2 focus:ring-primary hidden";
+
+            const normalizedInitial = String(initialLanguage || "").trim();
+            const hasPreset = languageOptions.some((entry) => entry.value === normalizedInitial);
+            if (hasPreset) {
+                langSelect.value = normalizedInitial;
+            } else if (normalizedInitial) {
+                langSelect.value = "custom";
+                customInput.value = normalizedInitial;
+                customInput.classList.remove("hidden");
+            }
+
+            langSelect.addEventListener("change", () => {
+                const useCustom = langSelect.value === "custom";
+                customInput.classList.toggle("hidden", !useCustom);
+            });
+
+            langWrap.appendChild(langLabel);
+            langWrap.appendChild(langSelect);
+            langWrap.appendChild(customInput);
+
+            bodyWrap.appendChild(section);
+            bodyWrap.appendChild(langWrap);
+
+            const footer = document.createElement("div");
+            footer.className = "px-4 pb-4 flex items-center justify-end gap-2";
+
+            const cancelBtn = document.createElement("button");
+            cancelBtn.type = "button";
+            cancelBtn.className =
+                "rounded-md px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 " +
+                "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5";
+            cancelBtn.textContent = cancelLabel;
+            cancelBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeWith(null);
+            });
+            footer.appendChild(cancelBtn);
+
+            const acceptBtn = document.createElement("button");
+            acceptBtn.type = "button";
+            acceptBtn.className =
+                "rounded-md px-3 py-2 text-sm border border-primary/40 text-slate-900 " +
+                "dark:text-slate-100 hover:bg-primary/10 dark:hover:bg-primary/20";
+            acceptBtn.textContent = acceptLabel;
+            acceptBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const selected = String(langSelect.value || "").trim();
+                const custom = String(customInput.value || "").trim();
+                const resolved = selected === "custom" ? custom : selected;
+                closeWith(resolved || null);
+            });
+            footer.appendChild(acceptBtn);
+
+            panel.appendChild(header);
+            panel.appendChild(bodyWrap);
+            panel.appendChild(footer);
+            backdrop.appendChild(panel);
+            document.body.appendChild(backdrop);
+
+            this._translationFallbackPromptEl = backdrop;
+
+            const onKey = (e) => {
+                if (e.key === "Escape") closeWith(null);
+            };
+            const onDown = (e) => {
+                if (!this._translationFallbackPromptEl) return;
+                if (e.target === panel || panel.contains(e.target)) return;
+                closeWith(null);
+            };
+
+            window.addEventListener("keydown", onKey, { passive: true });
+            window.addEventListener("mousedown", onDown, { capture: true });
+            this._translationFallbackPromptCleanup = () => {
+                window.removeEventListener("keydown", onKey);
+                window.removeEventListener("mousedown", onDown, { capture: true });
+            };
+        });
+    }
+
     showHighlightPopup() {
         this._hideHighlightPopup();
 

@@ -353,49 +353,23 @@ export class PDFTTSApp {
 
         if (state.translationFallbackPromptShown) return;
 
-        const originalLang = await this.getDocumentOriginalLanguage();
-        if (!originalLang) {
-            state.translationFallbackPromptShown = true;
-            await this.ui?.showTranslationFallbackPrompt?.({
-                title: "Translation unavailable",
-                subtitle: "Translation failed",
-                body: [
-                    "Translation failed using both the server and Google Translate.",
-                    "Reading will continue in the original text.",
-                ],
-                acceptLabel: "OK",
-                hideCancel: true,
-            });
-            return;
-        }
-
-        const originalPrimary = originalLang.split("-")[0].toLowerCase();
-        const voicePrimary = this._getVoicePrimaryLanguage(state.currentPiperVoice || "");
-        if (voicePrimary && voicePrimary === originalPrimary) return;
-
-        const targetLang = this._normalizeLanguageCode(target) || this._getTranslationTargetLanguage();
-        const targetPrimary = this._normalizeLanguageCode(targetLang)?.split("-")[0] || "";
-        if (targetPrimary && targetPrimary === originalPrimary) return;
-
-        const label = this._getLanguageLabel(originalLang);
-        if (!label) return;
-
         state.translationFallbackPromptShown = true;
 
-        const accepted = await this.ui?.showTranslationFallbackPrompt?.({
+        const originalLang = await this.getDocumentOriginalLanguage();
+        const promptLang = await this.ui?.showTranslationLanguagePrompt?.({
             title: "Translation unavailable",
-            subtitle: "Translation failed",
+            subtitle: "Select the original language to continue reading",
             body: [
                 "Translation failed using both the server and Google Translate.",
-                `This document appears to be written in ${label}.`,
-                `Would you like to switch the reading language to ${label} instead?`,
+                "Choose the document language so the correct voice model can be loaded.",
             ],
-            acceptLabel: `Switch to ${label}`,
+            acceptLabel: "Switch voice",
             cancelLabel: "Keep current",
+            initialLanguage: originalLang || "",
         });
-        if (!accepted) return;
 
-        await this._switchReadingLanguageToOriginal(originalLang);
+        if (!promptLang) return;
+        await this._switchReadingLanguageToOriginal(promptLang);
     }
 
     async _switchReadingLanguageToOriginal(languageCode) {

@@ -716,11 +716,8 @@ class APIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", content_type)
             if self._should_apply_coi_headers(url_path):
                 self._set_cross_origin_isolation_headers()
-            # Keep SW/HTML always fresh; cache static assets a bit.
-            if full_path.endswith(("index.html", "sw.js", "threads.js", "manifest.webmanifest")):
-                self.send_header("Cache-Control", "no-cache")
-            else:
-                self.send_header("Cache-Control", "public, max-age=3600")
+            # Force fresh assets for every request.
+            self.send_header("Cache-Control", "no-store, max-age=0")
 
             # Allow service worker to control the whole origin even if installed from /LocalReader/
             if url_path.startswith("/LocalReader/") and full_path.endswith("sw.js"):

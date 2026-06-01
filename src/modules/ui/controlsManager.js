@@ -244,10 +244,14 @@ export class ControlsManager {
 
         // Voice and speed
         on(this.voiceSelect, "change", () => {
+            const selectedVoice = this.voiceSelect?.value || app.config.DEFAULT_PIPER_VOICE;
             app.audioManager.stopPlayback(true);
             app.state.autoAdvanceActive = false;
             app.cache.clearAudioFrom(app.state.currentSentenceIndex);
-            app.ttsEngine.schedulePrefetch();
+            Promise.resolve()
+                .then(() => app.ttsEngine.ensurePiper(selectedVoice, { silent: false }))
+                .then(() => app.ttsEngine.schedulePrefetch())
+                .catch((err) => console.warn("[TTS] Voice load failed after selection", err));
         });
 
         if (this.speedSelect) {

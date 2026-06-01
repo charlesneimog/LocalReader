@@ -266,11 +266,7 @@ export class PDFLoader {
                         //console.log(`[PDFLoader] Restored position from server: ${startIndex}`);
                     }
 
-                    // Update voice from server if available
-                    if (resume && serverData.voice) {
-                        resumeVoiceId = serverData.voice;
-                        //console.log(`[PDFLoader] Restored voice from server: ${resumeVoiceId}`);
-                    }
+                    // Voice restore should use local cache only.
 
                     // Update highlights from server if available
                     if (serverData.highlights && serverData.highlights.size > 0) {
@@ -306,10 +302,10 @@ export class PDFLoader {
             }
 
             // If no server data, load from local storage
-            if (startIndex === 0 && state.currentPdfKey) {
+            if (state.currentPdfKey) {
                 const saved = app.progressManager.loadSavedPosition(state.currentPdfKey);
                 if (saved) {
-                    if (typeof saved.sentenceIndex === "number") {
+                    if (startIndex === 0 && typeof saved.sentenceIndex === "number") {
                         startIndex = Math.min(Math.max(saved.sentenceIndex, 0), state.sentences.length - 1);
                     }
                     if (resume && typeof saved.voice === "string" && saved.voice.trim()) {
@@ -548,15 +544,7 @@ export class PDFLoader {
 
     _resolveVoiceForPreload(savedVoiceId) {
         const trimmedSaved = typeof savedVoiceId === "string" ? savedVoiceId.trim() : "";
-        if (trimmedSaved) return trimmedSaved;
-
-        const voiceSelect = document.getElementById("voice-select");
-        const selected = typeof voiceSelect?.value === "string" ? voiceSelect.value.trim() : "";
-        if (selected) return selected;
-
-        const fallback =
-            typeof this.app?.config?.DEFAULT_PIPER_VOICE === "string" ? this.app.config.DEFAULT_PIPER_VOICE : "";
-        return fallback.trim() || null;
+        return trimmedSaved || null;
     }
 
     _scheduleVoicePreload(voiceId) {
@@ -591,6 +579,7 @@ export class PDFLoader {
         const { state } = app || {};
         if (!state?.sentences?.length) return;
         if (typeof app.isReadTranslationEnabled === "function" && app.isReadTranslationEnabled()) return;
+        if (!state.currentPiperVoice || !state.piperInstance) return;
 
         const idx =
             typeof state.currentSentenceIndex === "number" && state.currentSentenceIndex >= 0

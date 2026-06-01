@@ -213,11 +213,7 @@ export class EPUBLoader {
                             console.log(`[EPUBLoader] Restored position from server: ${startIndex}`);
                         }
 
-                        // Update voice from server if available
-                        if (resume && serverData.voice) {
-                            resumeVoiceId = serverData.voice;
-                            console.log(`[EPUBLoader] Restored voice from server: ${resumeVoiceId}`);
-                        }
+                        // Voice restore should use local cache only.
 
                         // Update highlights from server when present (including empty map)
                         if (serverData.highlights instanceof Map) {
@@ -234,10 +230,10 @@ export class EPUBLoader {
                 }
 
                 // If no server data, load from local storage
-                if (startIndex === 0 && resume && state.currentEpubKey) {
+                if (resume && state.currentEpubKey) {
                     const saved = this.app.progressManager.loadSavedPosition(state.currentEpubKey, "epub");
                     if (saved) {
-                        if (typeof saved.sentenceIndex === "number") {
+                        if (startIndex === 0 && typeof saved.sentenceIndex === "number") {
                             startIndex = Math.min(Math.max(saved.sentenceIndex, 0), state.sentences.length - 1);
                         }
                         if (typeof saved.voice === "string" && saved.voice.trim()) {
@@ -287,15 +283,7 @@ export class EPUBLoader {
 
     _resolveVoiceForPreload(savedVoiceId) {
         const trimmedSaved = typeof savedVoiceId === "string" ? savedVoiceId.trim() : "";
-        if (trimmedSaved) return trimmedSaved;
-
-        const voiceSelect = document.getElementById("voice-select");
-        const selected = typeof voiceSelect?.value === "string" ? voiceSelect.value.trim() : "";
-        if (selected) return selected;
-
-        const fallback =
-            typeof this.app?.config?.DEFAULT_PIPER_VOICE === "string" ? this.app.config.DEFAULT_PIPER_VOICE : "";
-        return fallback.trim() || null;
+        return trimmedSaved || null;
     }
 
     _scheduleVoicePreload(voiceId) {
@@ -330,6 +318,7 @@ export class EPUBLoader {
         const { state } = app || {};
         if (!state?.sentences?.length) return;
         if (typeof app.isReadTranslationEnabled === "function" && app.isReadTranslationEnabled()) return;
+        if (!state.currentPiperVoice || !state.piperInstance) return;
 
         const idx =
             typeof state.currentSentenceIndex === "number" && state.currentSentenceIndex >= 0

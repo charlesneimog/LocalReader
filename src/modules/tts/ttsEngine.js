@@ -255,7 +255,8 @@ export class TTSEngine {
             const fetcher = this.app.network.fetch.bind(this.app.network);
 
             const modelBuffer = await getCachedModel(modelFile, MODEL_URL, {
-                onProgress: showUi ? (pct) => ui.showMessage(`Downloading model: ${pct.toFixed(2)}%`, 1200) : undefined,
+                onProgress: (pct) =>
+                    ui?.showMessage?.(`Downloading voice model: ${pct.toFixed(0)}%`, 1200),
                 allowNetwork,
                 offlineErrorMessage: OFFLINE_VOICE_MESSAGE,
                 fetcher,

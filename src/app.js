@@ -341,6 +341,8 @@ export class PDFTTSApp {
         const { state } = this;
         if (!this.isReadTranslationEnabled()) return;
 
+        const isOffline = this.network?.isOffline?.() === true;
+
         const baseIndex =
             typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
                 ? state.playingSentenceIndex
@@ -369,16 +371,38 @@ export class PDFTTSApp {
         });
 
         if (!promptLang) return;
-        await this._switchReadingLanguageToOriginal(promptLang);
+
+        const resumeIndex =
+            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+                ? state.playingSentenceIndex
+                : state.currentSentenceIndex;
+
+        if (isOffline) {
+            try {
+                await this.audioManager?.stopPlayback?.(true);
+            } catch {}
+            state.autoAdvanceActive = false;
+            state.playbackPending = false;
+            try {
+                this.state.audioCache?.clear?.();
+            } catch {}
+            this.cache.clearAudioFrom(0);
+        }
+
+        await this._switchReadingLanguageToOriginal(promptLang, {
+            resumeIndex,
+            skipTTS: isOffline,
+        });
     }
 
-    async _switchReadingLanguageToOriginal(languageCode) {
+    async _switchReadingLanguageToOriginal(languageCode, options = {}) {
         const { state } = this;
         const normalized = this._normalizeLanguageCode(languageCode);
         if (!normalized) return;
 
         const label = this._getLanguageLabel(normalized);
         const wasPlaying = state.isPlaying;
+        const skipTTS = typeof options?.skipTTS === "boolean" ? options.skipTTS : wasPlaying;
 
         this._setTranslationTargetLanguage(normalized);
 
@@ -407,13 +431,14 @@ export class PDFTTSApp {
             }
         }
 
-        const idx =
-            typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
+        const idx = Number.isFinite(options?.resumeIndex)
+            ? options.resumeIndex
+            : typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
                 ? state.playingSentenceIndex
                 : state.currentSentenceIndex;
         if (Number.isFinite(idx) && idx >= 0) {
             Promise.resolve().then(() => {
-                this.getActiveRenderer().renderSentence(idx, { skipTTS: wasPlaying }).catch(() => {});
+                this.getActiveRenderer().renderSentence(idx, { skipTTS }).catch(() => {});
             });
         }
 

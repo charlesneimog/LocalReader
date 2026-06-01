@@ -1,4 +1,4 @@
-const APP_VERSION = "0.29.0+0";
+const APP_VERSION = "0.29.1+3";
 const IDB_VERSION = 1;
 const cacheName = `LocalReader-v${APP_VERSION}`;
 const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
@@ -413,6 +413,14 @@ const applyCoepHeaders = (response) => {
     });
 };
 
+const isAppShellRequest = (urlObj) => {
+    const path = urlObj.pathname || "";
+    if (path === "/" || path.endsWith("/index.html")) return true;
+    if (path.endsWith("/sw.js") || path.endsWith("/threads.js") || path.endsWith("/manifest.webmanifest")) return true;
+    if (path.includes("/src/")) return true;
+    return false;
+};
+
 const fetchHandler = async (e) => {
     const { request } = e;
     const url = request.url;
@@ -449,7 +457,28 @@ const fetchHandler = async (e) => {
                     return fetch(request);
                 }
 
-                // Strategy 1: Cache First for local assets
+                // Strategy 1: Network First for app shell assets to avoid stale UI.
+                if (url.startsWith(self.location.origin) && request.method === "GET" && isAppShellRequest(urlObj)) {
+                    try {
+                        const fresh = await fetch(request, { cache: "no-store" });
+                        if (fresh && fresh.ok) {
+                            const cache = await caches.open(cacheName);
+                            cache.put(request, fresh.clone());
+                        }
+                        return applyCoepHeaders(fresh);
+                    } catch (err) {
+                        const cachedResponse = await caches.match(request, { ignoreVary: true, ignoreSearch: false });
+                        if (cachedResponse) {
+                            const normalized = cachedResponse.redirected
+                                ? await cleanRedirect(cachedResponse)
+                                : cachedResponse;
+                            return applyCoepHeaders(normalized);
+                        }
+                        throw err;
+                    }
+                }
+
+                // Strategy 2: Cache First for local assets
                 if (url.startsWith(self.location.origin)) {
                     const cachedResponse = await caches.match(request, { ignoreVary: true, ignoreSearch: false });
                     if (cachedResponse) {
@@ -460,7 +489,7 @@ const fetchHandler = async (e) => {
                     }
                 }
 
-                // Strategy 2: Stale-While-Revalidate for external resources
+                // Strategy 3: Stale-While-Revalidate for external resources
                 if (shouldCacheExternally(url)) {
                     const cache = await caches.open(runtimeCache);
                     const cachedResponse = await cache.match(request);
@@ -490,7 +519,7 @@ const fetchHandler = async (e) => {
                     return applyCoepHeaders(cachedResponse) || fetchPromise;
                 }
 
-                // Strategy 3: Network First for everything else
+                // Strategy 4: Network First for everything else
                 try {
                     const fetchResponse = await fetch(request);
 

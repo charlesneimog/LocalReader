@@ -411,7 +411,14 @@
                         Adjust reading speed
                     </label>
                     <div class="flex items-center gap-4">
-                        <span class="text-gray-500 dark:text-gray-400">🐢</span>
+                        <button
+                            id="btn-speed-decrease"
+                            type="button"
+                            aria-label="Decrease reading speed"
+                            class="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10"
+                        >
+                            <span class="material-symbols-outlined text-lg">remove</span>
+                        </button>
                         <input
                             id="reading-speed"
                             type="range"
@@ -421,7 +428,14 @@
                             value="1"
                             class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full appearance-none cursor-pointer accent-blue-500"
                         />
-                        <span class="text-gray-500 dark:text-gray-400">🐇</span>
+                        <button
+                            id="btn-speed-increase"
+                            type="button"
+                            aria-label="Increase reading speed"
+                            class="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10"
+                        >
+                            <span class="material-symbols-outlined text-lg">add</span>
+                        </button>
                     </div>
                     <div id="reading-speed-value" class="text-center text-sm text-gray-500 dark:text-gray-400 mt-2">
                         1.0x

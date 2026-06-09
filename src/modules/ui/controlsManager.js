@@ -25,6 +25,8 @@ export class ControlsManager {
         this.voiceSelect = document.getElementById("voice-select");
         this.speedSelect = document.getElementById("reading-speed");
         this.speedSelectValue = document.getElementById("reading-speed-value");
+        this.btnDecreaseSpeed = document.getElementById("btn-speed-decrease");
+        this.btnIncreaseSpeed = document.getElementById("btn-speed-increase");
 
         this.btnNextSentence = document.getElementById("next-sentence");
         this.btnPrevSentence = document.getElementById("prev-sentence");
@@ -63,6 +65,8 @@ export class ControlsManager {
 
         // stopwatch
         this.autoStopInput = document.getElementById("stopwatch-input");
+        this.btnDecreaseTimer = document.getElementById("btn-timer-decrease");
+        this.btnIncreaseTimer = document.getElementById("btn-timer-increase");
         this.btnPlayTimer = document.getElementById("btn-timer-play");
         this.btnStopTimer = document.getElementById("btn-timer-stop");
     }
@@ -276,10 +280,12 @@ export class ControlsManager {
         if (this.speedSelect) {
             const updateSpeedDisplay = () => {
                 const val = parseFloat(this.speedSelect.value);
-                this.speedSelectValue.textContent = (isNaN(val) ? 1 : val) + "x";
+                this.speedSelectValue.textContent = `${(isNaN(val) ? 1 : val).toFixed(1)}x`;
             };
 
             on(this.speedSelect, "input", updateSpeedDisplay);
+            on(this.btnDecreaseSpeed, "click", () => this._adjustReadingSpeed(-1));
+            on(this.btnIncreaseSpeed, "click", () => this._adjustReadingSpeed(1));
 
             on(this.speedSelect, "change", () => {
                 const val = parseFloat(this.speedSelect.value);
@@ -293,7 +299,7 @@ export class ControlsManager {
 
             // Initialize display
             const initVal = parseFloat(this.speedSelect.value);
-            this.speedSelectValue.textContent = (isNaN(initVal) ? 1 : initVal) + "x";
+            this.speedSelectValue.textContent = `${(isNaN(initVal) ? 1 : initVal).toFixed(1)}x`;
         }
 
         // Keyboard shortcuts
@@ -382,15 +388,17 @@ export class ControlsManager {
         });
 
         // Stop Watch
-        this.btnPlayTimer.addEventListener("click", () => this._toggleTimer());
-        this.btnStopTimer.addEventListener("click", () => this._stopTimer());
-        this.autoStopInput.addEventListener("change", (e) => {
-            const val = parseInt(e.target.value, 10);
-            if (!isNaN(val) && val >= 0) {
-                this.autoStopDuration = val * 60;
+        this.btnPlayTimer?.addEventListener("click", () => this._toggleTimer());
+        this.btnStopTimer?.addEventListener("click", () => this._stopTimer());
+        this.btnDecreaseTimer?.addEventListener("click", () => this._adjustTimerMinutes(-1));
+        this.btnIncreaseTimer?.addEventListener("click", () => this._adjustTimerMinutes(1));
+        this.autoStopInput?.addEventListener("change", (e) => {
+            const minutes = this._parseTimerMinutes(e.target.value);
+            if (minutes > 0) {
+                this.autoStopDuration = minutes * 60;
                 this.timeLeft = this.autoStopDuration;
-                this._updateTimerDisplay();
             }
+            this._updateTimerDisplay();
         });
 
         // Server Link Configuration
@@ -469,6 +477,20 @@ export class ControlsManager {
         this.reflectSelectedHighlightColor();
     };
 
+    _adjustReadingSpeed(delta) {
+        if (!this.speedSelect) return;
+
+        const min = Number.parseFloat(this.speedSelect.min || "0.5");
+        const max = Number.parseFloat(this.speedSelect.max || "2");
+        const step = Number.parseFloat(this.speedSelect.step || "0.1");
+        const current = Number.parseFloat(this.speedSelect.value || "1");
+
+        const next = Math.min(max, Math.max(min, current + delta * step));
+        this.speedSelect.value = next.toFixed(1);
+        this.speedSelect.dispatchEvent(new Event("input", { bubbles: true }));
+        this.speedSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
     toggleCollapsedState() {
         if (!this.controlsToolbar) return;
         this.controlsToolbar.classList.toggle("toolbar--collapsed");
@@ -543,12 +565,13 @@ export class ControlsManager {
     }
 
     _toggleTimer() {
+        const playIcon = this.btnPlayTimer?.querySelector("span");
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
             this.timerInterval = null;
-            this.btnPlayTimer.querySelector("span").textContent = "play_arrow";
+            if (playIcon) playIcon.textContent = "play_arrow";
         } else {
-            this.btnPlayTimer.querySelector("span").textContent = "pause";
+            if (playIcon) playIcon.textContent = "pause";
             this.timerInterval = setInterval(() => {
                 if (this.timeLeft > 0) {
                     this.timeLeft--;
@@ -572,11 +595,24 @@ export class ControlsManager {
         if (this.btnPlayTimer) this.btnPlayTimer.querySelector("span").textContent = "play_arrow";
     }
 
+    _parseTimerMinutes(value) {
+        const raw = String(value || "").trim();
+        if (!raw) return Math.max(1, Math.ceil(this.autoStopDuration / 60));
+        const minutes = Number.parseInt(raw, 10);
+        if (!Number.isFinite(minutes)) return Math.max(1, Math.ceil(this.autoStopDuration / 60));
+        return Math.max(1, minutes);
+    }
+
+    _adjustTimerMinutes(delta) {
+        const next = Math.max(60, this.autoStopDuration + delta * 60);
+        this.autoStopDuration = next;
+        this.timeLeft = next;
+        this._updateTimerDisplay();
+    }
+
     _updateTimerDisplay() {
         if (!this.autoStopInput) return;
-        const minutes = Math.floor(this.timeLeft / 60);
-        const seconds = this.timeLeft % 60;
-        this.autoStopInput.value = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+        this.autoStopInput.value = String(Math.max(1, Math.ceil(this.timeLeft / 60)));
     }
 
     showInfo(message, duration = 2000) {

@@ -414,6 +414,17 @@ input[type="color"]:hover:not(:disabled) {
     cursor: pointer;
 }
 
+#stopwatch-input {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+#stopwatch-input::-webkit-inner-spin-button,
+#stopwatch-input::-webkit-outer-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+}
+
 .pdf-comment-marker .material-symbols-outlined {
     font-size: 16px;
     line-height: 1;

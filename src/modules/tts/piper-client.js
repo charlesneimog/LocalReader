@@ -185,7 +185,7 @@ function loadModel(key) {
         });
     });
 }
-async function getCachedModel(key, url, options) {
+export async function getCachedModel(key, url, options) {
     let buffer = await loadModel(key);
     if (buffer) {
         // console.log("Loaded model from cache.");
@@ -200,7 +200,11 @@ async function getCachedModel(key, url, options) {
     const totalBytes = contentLengthHeader ? Number(contentLengthHeader) : NaN;
 
     const onProgress =
-        typeof options === "function" ? options : options && typeof options.onProgress === "function" ? options.onProgress : null;
+        typeof options === "function"
+            ? options
+            : options && typeof options.onProgress === "function"
+              ? options.onProgress
+              : null;
 
     // If we can stream + know total size, report progress.
     if (response.body && Number.isFinite(totalBytes) && totalBytes > 0) {
@@ -250,18 +254,20 @@ async function getCachedModel(key, url, options) {
     }
 
     await saveModel(key, buffer);
-    console.log("Model cached.");
     return buffer;
 }
+
 function saveJSON(key, obj) {
     const jsonString = JSON.stringify(obj);
     return saveModel(key, jsonString);
 }
+
 async function loadJSON(key) {
     const jsonString = await loadModel(key);
     return jsonString ? JSON.parse(jsonString) : null;
 }
-async function getCachedJSON(key, url) {
+
+export async function getCachedJSON(key, url) {
     let data = await loadJSON(key);
     if (data) {
         // console.log("Loaded config from cache.");
@@ -276,7 +282,75 @@ async function getCachedJSON(key, url) {
     return data;
 }
 
+export async function getUncachedModel(url, options) {
+    console.log("Fetching uncached model from network...");
+
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Failed to load model: ${response.status}`);
+
+    const contentLengthHeader = response.headers.get("Content-Length");
+    const totalBytes = contentLengthHeader ? Number(contentLengthHeader) : NaN;
+    const onProgress =
+        typeof options === "function"
+            ? options
+            : options && typeof options.onProgress === "function"
+              ? options.onProgress
+              : null;
+
+    if (response.body && Number.isFinite(totalBytes) && totalBytes > 0) {
+        const reader = response.body.getReader();
+        const chunks = [];
+        let receivedBytes = 0;
+        let lastPctEmitted = -1;
+        let lastEmitAt = 0;
+        const emit = (pct) => {
+            if (!onProgress) return;
+            const now = performance.now ? performance.now() : Date.now();
+            const pctRounded = Math.max(0, Math.min(100, pct));
+            const pctFloor = Math.floor(pctRounded);
+            if (pctFloor === lastPctEmitted && now - lastEmitAt < 250) return;
+
+            lastPctEmitted = pctFloor;
+            lastEmitAt = now;
+            onProgress(pctRounded);
+        };
+
+        emit(0);
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+            chunks.push(value);
+            receivedBytes += value.byteLength;
+            emit((receivedBytes / totalBytes) * 100);
+        }
+
+        const out = new Uint8Array(receivedBytes);
+        let offset = 0;
+        for (const chunk of chunks) {
+            out.set(chunk, offset);
+            offset += chunk.byteLength;
+        }
+        emit(100);
+        return out.buffer;
+    }
+
+    if (onProgress) onProgress(0);
+    const buffer = await response.arrayBuffer();
+    if (onProgress) onProgress(100);
+    return buffer;
+}
+
+export async function getUncachedJSON(url) {
+    console.log("Fetching uncached config from network...");
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Failed to load config: ${response.status}`);
+    return response.json();
+}
+
 // Export for browser
 window.PiperWorkerClient = PiperWorkerClient;
 window.getCachedModel = getCachedModel;
 window.getCachedJSON = getCachedJSON;
+window.getUncachedModel = getUncachedModel;
+window.getUncachedJSON = getUncachedJSON;

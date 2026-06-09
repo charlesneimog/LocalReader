@@ -1,4 +1,4 @@
-const APP_VERSION = "0.33.2+0";
+const APP_VERSION = "0.33.4+0";
 const IDB_VERSION = 1;
 const cacheName = `PocketReader-v${APP_VERSION}`;
 const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;
@@ -451,6 +451,10 @@ const fetchHandler = async (e) => {
                 // Never let the SW interfere with API calls (same-origin or cross-origin).
                 // Return the fetch Promise directly so network/CORS failures surface as-is.
                 if (urlObj.pathname === "/api" || urlObj.pathname.startsWith("/api/")) {
+                    return fetch(request);
+                }
+
+                if (request.cache === "no-store") {
                     return fetch(request);
                 }
 

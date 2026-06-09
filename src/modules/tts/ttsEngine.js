@@ -7,7 +7,19 @@ import {
     hasUsableSpeechText,
 } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
-import { PiperWorkerClient } from "./piper-client.js";
+import {
+    PiperWorkerClient,
+    getCachedJSON,
+    getCachedModel,
+    getUncachedJSON,
+    getUncachedModel,
+} from "./piper-client.js";
+
+const USE_PERSONALIZED_PIPER_MODEL = false;
+const PERSONALIZED_PIPER_MODEL_URL = "https://huggingface.co/csukuangfj/vits-piper-pt_BR-miro-high/resolve/main/pt_BR-miro-high.onnx";
+const PERSONALIZED_PIPER_CONFIG_URL = "https://huggingface.co/csukuangfj/vits-piper-pt_BR-miro-high/resolve/main/pt_BR-miro-high.onnx.json";
+const PERSONALIZED_PIPER_VOICE_ID = "personalized_piper_voice2";
+const PERSONALIZED_PIPER_VOICE_NAME = "Personalized Piper Model2";
 
 export class TTSEngine {
     constructor(app) {
@@ -59,9 +71,45 @@ export class TTSEngine {
         return state.audioCtx;
     }
 
+    _isPersonalizedPiperEnabled() {
+        return USE_PERSONALIZED_PIPER_MODEL === true;
+    }
+
+    _getActiveVoiceId(voiceId) {
+        return this._isPersonalizedPiperEnabled()
+            ? PERSONALIZED_PIPER_VOICE_ID
+            : voiceId || this.app.config.DEFAULT_PIPER_VOICE;
+    }
+
+    _getPersonalizedPiperConfig() {
+        const modelUrl = PERSONALIZED_PIPER_MODEL_URL.trim();
+        const configUrl = PERSONALIZED_PIPER_CONFIG_URL.trim();
+
+        if (!modelUrl || !configUrl) {
+            throw new Error(
+                "Personalized Piper model is enabled, but PERSONALIZED_PIPER_MODEL_URL and PERSONALIZED_PIPER_CONFIG_URL are not set.",
+            );
+        }
+
+        new URL(modelUrl, window.location.href);
+        new URL(configUrl, window.location.href);
+        return { modelUrl, configUrl };
+    }
+
+    _getPersonalizedVoicesList() {
+        return {
+            [PERSONALIZED_PIPER_VOICE_ID]: {
+                name: PERSONALIZED_PIPER_VOICE_NAME,
+                quality: "custom",
+                language: {},
+                files: {},
+            },
+        };
+    }
+
     async ensurePiper(voiceId) {
         const { state, config } = this.app;
-        const targetVoiceId = voiceId || config.DEFAULT_PIPER_VOICE;
+        const targetVoiceId = this._getActiveVoiceId(voiceId || config.DEFAULT_PIPER_VOICE);
 
         if (this.initialized && this.voiceId === targetVoiceId && state.piperInstance) {
             return state.piperInstance;
@@ -70,7 +118,7 @@ export class TTSEngine {
         this.app.ui.showInfo("Loading AI Natural Voices...");
         if (this.initializingPromise) {
             if (this.pendingVoiceId && this.pendingVoiceId !== targetVoiceId) {
-                await this.initializingPromise.catch(() => { });
+                await this.initializingPromise.catch(() => {});
             } else {
                 await this.initializingPromise;
                 return state.piperInstance;
@@ -97,6 +145,7 @@ export class TTSEngine {
 
     async _initializeVoice(voiceId) {
         const { ui, state } = this.app;
+        const targetVoiceId = this._getActiveVoiceId(voiceId);
         ui.updatePlayButton(state.playerState.LOADING);
         document.body.style.cursor = "wait";
 
@@ -105,33 +154,51 @@ export class TTSEngine {
                 this.client = new PiperWorkerClient({ workerUrl: "./src/modules/tts/piper.worker.js" });
             }
 
-            if (!this.voices) {
+            const usesPersonalizedModel = this._isPersonalizedPiperEnabled();
+            if (usesPersonalizedModel) {
+                this.voices = this._getPersonalizedVoicesList();
+                this.client.availableVoices = this.voices;
+            } else if (!this.voices) {
                 this.voices = await this.getVoicesLists();
                 this.client.availableVoices = this.voices;
             }
 
-            const voice = this.voices[voiceId];
-            if (!voice) {
-                ui.updatePlayButton(state.playerState.DONE);
-                throw new Error(`Unknown voice: ${voiceId}. Available voices: ${Object.keys(this.voices).join(", ")}`);
+            let modelBuffer = null;
+            let voiceConfig = null;
+
+            if (usesPersonalizedModel) {
+                const customModel = this._getPersonalizedPiperConfig();
+                modelBuffer = await getUncachedModel(customModel.modelUrl, {
+                    onProgress: (pct) => ui.showMessage(`Downloading personalized model: ${pct.toFixed(2)}%`, 1200),
+                });
+                voiceConfig = await getUncachedJSON(customModel.configUrl);
+            } else {
+                const voice = this.voices[targetVoiceId];
+                if (!voice) {
+                    ui.updatePlayButton(state.playerState.DONE);
+                    throw new Error(
+                        `Unknown voice: ${targetVoiceId}. Available voices: ${Object.keys(this.voices).join(", ")}`,
+                    );
+                }
+
+                const filePaths = Object.keys(voice.files || {});
+
+                const modelFile = filePaths.find((f) => f.endsWith(".onnx"));
+                const configFile = filePaths.find((f) => f.endsWith(".onnx.json"));
+
+                if (!modelFile || !configFile) {
+                    ui.updatePlayButton(state.playerState.DONE);
+                    throw new Error(`Voice ${targetVoiceId} is missing required model or config files.`);
+                }
+
+                const modelUrl = this.huggingFaceRoot + modelFile;
+                const configUrl = this.huggingFaceRoot + configFile;
+
+                modelBuffer = await getCachedModel(modelFile, modelUrl, {
+                    onProgress: (pct) => ui.showMessage(`Downloading model: ${pct.toFixed(2)}%`, 1200),
+                });
+                voiceConfig = await getCachedJSON(configFile, configUrl);
             }
-
-            const filePaths = Object.keys(voice.files || {});
-            const modelFile = filePaths.find((f) => f.endsWith(".onnx"));
-            const configFile = filePaths.find((f) => f.endsWith(".onnx.json"));
-
-            if (!modelFile || !configFile) {
-                ui.updatePlayButton(state.playerState.DONE);
-                throw new Error(`Voice ${voiceId} is missing required model or config files.`);
-            }
-
-            const MODEL_URL = this.huggingFaceRoot + modelFile;
-            const CONFIG_URL = this.huggingFaceRoot + configFile;
-
-            const modelBuffer = await getCachedModel(modelFile, MODEL_URL, {
-                onProgress: (pct) => ui.showMessage(`Downloading model: ${pct.toFixed(2)}%`, 1200),
-            });
-            const voiceConfig = await getCachedJSON(configFile, CONFIG_URL);
 
             const baseUrl = getWebsiteRoot();
             const ortJsUrl = `${baseUrl}thirdparty/ort/ort.js`;
@@ -152,7 +219,7 @@ export class TTSEngine {
                     logLevel: "error",
                     transferModel: true,
                 });
-            } else if (this.voiceId !== voiceId) {
+            } else if (this.voiceId !== targetVoiceId) {
                 await this.client.changeVoice({
                     modelBuffer,
                     voiceConfig,
@@ -160,10 +227,10 @@ export class TTSEngine {
                 });
             }
 
-            this.voiceId = voiceId;
+            this.voiceId = targetVoiceId;
             this.initialized = true;
             state.piperInstance = this.client;
-            state.currentPiperVoice = voiceId;
+            state.currentPiperVoice = targetVoiceId;
             state.piperInstance.availableVoices = this.voices;
 
             return state.piperInstance;
@@ -176,7 +243,7 @@ export class TTSEngine {
             if (this.client) {
                 try {
                     this.client.terminate();
-                } catch (_) { }
+                } catch (_) {}
             }
             this.client = null;
             throw err;
@@ -195,7 +262,7 @@ export class TTSEngine {
         } catch (err) {
             try {
                 if (state.audioCtx) await state.audioCtx.close();
-            } catch { }
+            } catch {}
             state.audioCtx = null;
             await this.ensureAudioContext();
             return state.audioCtx.decodeAudioData(arrayBuffer.slice(0));
@@ -240,11 +307,12 @@ export class TTSEngine {
             return [{ text: fallback, blockKey: null }];
         }
 
-        const words = Array.isArray(sentence?.readableWords) && sentence.readableWords.length
-            ? sentence.readableWords
-            : Array.isArray(sentence?.words)
-              ? sentence.words.filter((word) => word?.isReadable !== false)
-              : [];
+        const words =
+            Array.isArray(sentence?.readableWords) && sentence.readableWords.length
+                ? sentence.readableWords
+                : Array.isArray(sentence?.words)
+                  ? sentence.words.filter((word) => word?.isReadable !== false)
+                  : [];
         if (words.length < 2 || !this.app.getPdfHeaderFooterDetector || !sentence?.pageNumber) {
             return [{ text: fallback, blockKey: null }];
         }
@@ -266,7 +334,8 @@ export class TTSEngine {
 
         const flush = () => {
             if (!currentWords.length) return;
-            const text = this.app.sentenceParser?.joinWords?.(currentWords) || currentWords.map((w) => w?.str || "").join(" ");
+            const text =
+                this.app.sentenceParser?.joinWords?.(currentWords) || currentWords.map((w) => w?.str || "").join(" ");
             if (hasUsableSpeechText(text)) groups.push({ text: text.trim(), blockKey: currentBlockKey });
             currentWords = [];
         };
@@ -356,6 +425,7 @@ export class TTSEngine {
 
     async buildPiperAudio(sentence, voice, text) {
         const { state, config } = this.app;
+        const activeVoice = this._getActiveVoiceId(voice);
 
         async function retryAsync(fn, tries = 3, gap = 300) {
             let last;
@@ -371,7 +441,7 @@ export class TTSEngine {
         }
 
         await this.ensureAudioContext();
-        const client = await this.ensurePiper(voice);
+        const client = await this.ensurePiper(activeVoice);
         if (!client) {
             sentence.audioError = new Error("Piper voice unavailable");
             return;
@@ -411,7 +481,7 @@ export class TTSEngine {
                     const result = await activeClient.synthesize(cleaned, state.CURRENT_SPEED);
                     return result;
                 } catch (e) {
-                    await this.ensurePiper(voice);
+                    await this.ensurePiper(activeVoice);
                     throw e;
                 } finally {
                     document.body.style.cursor = "default";
@@ -444,7 +514,9 @@ export class TTSEngine {
             }
 
             if (pauseSec > 0 && i < phraseEntries.length - 1) {
-                buffersForPlayback.push(this._createSilenceBuffer(pauseSec, decoded.sampleRate, decoded.numberOfChannels));
+                buffersForPlayback.push(
+                    this._createSilenceBuffer(pauseSec, decoded.sampleRate, decoded.numberOfChannels),
+                );
                 phraseOffsetMs += pauseSec * 1000;
             }
         }
@@ -452,21 +524,23 @@ export class TTSEngine {
         const decoded = this._concatAudioBuffers(buffersForPlayback);
         const wordBoundaries = this._buildWordBoundariesForAudio(phrases, decodedSpeechBuffers, decoded, pauseSec);
 
-        const cacheKey = `${voice}|${state.CURRENT_SPEED}|${sentence.normalizedText}`;
-        state.audioCache.set(cacheKey, {
-            audioBlob: config.STORE_DECODED_ONLY ? null : effectiveBlob,
-            wavBlob: config.MAKE_WAV_COPY ? effectiveBlob : null,
-            audioBuffer: decoded,
-            wordBoundaries,
-            ttsPhraseTimings,
-        });
+        if (!this._isPersonalizedPiperEnabled()) {
+            const cacheKey = `${activeVoice}|${state.CURRENT_SPEED}|${sentence.normalizedText}`;
+            state.audioCache.set(cacheKey, {
+                audioBlob: config.STORE_DECODED_ONLY ? null : effectiveBlob,
+                wavBlob: config.MAKE_WAV_COPY ? effectiveBlob : null,
+                audioBuffer: decoded,
+                wordBoundaries,
+                ttsPhraseTimings,
+            });
+        }
 
         Object.assign(sentence, {
             audioBlob: config.STORE_DECODED_ONLY ? null : effectiveBlob,
             wavBlob: config.MAKE_WAV_COPY ? effectiveBlob : null,
             audioBuffer: decoded,
             audioReady: true,
-            lastVoice: voice,
+            lastVoice: activeVoice,
             lastSpeed: state.CURRENT_SPEED,
             prefetchQueued: false,
             audioError: null,
@@ -508,7 +582,7 @@ export class TTSEngine {
         }
 
         const voiceSelect = document.getElementById("voice-select");
-        const voice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
+        const voice = this._getActiveVoiceId(voiceSelect?.value || config.DEFAULT_PIPER_VOICE);
 
         if (!hasUsableSpeechText(sourceText)) {
             this._markSentenceAsSilent(s);
@@ -537,7 +611,7 @@ export class TTSEngine {
 
         s.normalizedText = norm;
         const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;
-        if (state.audioCache.has(cacheKey)) {
+        if (!this._isPersonalizedPiperEnabled() && state.audioCache.has(cacheKey)) {
             const cached = state.audioCache.get(cacheKey);
             const cachedPhraseTimings = cached.ttsPhraseTimings || [];
             if (requiresPdfPhraseTimings && !cachedPhraseTimings.length) {
@@ -643,6 +717,23 @@ export class TTSEngine {
     async initVoices() {
         const { state, config } = this.app;
         const voiceSelect = document.getElementById("voice-select");
+        if (this._isPersonalizedPiperEnabled()) {
+            if (!voiceSelect) return;
+            voiceSelect.innerHTML = "";
+            const opt = document.createElement("option");
+            opt.value = PERSONALIZED_PIPER_VOICE_ID;
+            opt.textContent = PERSONALIZED_PIPER_VOICE_NAME;
+            voiceSelect.appendChild(opt);
+            voiceSelect.value = PERSONALIZED_PIPER_VOICE_ID;
+            state.currentPiperVoice = PERSONALIZED_PIPER_VOICE_ID;
+            const micIcon = document.getElementById("mic-icon");
+            if (micIcon) {
+                micIcon.classList.remove("fa-spinner", "fa-spin");
+                micIcon.classList.add("fa-microphone");
+            }
+            return;
+        }
+
         const voicesSource = this.voices || state.piperInstance?.availableVoices;
         if (!voiceSelect || !voicesSource) return;
         voiceSelect.innerHTML = "";
@@ -683,7 +774,7 @@ export class TTSEngine {
         const { state } = this.app;
 
         if (this._resetPromise) {
-            await this._resetPromise.catch(() => { });
+            await this._resetPromise.catch(() => {});
             return;
         }
 
@@ -703,8 +794,8 @@ export class TTSEngine {
         this._resetPromise = (async () => {
             if (this.initializingPromise) {
                 try {
-                    await this.initializingPromise.catch(() => { });
-                } catch { }
+                    await this.initializingPromise.catch(() => {});
+                } catch {}
             }
             this.initializingPromise = null;
             this.pendingVoiceId = null;

@@ -26,7 +26,8 @@ export class PDFRenderer {
             if (page && !state.pagesCache.has(pageNumber)) state.pagesCache.set(pageNumber, page);
 
             const unscaled = page.getViewport({ scale: 1 });
-            const baseWidthCss = typeof config.BASE_WIDTH_CSS === "function" ? config.BASE_WIDTH_CSS() : window.innerWidth;
+            const baseWidthCss =
+                typeof config.BASE_WIDTH_CSS === "function" ? config.BASE_WIDTH_CSS() : window.innerWidth;
             const displayScale = baseWidthCss / Math.max(1, unscaled.width);
             const viewportDisplay = page.getViewport({ scale: displayScale });
 
@@ -381,10 +382,7 @@ export class PDFRenderer {
         const container = document.getElementById("pdf-doc-container");
         const effectiveWidth = Math.max(
             1,
-            containerWidth ||
-                (container ? container.clientWidth : 0) ||
-                window.innerWidth ||
-                1,
+            containerWidth || (container ? container.clientWidth : 0) || window.innerWidth || 1,
         );
 
         let processed = 0;
@@ -433,8 +431,7 @@ export class PDFRenderer {
         }
 
         if (state.viewMode === "full") {
-            const activeSentence =
-                state.currentSentenceIndex >= 0 ? state.sentences[state.currentSentenceIndex] : null;
+            const activeSentence = state.currentSentenceIndex >= 0 ? state.sentences[state.currentSentenceIndex] : null;
             const hoveredSentence =
                 state.hoveredSentenceIndex >= 0 && state.hoveredSentenceIndex < state.sentences.length
                     ? state.sentences[state.hoveredSentenceIndex]
@@ -457,10 +454,7 @@ export class PDFRenderer {
                 }
             }
 
-            if (
-                hoveredSentence &&
-                (!activeSentence || hoveredSentence.pageNumber !== activeSentence.pageNumber)
-            ) {
+            if (hoveredSentence && (!activeSentence || hoveredSentence.pageNumber !== activeSentence.pageNumber)) {
                 await this.ensurePageCanvasMounted(hoveredSentence.pageNumber);
                 pagesToRebuild.add(hoveredSentence.pageNumber);
             }
@@ -513,9 +507,7 @@ export class PDFRenderer {
             if (state.fullPageRenderCache.size > MAX_RENDERED_PAGES) {
                 const oldest = state.fullPageRenderCache.keys().next().value;
                 if (oldest !== undefined && oldest !== pageNumber) {
-                    const oldWrapper = container.querySelector(
-                        `.pdf-page-wrapper[data-page-number="${oldest}"]`,
-                    );
+                    const oldWrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${oldest}"]`);
                     if (oldWrapper) oldWrapper.querySelector("canvas.page-canvas")?.remove();
                     state.fullPageRenderCache.delete(oldest);
                 }
@@ -638,7 +630,12 @@ export class PDFRenderer {
         const items = [];
         for (const w of words) {
             if (!w) continue;
-            if (!Number.isFinite(w.x) || !Number.isFinite(w.y) || !Number.isFinite(w.width) || !Number.isFinite(w.height)) {
+            if (
+                !Number.isFinite(w.x) ||
+                !Number.isFinite(w.y) ||
+                !Number.isFinite(w.width) ||
+                !Number.isFinite(w.height)
+            ) {
                 continue;
             }
             const top = this.getCorrectedVerticalPosition(w, offsetYDisplay, pageNumber);
@@ -810,8 +807,7 @@ export class PDFRenderer {
             if (hasComment && firstMarkerRect) {
                 const marker = document.createElement("div");
                 marker.className = "pdf-comment-marker";
-                marker.style.left =
-                    offsetLeft + (firstMarkerRect.x + firstMarkerRect.width) * scaleX + "px";
+                marker.style.left = offsetLeft + (firstMarkerRect.x + firstMarkerRect.width) * scaleX + "px";
                 marker.style.top = offsetTop + firstMarkerRect.y * scaleY + "px";
                 marker.dataset.sentenceIndex = String(sentenceIndex);
                 marker.dataset.comment = String(highlightData.comment);
@@ -947,11 +943,13 @@ export class PDFRenderer {
 
         const left = offsetLeft + anchorRect.x * scaleX;
         const top = offsetTop + anchorRect.y * scaleY;
+        const popupHeight = 34;
+        const popupGap = 8; // desired spacing in px
 
         const panel = document.createElement("div");
         panel.className = "pdf-active-phrase-actions";
         panel.style.left = `${Math.max(6, left)}px`;
-        panel.style.top = `${Math.max(6, top - 34)}px`;
+        panel.style.top = `${Math.max(6, top - popupHeight - popupGap)}px`;
 
         const stopBubble = (e) => {
             e.preventDefault();
@@ -967,7 +965,9 @@ export class PDFRenderer {
         copyBtn.addEventListener("mousedown", stopBubble);
         copyBtn.addEventListener("click", async (e) => {
             stopBubble(e);
-            await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({ successMessage: "Current phrase copied" });
+            await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({
+                successMessage: "Current phrase copied",
+            });
         });
 
         const highlightColors = [

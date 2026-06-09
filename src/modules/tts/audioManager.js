@@ -7,6 +7,11 @@ export class AudioManager {
         this._playPromise = null;
         this._playbackContext = null;
         this._playbackContextId = 0;
+        this._mediaBridgeAudio = null;
+        this._mediaBridgeObjectUrl = null;
+        this._mediaBridgeSyncing = false;
+        this._setupMediaBridge();
+        this._setupMediaSession();
     }
 
     async playCurrentSentence() {
@@ -141,6 +146,7 @@ export class AudioManager {
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
+            await this._activateMediaBridge(sentence);
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -279,6 +285,7 @@ export class AudioManager {
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
+            await this._activateMediaBridge(sentence);
             this.app.pdfRenderer.updateHighlightFullDoc();
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
@@ -331,7 +338,6 @@ export class AudioManager {
             } catch {}
             state.audioCtx = null;
         }
-
     }
 
     async stopPlayback(fade = true, options = {}) {
@@ -397,10 +403,12 @@ export class AudioManager {
         state.isPlaying = false;
         state.autoAdvanceActive = false;
         state.playingSentenceIndex = -1;
+        this._pauseMediaBridge();
 
         const currentSentence = state.currentSentence;
         if (currentSentence) this.clearWordBoundaryTimers(currentSentence);
         this.app.pdfRenderer.updateHighlightFullDoc();
+        this._setMediaSessionPlaybackState("paused");
         if (emitEvent) {
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_PAUSE, { index: state.currentSentenceIndex });
         }
@@ -501,6 +509,7 @@ export class AudioManager {
 
         state.isPlaying = false;
         state.playingSentenceIndex = -1;
+        this._pauseMediaBridge();
         this.app.pdfRenderer.updateHighlightFullDoc();
 
         const hasNextSentence =
@@ -509,6 +518,7 @@ export class AudioManager {
         if (!state.autoAdvanceActive || !hasNextSentence) {
             state.autoAdvanceActive = false;
             this._invalidateContext(context);
+            this._setMediaSessionPlaybackState("paused");
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
             return;
         }
@@ -517,6 +527,7 @@ export class AudioManager {
         if (!this._isContextActive(context) || state.stopRequested) {
             state.autoAdvanceActive = false;
             this._invalidateContext(context);
+            this._setMediaSessionPlaybackState("paused");
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
             return;
         }
@@ -527,6 +538,7 @@ export class AudioManager {
             console.warn("Auto-advance render failed", err);
             state.autoAdvanceActive = false;
             this._invalidateContext(context);
+            this._setMediaSessionPlaybackState("paused");
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
             return;
         }
@@ -537,6 +549,216 @@ export class AudioManager {
             await this.playCurrentSentence();
         }
         this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
+    }
+
+    _setupMediaBridge() {
+        if (typeof document === "undefined") return;
+
+        const audio = document.createElement("audio");
+        audio.id = "localreader-media-bridge";
+        audio.preload = "auto";
+        audio.setAttribute("aria-hidden", "true");
+        audio.tabIndex = -1;
+        audio.controls = false;
+        audio.volume = 0;
+        audio.style.display = "none";
+
+        audio.addEventListener("play", () => {
+            if (this._mediaBridgeSyncing || this.app.state.isPlaying) return;
+            this.playCurrentSentence().catch((error) => {
+                console.warn("[MediaBridge] Failed to resume playback", error);
+            });
+        });
+
+        audio.addEventListener("pause", () => {
+            if (this._mediaBridgeSyncing || !this.app.state.isPlaying) return;
+            this.stopPlayback(true).catch((error) => {
+                console.warn("[MediaBridge] Failed to pause playback", error);
+            });
+        });
+
+        document.body?.appendChild(audio);
+        this._mediaBridgeAudio = audio;
+    }
+
+    _setupMediaSession() {
+        if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+        const setHandler = (action, handler) => {
+            try {
+                navigator.mediaSession.setActionHandler(action, handler);
+            } catch {
+                // Some browsers expose a partial Media Session implementation.
+            }
+        };
+
+        setHandler("play", () => {
+            this.playCurrentSentence().catch((error) => console.warn("[MediaSession] play failed", error));
+        });
+        setHandler("pause", () => {
+            this.stopPlayback(true).catch((error) => console.warn("[MediaSession] pause failed", error));
+        });
+        setHandler("stop", () => {
+            this.stopPlayback(true).catch((error) => console.warn("[MediaSession] stop failed", error));
+        });
+        setHandler("previoustrack", () => {
+            this._skipSentenceFromMediaControl(-1).catch((error) => {
+                console.warn("[MediaSession] previous failed", error);
+            });
+        });
+        setHandler("nexttrack", () => {
+            this._skipSentenceFromMediaControl(1).catch((error) => {
+                console.warn("[MediaSession] next failed", error);
+            });
+        });
+        setHandler("seekbackward", () => {
+            this._skipSentenceFromMediaControl(-1).catch((error) => {
+                console.warn("[MediaSession] seek backward failed", error);
+            });
+        });
+        setHandler("seekforward", () => {
+            this._skipSentenceFromMediaControl(1).catch((error) => {
+                console.warn("[MediaSession] seek forward failed", error);
+            });
+        });
+    }
+
+    async _skipSentenceFromMediaControl(delta) {
+        const { state } = this.app;
+        if (!state?.sentences?.length) return;
+
+        const wasPlaying = !!state.isPlaying || !!state.autoAdvanceActive;
+        const nextIndex = Math.min(Math.max((state.currentSentenceIndex || 0) + delta, 0), state.sentences.length - 1);
+        if (nextIndex === state.currentSentenceIndex) return;
+
+        await this.stopPlayback(true);
+        state.autoAdvanceActive = false;
+        const renderer = this.app.getActiveRenderer?.();
+        await renderer?.renderSentence?.(nextIndex);
+        if (wasPlaying) await this.playCurrentSentence();
+    }
+
+    async _activateMediaBridge(sentence) {
+        const audio = this._mediaBridgeAudio;
+        if (!audio || !sentence?.audioBuffer) return;
+
+        const blob = sentence.audioBlob || sentence.wavBlob || this._audioBufferToWavBlob(sentence.audioBuffer);
+        if (!blob) return;
+
+        this._setMediaSessionMetadata(sentence);
+        this._setMediaSessionPlaybackState("playing");
+
+        this._mediaBridgeSyncing = true;
+        try {
+            if (this._mediaBridgeObjectUrl) {
+                URL.revokeObjectURL(this._mediaBridgeObjectUrl);
+                this._mediaBridgeObjectUrl = null;
+            }
+
+            this._mediaBridgeObjectUrl = URL.createObjectURL(blob);
+            audio.src = this._mediaBridgeObjectUrl;
+            audio.currentTime = 0;
+            audio.volume = 0;
+            await audio.play().catch(() => {});
+        } finally {
+            this._mediaBridgeSyncing = false;
+        }
+    }
+
+    _pauseMediaBridge() {
+        const audio = this._mediaBridgeAudio;
+        if (!audio) return;
+
+        this._mediaBridgeSyncing = true;
+        try {
+            audio.pause();
+            audio.currentTime = 0;
+        } catch {
+            // ignore
+        } finally {
+            this._mediaBridgeSyncing = false;
+        }
+    }
+
+    _setMediaSessionMetadata(sentence) {
+        if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+        const { state } = this.app;
+        const sentenceNumber = Number.isFinite(state?.currentSentenceIndex) ? state.currentSentenceIndex + 1 : null;
+        const title = sentenceNumber ? `Sentence ${sentenceNumber}` : "Current sentence";
+        const artworkSrc =
+            typeof state?.bookCoverDataUrl === "string" && state.bookCoverDataUrl.startsWith("data:")
+                ? state.bookCoverDataUrl
+                : "./assets/icons/icon-512.png";
+
+        try {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title,
+                artist: "LocalReader",
+                album: "Document Reader",
+                artwork: [
+                    {
+                        src: artworkSrc,
+                        sizes: "512x512",
+                        type: artworkSrc.startsWith("data:") ? "image/*" : "image/png",
+                    },
+                ],
+            });
+        } catch {
+            // ignore
+        }
+    }
+
+    _setMediaSessionPlaybackState(value) {
+        if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+        try {
+            navigator.mediaSession.playbackState = value;
+        } catch {
+            // ignore
+        }
+    }
+
+    _audioBufferToWavBlob(audioBuffer) {
+        if (!audioBuffer) return null;
+
+        const numChannels = audioBuffer.numberOfChannels || 1;
+        const sampleRate = audioBuffer.sampleRate;
+        const length = audioBuffer.length;
+        const bytesPerSample = 2;
+        const blockAlign = numChannels * bytesPerSample;
+        const dataSize = length * blockAlign;
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+
+        const writeString = (offset, value) => {
+            for (let i = 0; i < value.length; i++) {
+                view.setUint8(offset + i, value.charCodeAt(i));
+            }
+        };
+
+        writeString(0, "RIFF");
+        view.setUint32(4, 36 + dataSize, true);
+        writeString(8, "WAVE");
+        writeString(12, "fmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * blockAlign, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bytesPerSample * 8, true);
+        writeString(36, "data");
+        view.setUint32(40, dataSize, true);
+
+        let offset = 44;
+        const channels = Array.from({ length: numChannels }, (_, index) => audioBuffer.getChannelData(index));
+        for (let i = 0; i < length; i++) {
+            for (let channel = 0; channel < numChannels; channel++) {
+                const sample = Math.max(-1, Math.min(1, channels[channel][i] || 0));
+                view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+                offset += bytesPerSample;
+            }
+        }
+
+        return new Blob([buffer], { type: "audio/wav" });
     }
 
     setupWordBoundaryTimers(s) {

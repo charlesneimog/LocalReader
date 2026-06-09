@@ -423,10 +423,10 @@ export class EPUBRenderer {
         const tag = event.target?.tagName || "";
         if (/^(INPUT|TEXTAREA|SELECT)$/i.test(tag)) return;
 
-        if (event.key === "ArrowLeft" || event.key === "h") {
+        if (event.key === "ArrowLeft") {
             event.preventDefault();
             this.view.goLeft();
-        } else if (event.key === "ArrowRight" || event.key === "l") {
+        } else if (event.key === "ArrowRight") {
             event.preventDefault();
             this.view.goRight();
         }

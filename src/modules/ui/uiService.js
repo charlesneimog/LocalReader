@@ -17,8 +17,8 @@ export class UIService {
         this._highlightPopupEl = null;
         this._highlightPopupCleanup = null;
 
-        this._pdfTranslationPromptEl = null;
-        this._pdfTranslationPromptCleanup = null;
+        this._translationSetupPromptEl = null;
+        this._translationSetupPromptCleanup = null;
     }
 
     _hideTranslatePopup() {
@@ -54,28 +54,29 @@ export class UIService {
         }
     }
 
-    _hidePdfTranslationPrompt() {
-        if (this._pdfTranslationPromptEl) {
-            this._pdfTranslationPromptEl.remove();
-            this._pdfTranslationPromptEl = null;
+    _hideTranslationSetupPrompt() {
+        if (this._translationSetupPromptEl) {
+            this._translationSetupPromptEl.remove();
+            this._translationSetupPromptEl = null;
         }
-        if (typeof this._pdfTranslationPromptCleanup === "function") {
-            this._pdfTranslationPromptCleanup();
-            this._pdfTranslationPromptCleanup = null;
+        if (typeof this._translationSetupPromptCleanup === "function") {
+            this._translationSetupPromptCleanup();
+            this._translationSetupPromptCleanup = null;
         }
     }
 
-    async showPdfTranslationPrompt({
+    async showTranslationSetupPrompt({
         title = "Translation Setup",
-        subtitle = "Choose how translations should work for this PDF",
+        subtitle = "Choose how translations should work for this document",
+        languageLabel = "Document language / translation target",
         initialTarget = "pt",
         initialSpeed = 1,
     } = {}) {
-        this._hidePdfTranslationPrompt();
+        this._hideTranslationSetupPrompt();
 
         return await new Promise((resolve) => {
             const closeWith = (result = null) => {
-                this._hidePdfTranslationPrompt();
+                this._hideTranslationSetupPrompt();
                 resolve(result);
             };
 
@@ -130,7 +131,7 @@ export class UIService {
 
             const langLabel = document.createElement("div");
             langLabel.className = "text-xs font-medium text-slate-700 dark:text-slate-200";
-            langLabel.textContent = "PDF language / translation target";
+            langLabel.textContent = languageLabel;
 
             const langSelect = document.createElement("select");
             langSelect.className =
@@ -241,6 +242,7 @@ export class UIService {
                     e.stopPropagation();
                     closeWith({
                         mode,
+                        action: "mode",
                         target: String(langSelect.value || "pt").trim() || "pt",
                         speed: Number.parseFloat(speedInput.value || "1") || 1,
                     });
@@ -251,7 +253,7 @@ export class UIService {
             const readBtn = buildModeBtn({
                 mode: "read",
                 label: "Read translation",
-                helper: "Read PDF in translated language",
+                helper: "Read document in translated language",
                 className:
                     "border-primary/40 text-slate-900 dark:text-slate-100 hover:bg-primary/10 dark:hover:bg-primary/20",
             });
@@ -266,7 +268,7 @@ export class UIService {
 
             const offBtn = buildModeBtn({
                 mode: "off",
-                label: "Turn off both",
+                label: "Read original",
                 helper: "Read original language only",
                 className:
                     "border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5",
@@ -288,7 +290,11 @@ export class UIService {
             keepCurrentBtn.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                closeWith(null);
+                closeWith({
+                    action: "keep",
+                    target: String(langSelect.value || "pt").trim() || "pt",
+                    speed: Number.parseFloat(speedInput.value || "1") || 1,
+                });
             });
 
             footer.appendChild(keepCurrentBtn);
@@ -302,23 +308,30 @@ export class UIService {
             backdrop.appendChild(panel);
             document.body.appendChild(backdrop);
 
-            this._pdfTranslationPromptEl = backdrop;
+            this._translationSetupPromptEl = backdrop;
 
             const onKey = (e) => {
                 if (e.key === "Escape") closeWith(null);
             };
             const onDown = (e) => {
-                if (!this._pdfTranslationPromptEl) return;
+                if (!this._translationSetupPromptEl) return;
                 if (e.target === panel || panel.contains(e.target)) return;
                 closeWith(null);
             };
 
             window.addEventListener("keydown", onKey, { passive: true });
             window.addEventListener("mousedown", onDown, { capture: true });
-            this._pdfTranslationPromptCleanup = () => {
+            this._translationSetupPromptCleanup = () => {
                 window.removeEventListener("keydown", onKey);
                 window.removeEventListener("mousedown", onDown, { capture: true });
             };
+        });
+    }
+
+    async showPdfTranslationPrompt(options = {}) {
+        return await this.showTranslationSetupPrompt({
+            languageLabel: "PDF language / translation target",
+            ...options,
         });
     }
 

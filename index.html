@@ -1111,15 +1111,19 @@
                 });
 
                 fileInput?.addEventListener("change", async (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-                    const name = file.name || "";
-                    if (/\.pdf$/i.test(name)) {
-                        await app.loadPDF?.(file);
-                    } else if (/\.epub$/i.test(name)) {
-                        await app.loadEPUB?.(file);
-                    } else {
-                        alert("Not a valid PDF or EPUB file!");
+                    try {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        const name = file.name || "";
+                        if (/\.pdf$/i.test(name)) {
+                            await app.loadPDF?.(file);
+                        } else if (/\.epub$/i.test(name)) {
+                            await app.loadEPUB?.(file);
+                        } else {
+                            alert("Not a valid PDF or EPUB file!");
+                        }
+                    } finally {
+                        e.target.value = "";
                     }
                 });
 

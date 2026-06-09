@@ -495,28 +495,29 @@ export class PDFThumbnailCache {
     addOpenHandler(cardElement, pdfBlob, pdfName, canvas, docType = "pdf", storageKey = null) {
         cardElement.addEventListener("click", async () => {
             try {
-                const overlay = this.overlay;
-                const header = this.header;
-                if (overlay) overlay.classList.add("hidden");
-                if (header) header.classList.add("hidden");
-
+                let loadResult = null;
                 if (docType === "epub") {
                     const epubFile =
                         pdfBlob instanceof File
                             ? pdfBlob
                             : new File([pdfBlob], pdfName, { type: pdfBlob.type || "application/epub+zip" });
 
-                    await this.app.epubLoader.loadEPUB(epubFile, { resume: true, existingKey: storageKey });
+                    loadResult = await this.app.loadEPUB(epubFile, { resume: true, existingKey: storageKey });
                 } else {
                     const pdfFile =
                         pdfBlob instanceof File
                             ? pdfBlob
                             : new File([pdfBlob], pdfName, { type: pdfBlob.type || "application/pdf" });
 
-                    await this.app.pdfLoader.loadPDF(pdfFile, { resume: true, existingKey: storageKey });
+                    loadResult = await this.app.loadPDF(pdfFile, { resume: true, existingKey: storageKey });
                 }
+                if (loadResult === null) return;
 
                 // Hide overlay after successful load
+                const overlay = this.overlay;
+                const header = this.header;
+                if (overlay) overlay.classList.add("hidden");
+                if (header) header.classList.add("hidden");
                 if (this.noPdfOverlay) this.noPdfOverlay.classList.add("hidden");
 
                 // Return canvas to pool

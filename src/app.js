@@ -83,8 +83,6 @@ export class PDFTTSApp {
 
         this._setupAutoTranslate();
         this._setupReadTranslation();
-        this._setupPdfTranslationPrompt();
-
         this.showSavedPDFs();
 
         // app version
@@ -231,23 +229,10 @@ export class PDFTTSApp {
         speedInput.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
-    _getCurrentPdfPromptKey() {
-        const { state } = this;
-        if (state.currentDocumentType !== "pdf") return "";
-
-        const key = String(state.currentPdfKey || "").trim();
-        if (key) return key;
-
-        const desc = state.currentPdfDescriptor;
-        if (desc?.name) {
-            return `file::${desc.name}::${Number(desc.size || 0)}`;
-        }
-        return "";
-    }
-
-    _getSavedTranslationSettingsForPdf(pdfKey) {
-        if (!pdfKey) return null;
-        const entry = this.progressManager?.loadSavedPosition?.(pdfKey, "pdf") || null;
+    _getSavedTranslationSettingsForDocument(docKey, docType = "pdf") {
+        if (!docKey) return null;
+        const type = docType === "epub" ? "epub" : "pdf";
+        const entry = this.progressManager?.loadSavedPosition?.(docKey, type) || null;
         if (!entry || typeof entry !== "object") return null;
 
         const targetRaw = entry.translationTarget;
@@ -260,11 +245,12 @@ export class PDFTTSApp {
         };
     }
 
-    _saveTranslationSettingsForPdfLocal(pdfKey, { target, mode } = {}) {
-        if (!pdfKey) return;
+    _saveTranslationSettingsForDocumentLocal(docKey, docType = "pdf", { target, mode } = {}) {
+        if (!docKey) return;
+        const type = docType === "epub" ? "epub" : "pdf";
 
         const map = this.progressManager.getProgressMap();
-        const compoundKey = `pdf::${pdfKey}`;
+        const compoundKey = `${type}::${docKey}`;
         const existing = map[compoundKey] || {};
 
         map[compoundKey] = {
@@ -272,31 +258,125 @@ export class PDFTTSApp {
             translationTarget: this._normalizeTranslationTarget(target),
             translationMode: this._normalizeTranslationMode(mode),
             updated: Date.now(),
-            docType: "pdf",
+            docType: type,
         };
 
+        if (type === "pdf" && docKey in map) {
+            delete map[docKey];
+        }
         this.progressManager.setProgressMap(map);
     }
 
-    async _persistTranslationSettingsForCurrentPdf({ target, mode } = {}) {
-        const pdfKey = this._getCurrentPdfPromptKey();
-        if (!pdfKey) return;
+    async _persistTranslationSettingsForDocument(docKey, docType = "pdf", { target, mode } = {}) {
+        if (!docKey) return;
+        const type = docType === "epub" ? "epub" : "pdf";
 
         const targetNorm = this._normalizeTranslationTarget(target);
         const modeNorm = this._normalizeTranslationMode(mode);
 
-        this._saveTranslationSettingsForPdfLocal(pdfKey, {
+        this._saveTranslationSettingsForDocumentLocal(docKey, type, {
             target: targetNorm,
             mode: modeNorm,
         });
 
         if (this.serverSync?.isEnabled?.()) {
             this.serverSync
-                .syncTranslationSettings(pdfKey, { target: targetNorm, mode: modeNorm })
+                .syncTranslationSettings(docKey, { target: targetNorm, mode: modeNorm })
                 .catch((err) => {
                     console.warn("[translationPrompt] failed to sync translation settings", err);
                 });
         }
+    }
+
+    _getDocumentKeyBeforeLoad(file, docType, options = {}) {
+        if (options?.existingKey) return String(options.existingKey || "").trim();
+        if (!(file instanceof File)) return "";
+
+        if (docType === "epub") {
+            return this.epubLoader.computeEpubKeyFromDescriptor({
+                type: "file",
+                name: file.name,
+                size: file.size,
+                lastModified: file.lastModified,
+            });
+        }
+
+        return this.pdfLoader.computePdfKeyFromSource({
+            type: "file",
+            name: file.name,
+            size: file.size,
+            lastModified: file.lastModified,
+        });
+    }
+
+    async _promptTranslationSetupBeforeOpen(file, docType, options = {}) {
+        if (!(file instanceof File)) {
+            return { proceed: true, shouldPlay: false, setup: null };
+        }
+        if (options?.showTranslationSetup === false) {
+            return { proceed: true, shouldPlay: !!options?.playAfterLoad, setup: null };
+        }
+
+        const type = docType === "epub" ? "epub" : "pdf";
+        const docKey = this._getDocumentKeyBeforeLoad(file, type, options);
+        const bookTitle = String(file.name || "").trim();
+        const label = type === "epub" ? "EPUB" : "PDF";
+        const subtitle = bookTitle
+            ? `Choose how translations should work for "${bookTitle}"`
+            : `Choose how translations should work for this ${label}`;
+        const savedPrefs = this._getSavedTranslationSettingsForDocument(docKey, type);
+        const hasOpenedBefore = !!this.progressManager?.loadSavedPosition?.(docKey, type);
+
+        const response = await this.ui?.showTranslationSetupPrompt?.({
+            subtitle,
+            languageLabel: `${label} language / translation target`,
+            initialTarget: savedPrefs?.target || this._getTranslationTargetLanguage(),
+            initialSpeed: this._getCurrentSpeedControlValue(),
+        });
+
+        if (!response) return { proceed: false, shouldPlay: false, setup: null };
+
+        if (response.action === "keep") {
+            return { proceed: true, shouldPlay: false, setup: null };
+        }
+
+        const mode = this._normalizeTranslationMode(response.mode);
+        const target = this._setTranslationTargetLanguage(response.target);
+        this._applyReadingSpeedFromPopup(response.speed);
+        await this._persistTranslationSettingsForDocument(docKey, type, { target, mode });
+        this._applyTranslationMode(mode, target);
+
+        return {
+            proceed: true,
+            shouldPlay: hasOpenedBefore,
+            setup: { docKey, docType: type, target, mode, speed: response.speed },
+        };
+    }
+
+    _applyTranslationMode(mode, target) {
+        if (mode === "read") {
+            this.setReadTranslationEnabled(true);
+            this.setAutoTranslateEnabled(false);
+            this.ui?.showInfo?.(`Translation: read mode (${target})`);
+            return;
+        }
+
+        if (mode === "show") {
+            this.setReadTranslationEnabled(false);
+            this.setAutoTranslateEnabled(true);
+            this.ui?.showInfo?.(`Translation: show mode (${target})`);
+            return;
+        }
+
+        this.setReadTranslationEnabled(false);
+        this.setAutoTranslateEnabled(false);
+        this.ui?.showInfo?.("Translation: OFF");
+    }
+
+    async _startPlaybackAfterDocumentLoad() {
+        if (!this.state?.sentences?.length) return;
+        await this.ensureReadTranslationVoiceReady?.();
+        await this.audioManager?.playCurrentSentence?.();
     }
 
     setAutoTranslateEnabled(enabled) {
@@ -367,63 +447,6 @@ export class PDFTTSApp {
                 console.warn("[translation] failed to show read-translation popup", err);
             });
         });
-    }
-
-    _setupPdfTranslationPrompt() {
-        this.eventBus.on(EVENTS.PDF_LOADED, () => {
-            // Defer to ensure render/layout work settles before opening the modal.
-            window.setTimeout(() => {
-                this._maybePromptTranslationForNewPdf().catch((err) => {
-                    console.warn("[translationPrompt] failed", err);
-                });
-            }, 80);
-        });
-    }
-
-    async _maybePromptTranslationForNewPdf() {
-        const promptKey = this._getCurrentPdfPromptKey();
-        if (!promptKey) return;
-
-        const bookTitle = String(this.state.bookTitle || "").trim();
-        const subtitle = bookTitle
-            ? `Choose how translations should work for \"${bookTitle}\"`
-            : "Choose how translations should work for this PDF";
-
-        const savedPrefs = this._getSavedTranslationSettingsForPdf(promptKey);
-        const initialTarget = savedPrefs?.target || this._getTranslationTargetLanguage();
-
-        const response = await this.ui?.showPdfTranslationPrompt?.({
-            subtitle,
-            initialTarget,
-            initialSpeed: this._getCurrentSpeedControlValue(),
-        });
-
-        if (!response || !response.mode) return;
-
-        this._applyReadingSpeedFromPopup(response.speed);
-
-        const target = this._setTranslationTargetLanguage(response.target);
-        const mode = this._normalizeTranslationMode(response.mode);
-
-        await this._persistTranslationSettingsForCurrentPdf({ target, mode });
-
-        if (mode === "read") {
-            this.setReadTranslationEnabled(true);
-            this.setAutoTranslateEnabled(false);
-            this.ui?.showInfo?.(`Translation: read mode (${target})`);
-            return;
-        }
-
-        if (mode === "show") {
-            this.setReadTranslationEnabled(false);
-            this.setAutoTranslateEnabled(true);
-            this.ui?.showInfo?.(`Translation: show mode (${target})`);
-            return;
-        }
-
-        this.setReadTranslationEnabled(false);
-        this.setAutoTranslateEnabled(false);
-        this.ui?.showInfo?.("Translation: OFF");
     }
 
     _getVoicePrimaryLanguage(voiceId) {
@@ -678,22 +701,36 @@ export class PDFTTSApp {
 
     // Public API methods preserving original signatures:
     async loadPDF(file = null, options = {}) {
+        const setup = await this._promptTranslationSetupBeforeOpen(file, "pdf", options);
+        if (!setup.proceed) return null;
+
         if (file !== null) {
             const nopdf = document.getElementById("no-pdf-overlay");
             nopdf.style.display = "none";
         }
         const result = await this.pdfLoader.loadPDF(file, options);
+        if (setup.setup?.docKey) {
+            await this._persistTranslationSettingsForDocument(setup.setup.docKey, "pdf", setup.setup);
+        }
         this.serverSync?.startAutoSync();
+        if (setup.shouldPlay) await this._startPlaybackAfterDocumentLoad();
         return result;
     }
 
     async loadEPUB(file = null, options = {}) {
+        const setup = await this._promptTranslationSetupBeforeOpen(file, "epub", options);
+        if (!setup.proceed) return null;
+
         if (file !== null) {
             const overlay = document.getElementById("no-pdf-overlay");
             if (overlay) overlay.style.display = "none";
         }
         const result = await this.epubLoader.loadEPUB(file, options);
+        if (setup.setup?.docKey) {
+            await this._persistTranslationSettingsForDocument(setup.setup.docKey, "epub", setup.setup);
+        }
         this.serverSync?.startAutoSync();
+        if (setup.shouldPlay) await this._startPlaybackAfterDocumentLoad();
         return result;
     }
 

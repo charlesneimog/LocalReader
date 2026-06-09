@@ -180,9 +180,16 @@ export class UIService {
             const speedRow = document.createElement("div");
             speedRow.className = "flex items-center gap-3";
 
-            const slow = document.createElement("span");
-            slow.className = "text-xs text-slate-500 dark:text-slate-400";
-            slow.textContent = "0.5x";
+            const speedDecreaseBtn = document.createElement("button");
+            speedDecreaseBtn.type = "button";
+            speedDecreaseBtn.setAttribute("aria-label", "Decrease reading speed");
+            speedDecreaseBtn.className =
+                "w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 " +
+                "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5";
+            const speedDecreaseIcon = document.createElement("span");
+            speedDecreaseIcon.className = "material-symbols-outlined text-lg";
+            speedDecreaseIcon.textContent = "remove";
+            speedDecreaseBtn.appendChild(speedDecreaseIcon);
 
             const speedInput = document.createElement("input");
             speedInput.type = "range";
@@ -196,13 +203,20 @@ export class UIService {
                 : 1;
             speedInput.value = String(normalizedSpeed);
 
-            const fast = document.createElement("span");
-            fast.className = "text-xs text-slate-500 dark:text-slate-400";
-            fast.textContent = "2.0x";
+            const speedIncreaseBtn = document.createElement("button");
+            speedIncreaseBtn.type = "button";
+            speedIncreaseBtn.setAttribute("aria-label", "Increase reading speed");
+            speedIncreaseBtn.className =
+                "w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 " +
+                "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5";
+            const speedIncreaseIcon = document.createElement("span");
+            speedIncreaseIcon.className = "material-symbols-outlined text-lg";
+            speedIncreaseIcon.textContent = "add";
+            speedIncreaseBtn.appendChild(speedIncreaseIcon);
 
-            speedRow.appendChild(slow);
+            speedRow.appendChild(speedDecreaseBtn);
             speedRow.appendChild(speedInput);
-            speedRow.appendChild(fast);
+            speedRow.appendChild(speedIncreaseBtn);
 
             const speedValue = document.createElement("div");
             speedValue.className = "text-xs text-slate-600 dark:text-slate-300";
@@ -212,6 +226,27 @@ export class UIService {
                 const next = Number.parseFloat(speedInput.value);
                 if (!Number.isFinite(next)) return;
                 speedValue.textContent = `${next.toFixed(1)}x`;
+            });
+
+            const adjustPopupSpeed = (delta) => {
+                const min = Number.parseFloat(speedInput.min || "0.5");
+                const max = Number.parseFloat(speedInput.max || "2");
+                const step = Number.parseFloat(speedInput.step || "0.1");
+                const current = Number.parseFloat(speedInput.value || "1");
+                const next = Math.min(max, Math.max(min, current + delta * step));
+                speedInput.value = next.toFixed(1);
+                speedInput.dispatchEvent(new Event("input", { bubbles: true }));
+            };
+
+            speedDecreaseBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                adjustPopupSpeed(-1);
+            });
+            speedIncreaseBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                adjustPopupSpeed(1);
             });
 
             speedWrap.appendChild(speedLabel);

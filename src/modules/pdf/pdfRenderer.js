@@ -157,6 +157,35 @@ export class PDFRenderer {
         return this.getLayoutPhraseWordsForBlock(sentence, state.hoveredPhraseBlockKey);
     }
 
+    getPhraseRectsForSentence(sentence, blockKey) {
+        if (!sentence) return [];
+        const phraseWords = this.getLayoutPhraseWordsForBlock(sentence, blockKey);
+        const words = phraseWords.length ? phraseWords : this.getReadableWords(sentence);
+        if (!Array.isArray(words) || !words.length) return [];
+        if (!this.pageCoordinateSystems.has(sentence.pageNumber)) {
+            this.calibratePageCoordinateSystem(sentence.pageNumber, sentence);
+        }
+        return this.getMergedLineRects(words, sentence.pageNumber);
+    }
+
+    isPointInsideHoveredPhrase(mapped, { padding = 3 } = {}) {
+        const { state } = this.app;
+        if (!mapped || state.currentDocumentType !== "pdf") return false;
+        if (state.hoveredSentenceIndex < 0) return false;
+        const sentence = state.sentences[state.hoveredSentenceIndex];
+        if (!sentence || sentence.pageNumber !== mapped.pageNumber) return false;
+        const rects = Array.isArray(state.hoveredPhraseRects) ? state.hoveredPhraseRects : [];
+        if (!rects.length) return false;
+
+        return rects.some(
+            (rect) =>
+                mapped.xDisplay >= rect.x - padding &&
+                mapped.xDisplay <= rect.x + rect.width + padding &&
+                mapped.yDisplay >= rect.y - padding &&
+                mapped.yDisplay <= rect.y + rect.height + padding,
+        );
+    }
+
     getPlayingPhraseWords(sentence) {
         const { state } = this.app;
         if (!sentence || state.currentDocumentType !== "pdf") return [];

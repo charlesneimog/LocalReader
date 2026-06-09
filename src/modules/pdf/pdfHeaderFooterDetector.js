@@ -60,6 +60,7 @@ export class PDFHeaderFooterDetector {
 
         // Detection configuration
         this.DETECTION_THRESHOLD = 0.35;
+        this.TEXT_CONFIDENCE_THRESHOLD = 0.89;
         this.DETECTION_CLASSES = [
             "caption",
             "footnote",
@@ -76,6 +77,23 @@ export class PDFHeaderFooterDetector {
         // Only these regions contain text that should be read
         this.ITEMS_TO_READ = ["list-item", "section-header", "text"];
         this._modelReady = this.workerReadyPromise;
+    }
+
+    _normalizeDetectionLabels(detections) {
+        if (!Array.isArray(detections)) return [];
+        return detections.map((det) => {
+            if (!det) return det;
+            const label = String(det.label || "").toLowerCase();
+            const score = Number(det.score);
+            if (label === "text" && Number.isFinite(score) && score < this.TEXT_CONFIDENCE_THRESHOLD) {
+                return {
+                    ...det,
+                    originalLabel: det.originalLabel || det.label,
+                    label: "not-sure-text",
+                };
+            }
+            return det;
+        });
     }
 
     dispose() {
@@ -223,6 +241,16 @@ export class PDFHeaderFooterDetector {
         const { state } = this.app;
         const cached = state.layoutDetectionCache.get(pageNumber);
         if (cached && cached.cacheVersion === state.layoutCacheVersion && Array.isArray(cached.detections)) {
+            const hasNewLowConfidenceText = cached.detections.some((det) => {
+                const label = String(det?.label || "").toLowerCase();
+                const score = Number(det?.score);
+                return label === "text" && Number.isFinite(score) && score < this.TEXT_CONFIDENCE_THRESHOLD;
+            });
+            cached.detections = this._normalizeDetectionLabels(cached.detections);
+            if (hasNewLowConfidenceText) {
+                cached.readabilityVersion = null;
+                cached.readableWordCount = null;
+            }
             return Promise.resolve(cached.detections);
         }
 
@@ -304,9 +332,9 @@ export class PDFHeaderFooterDetector {
                 detectionThreshold: this.DETECTION_THRESHOLD,
                 detectionClasses: this.DETECTION_CLASSES,
             }).then((payload) => {
-                const detections = Array.isArray(payload?.detections)
-                    ? payload.detections.map((det) => ({ ...det, pageNumber }))
-                    : [];
+                const detections = this._normalizeDetectionLabels(
+                    Array.isArray(payload?.detections) ? payload.detections.map((det) => ({ ...det, pageNumber })) : [],
+                );
 
                 const cacheEntry = {
                     pageNumber,

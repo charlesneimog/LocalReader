@@ -31,6 +31,7 @@ export class StateManager {
         this.hoveredSentenceIndex = -1;
         this.hoveredPhrasePoint = null;
         this.hoveredPhraseBlockKey = null;
+        this.hoveredPhraseRects = [];
         this.playingPhraseBlockKey = null;
         this.pageSentencesIndex = new Map();
         this.hoverRafScheduled = false;

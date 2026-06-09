@@ -462,6 +462,10 @@ export class InteractionHandler {
         state.hoveredSentenceIndex = idx;
         state.hoveredPhrasePoint = nextPoint;
         state.hoveredPhraseBlockKey = nextBlockKey;
+        state.hoveredPhraseRects =
+            idx >= 0 && state.currentDocumentType === "pdf"
+                ? this.app.pdfRenderer?.getPhraseRectsForSentence?.(state.sentences[idx], nextBlockKey) || []
+                : [];
         if (state.currentDocumentType === "epub") {
             this.app.epubRenderer?.renderHoverHighlightFullDoc?.();
             return;
@@ -492,6 +496,9 @@ export class InteractionHandler {
             const mapped = mapClientPointToPdf(state.lastPointerEvent, state, this.app.config);
             if (!mapped) {
                 this.setHoveredSentence(-1, null);
+                return;
+            }
+            if (this.app.pdfRenderer?.isPointInsideHoveredPhrase?.(mapped)) {
                 return;
             }
             const idx = hitTestSentence(state, mapped.pageNumber, mapped.xDisplay, mapped.yDisplay);

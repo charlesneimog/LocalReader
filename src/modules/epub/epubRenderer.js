@@ -253,7 +253,10 @@ export class EPUBRenderer {
             if (!doc) continue;
             const clickHandler = (event) => this._handleDocumentClick(event, entry.index);
             const mouseMoveHandler = (event) => this._handleDocumentPointerMove(event, entry.index);
-            const mouseLeaveHandler = () => this._setHoveredSentence(-1);
+            const mouseLeaveHandler = () => {
+                this._setDocumentPointerCursor(doc, false);
+                this._setHoveredSentence(-1);
+            };
             const touchStartHandler = (event) => this._handleDocumentTouchMove(event, entry.index, doc);
             const touchMoveHandler = (event) => this._handleDocumentTouchMove(event, entry.index, doc);
             const touchEndHandler = () => this._setHoveredSentence(-1);
@@ -507,6 +510,7 @@ export class EPUBRenderer {
         if (!Array.isArray(this._docListeners) || !this._docListeners.length) return;
         for (const { doc, type, handler, options } of this._docListeners) {
             try {
+                this._setDocumentPointerCursor(doc?.ownerDocument || doc, false);
                 doc?.removeEventListener(type, handler, options);
             } catch (error) {
                 console.debug("[EPUBRenderer] Unable to remove document listener", error);
@@ -600,12 +604,25 @@ export class EPUBRenderer {
         const doc = docOverride || event.currentTarget;
         if (!doc) return;
         if (event?.target?.closest?.("a[href]")) {
+            if (event?.type === "mousemove") this._setDocumentPointerCursor(doc, false);
             this._setHoveredSentence(-1);
             return;
         }
         const idx = this._resolveSentenceIndexFromEvent(doc, event, sectionIndex);
+        if (event?.type === "mousemove") this._setDocumentPointerCursor(doc, idx >= 0);
         if (idx >= 0) this._setHoveredSentence(idx);
         else this._setHoveredSentence(-1);
+    }
+
+    _setDocumentPointerCursor(doc, enabled) {
+        if (!doc) return;
+        const value = enabled ? "pointer" : "";
+        try {
+            if (doc.documentElement) doc.documentElement.style.cursor = value;
+            if (doc.body) doc.body.style.cursor = value;
+        } catch (error) {
+            console.debug("[EPUBRenderer] Unable to update document cursor", error);
+        }
     }
 
     _handleDocumentTouchMove(event, sectionIndex, doc) {

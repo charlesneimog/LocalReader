@@ -405,11 +405,7 @@ export class ControlsManager {
         if (this.serverLinkInput) {
             // Load saved server link from localStorage
             const savedServerLink = localStorage.getItem("config.serverLink");
-            if (savedServerLink) {
-                this.serverLinkInput.value = savedServerLink;
-                this.showInfo("Loaded saved server link");
-            }
-
+            this.serverLinkInput.value = savedServerLink || this.getDefaultServerLink();
             // Save server link on change
             on(this.serverLinkInput, "change", () => {
                 const serverLink = this.serverLinkInput.value.trim();
@@ -622,7 +618,19 @@ export class ControlsManager {
         setTimeout(() => this.infoBox.classList.add("hidden"), duration);
     }
 
+    getDefaultServerLink() {
+        try {
+            if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+                return window.location.origin.replace(/\/$/, "");
+            }
+        } catch {
+            // ignore
+        }
+        return "";
+    }
+
     getServerLink() {
-        return localStorage.getItem("config.serverLink") || "";
+        const saved = localStorage.getItem("config.serverLink") || "";
+        return saved.trim() || this.getDefaultServerLink();
     }
 }

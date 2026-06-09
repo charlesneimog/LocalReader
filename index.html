@@ -232,11 +232,11 @@
                     <input
                         id="server-link"
                         type="url"
-                        placeholder="https://mylib.your-server-link.com"
+                        placeholder="Current website URL"
                         class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-2"
                     />
                     <div class="text-xs text-slate-500 dark:text-slate-400">
-                        This is the URL where your LocalReader server is accessible.
+                        Defaults to the URL where this website is open.
                     </div>
                 </div>
 
@@ -861,7 +861,16 @@
                 const logoutBtn = document.getElementById("auth-logout");
                 const resetSendBtn = document.getElementById("auth-reset-send");
 
-                const getServerUrl = () => app.serverSync?.getServerUrl?.() || "";
+                const getDefaultServerUrl = () => {
+                    try {
+                        if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+                            return window.location.origin.replace(/\/$/, "");
+                        }
+                    } catch (e) {}
+                    return "";
+                };
+
+                const getServerUrl = () => app.serverSync?.getServerUrl?.() || getDefaultServerUrl();
 
                 const setAuthError = (msg) => {
                     if (!msg) {
@@ -1004,7 +1013,7 @@
                 // Server link lives in the auth overlay now.
                 if (serverLinkInput) {
                     const savedServerLink = localStorage.getItem("config.serverLink") || "";
-                    if (savedServerLink) serverLinkInput.value = savedServerLink;
+                    serverLinkInput.value = savedServerLink || getDefaultServerUrl();
 
                     const persistAndRefreshHint = () => {
                         const raw = serverLinkInput.value || "";

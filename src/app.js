@@ -72,7 +72,8 @@ export class PDFTTSApp {
         this.epubRenderer = this.epubLoader.renderer;
         this._pdfRenderer = new PDFRenderer(this);
         this.pdfRenderer = this._createRendererProxy();
-        this.pdfHeaderFooterDetector = new PDFHeaderFooterDetector(this);
+        this._pdfHeaderFooterDetector = null;
+        this.pdfHeaderFooterDetector = null;
         this.sentenceParser = new SentenceParser(this);
 
         // TTS / Audio
@@ -124,6 +125,20 @@ export class PDFTTSApp {
 
     getActiveRenderer() {
         return this.state.currentDocumentType === "epub" ? this.epubRenderer : this._pdfRenderer;
+    }
+
+    getPdfHeaderFooterDetector() {
+        if (!this._pdfHeaderFooterDetector) {
+            this._pdfHeaderFooterDetector = new PDFHeaderFooterDetector(this);
+            this.pdfHeaderFooterDetector = this._pdfHeaderFooterDetector;
+        }
+        return this._pdfHeaderFooterDetector;
+    }
+
+    releasePdfHeaderFooterDetector() {
+        this._pdfHeaderFooterDetector?.dispose?.();
+        this._pdfHeaderFooterDetector = null;
+        this.pdfHeaderFooterDetector = null;
     }
 
     async translateCurrentSentence() {
@@ -379,6 +394,19 @@ export class PDFTTSApp {
         await this.audioManager?.playCurrentSentence?.();
     }
 
+    async _ensureVoiceForTranslationSetup(setup) {
+        if (!setup || !this.state?.sentences?.length) return;
+
+        if (setup.mode === "read") {
+            await this.ensureReadTranslationVoiceReady?.();
+            return;
+        }
+
+        const voiceSelect = document.getElementById("voice-select");
+        const voice = voiceSelect?.value || this.state.currentPiperVoice || this.config.DEFAULT_PIPER_VOICE;
+        await this.ttsEngine.ensurePiper(voice);
+    }
+
     setAutoTranslateEnabled(enabled) {
         const value = !!enabled;
         this.state.autoTranslateEnabled = value;
@@ -398,11 +426,6 @@ export class PDFTTSApp {
         localStorage.setItem("config.readTranslation", value ? "1" : "0");
         this.controlsManager?.reflectReadTranslationToggle?.(value);
         if (!value) this._resetReadTranslationCache();
-        if (value) {
-            this._syncTtsVoiceWithTranslationTarget(this._getTranslationTargetLanguage()).catch((err) => {
-                console.warn("[translation] failed to sync voice with translation target", err);
-            });
-        }
     }
 
     isReadTranslationEnabled() {
@@ -477,7 +500,7 @@ export class PDFTTSApp {
 
         const nextVoice = this._pickVoiceForLanguage(targetLanguage);
         if (!nextVoice) return;
-        if (this.state.currentPiperVoice === nextVoice) return;
+        if (this.state.currentPiperVoice === nextVoice && this.state.piperInstance) return;
 
         const voiceSelect = document.getElementById("voice-select");
         if (voiceSelect && Array.from(voiceSelect.options || []).some((opt) => opt.value === nextVoice)) {
@@ -692,11 +715,6 @@ export class PDFTTSApp {
         this._handleViewportHeightChange(this.viewportManager.getCurrentHeight());
         await this._ensureAriaRegions();
         await this._loadInitialPDF();
-
-        // Warm up TTS in the background so the UI doesn't appear frozen on slow/offline networks.
-        this.ttsEngine
-            .ensurePiper(this.config.DEFAULT_PIPER_VOICE)
-            .catch((err) => console.warn("[TTS] Piper warm-up failed (will retry on demand)", err));
     }
 
     // Public API methods preserving original signatures:
@@ -712,6 +730,7 @@ export class PDFTTSApp {
         if (setup.setup?.docKey) {
             await this._persistTranslationSettingsForDocument(setup.setup.docKey, "pdf", setup.setup);
         }
+        await this._ensureVoiceForTranslationSetup(setup.setup);
         this.serverSync?.startAutoSync();
         if (setup.shouldPlay) await this._startPlaybackAfterDocumentLoad();
         return result;
@@ -721,6 +740,8 @@ export class PDFTTSApp {
         const setup = await this._promptTranslationSetupBeforeOpen(file, "epub", options);
         if (!setup.proceed) return null;
 
+        this.releasePdfHeaderFooterDetector();
+
         if (file !== null) {
             const overlay = document.getElementById("no-pdf-overlay");
             if (overlay) overlay.style.display = "none";
@@ -729,6 +750,7 @@ export class PDFTTSApp {
         if (setup.setup?.docKey) {
             await this._persistTranslationSettingsForDocument(setup.setup.docKey, "epub", setup.setup);
         }
+        await this._ensureVoiceForTranslationSetup(setup.setup);
         this.serverSync?.startAutoSync();
         if (setup.shouldPlay) await this._startPlaybackAfterDocumentLoad();
         return result;
@@ -843,6 +865,12 @@ export class PDFTTSApp {
             this.ttsQueue?.reset?.();
         } catch (err) {
             console.debug("closeCurrentDocument: ttsQueue.reset failed", err);
+        }
+
+        try {
+            this.releasePdfHeaderFooterDetector();
+        } catch (err) {
+            console.debug("closeCurrentDocument: layout detector release failed", err);
         }
 
         try {

@@ -262,29 +262,12 @@ export class EPUBLoader {
             return;
         }
 
-        if (app.state.currentPiperVoice === trimmedVoiceId && app.state.piperInstance) {
-            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
-                voiceSelect.value = trimmedVoiceId;
-            }
-            return;
+        if (voiceSelect && options.some((opt) => opt.value === trimmedVoiceId)) {
+            voiceSelect.value = trimmedVoiceId;
         }
 
-        try {
-            await app.ttsEngine.ensurePiper(trimmedVoiceId);
-            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
-                voiceSelect.value = trimmedVoiceId;
-            }
-        } catch (error) {
-            console.warn(`Failed to restore saved voice ${trimmedVoiceId}:`, error);
-            app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
-            if (!app.state.currentPiperVoice) {
-                try {
-                    await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE);
-                } catch (fallbackError) {
-                    console.warn("Fallback to default voice failed:", fallbackError);
-                }
-            }
-        }
+        app.ttsEngine.voiceId = trimmedVoiceId;
+        app.state.currentPiperVoice = trimmedVoiceId;
     }
 
     reset() {

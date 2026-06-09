@@ -77,6 +77,22 @@ export class PDFHeaderFooterDetector {
         this._modelReady = this.workerReadyPromise;
     }
 
+    dispose() {
+        try {
+            this.worker?.terminate?.();
+        } catch (error) {
+            console.debug("[Layout] Failed to terminate worker", error);
+        }
+        this._pendingWorkerRequests.forEach((pending) => {
+            pending.reject(new Error("Layout detector disposed"));
+        });
+        this._pendingWorkerRequests.clear();
+        this._pendingDetectionsByPage.clear();
+        this.worker = null;
+        this._modelReady = null;
+        this.workerReadyPromise = null;
+    }
+
     _initModels() {
         return this.workerReadyPromise;
     }

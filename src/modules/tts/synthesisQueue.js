@@ -16,7 +16,8 @@ export class TTSQueueManager {
 
         if (!sentence.layoutProcessed) {
             if (!sentence.layoutProcessingPromise) {
-                sentence.layoutProcessingPromise = this.app.pdfHeaderFooterDetector
+                if (state.currentDocumentType !== "pdf" || !this.app.getPdfHeaderFooterDetector) return;
+                sentence.layoutProcessingPromise = this.app.getPdfHeaderFooterDetector()
                     .ensureReadabilityForPage(sentence.pageNumber)
                     .catch((err) => {
                         console.warn("Layout filtering failed for sentence", sentence.index, err);

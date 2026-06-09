@@ -590,8 +590,8 @@ export class TTSEngine {
         const { state } = app;
 
         if (!Array.isArray(indices) || !indices.length) return;
-        if (!app.pdfRenderer || !app.pdfHeaderFooterDetector) return;
         if (state.currentDocumentType && state.currentDocumentType !== "pdf") return;
+        if (!app.pdfRenderer || !app.getPdfHeaderFooterDetector) return;
 
         const pagesToPrefetch = [];
         const seenPages = new Set();
@@ -616,7 +616,7 @@ export class TTSEngine {
 
             try {
                 await app.pdfRenderer.ensureFullPageRendered(pageNumber);
-                await app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber);
+                await app.getPdfHeaderFooterDetector().ensureReadabilityForPage(pageNumber);
             } catch (err) {
                 console.warn("[TTSEngine] Failed to pre-render page", pageNumber, err);
                 if (addedToGlobalPrefetch) state.prefetchedPages.delete(pageNumber);

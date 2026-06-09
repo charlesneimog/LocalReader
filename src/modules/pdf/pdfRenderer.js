@@ -167,7 +167,7 @@ export class PDFRenderer {
             if (!candidate) continue;
 
             if (state.generationEnabled && !candidate.layoutProcessed) {
-                await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(candidate.pageNumber);
+                await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(candidate.pageNumber);
                 candidate = state.sentences[i];
             }
 
@@ -303,10 +303,10 @@ export class PDFRenderer {
             observer.observe(wrapper);
 
             const pageObject = state.pagesCache.get(p);
-            if (pageObject) {
-                this.app.pdfHeaderFooterDetector.registerPageDomElement(pageObject, wrapper);
-            } else {
+            if (!pageObject) {
                 console.warn(`[renderFullDocumentIfNeeded] No page object found in cache for page ${p}`);
+            } else if (this.app.pdfHeaderFooterDetector) {
+                this.app.pdfHeaderFooterDetector.registerPageDomElement(pageObject, wrapper);
             }
         }
     }
@@ -466,10 +466,11 @@ export class PDFRenderer {
             }
 
             await this.refreshLayoutAfterViewportChange();
-            if (pagesToRebuild.size && this.app?.pdfHeaderFooterDetector?.ensureReadabilityForPage) {
+            if (pagesToRebuild.size && this.app?.getPdfHeaderFooterDetector) {
+                const detector = this.app.getPdfHeaderFooterDetector();
                 await Promise.allSettled(
                     Array.from(pagesToRebuild, (pageNumber) =>
-                        this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber, { force: true }),
+                        detector.ensureReadabilityForPage(pageNumber, { force: true }),
                     ),
                 );
             }
@@ -1171,7 +1172,7 @@ export class PDFRenderer {
         const pdfDocContainer = document.getElementById("pdf-doc-container");
 
         if (state.generationEnabled && !sentence.layoutProcessed) {
-            await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber);
+            await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(pageNumber);
             sentence = state.sentences[idx];
         }
 
@@ -1230,7 +1231,7 @@ export class PDFRenderer {
 
                         try {
                             await this.ensureFullPageRendered(targetPage);
-                            await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(targetPage);
+                            await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(targetPage);
                             queueSentence();
                         } catch (err) {
                             console.warn("[renderSentence] Prefetch workflow failed for page", targetPage, err);

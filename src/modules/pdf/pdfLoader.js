@@ -125,7 +125,7 @@ export class PDFLoader {
 
     async loadPDF(file = null, { resume = true, existingKey = null } = {}) {
         const { app } = this;
-        const { state, config } = app;
+        const { state } = app;
         app.ui.updatePlayButton(state.playerState.LOADING);
         document.body.style.cursor = "wait";
         try {
@@ -139,18 +139,6 @@ export class PDFLoader {
                 };
                 document.getElementById("pdf-open")?.classList.remove("fa-beat");
             } else {
-                if (!state.piperInstance) {
-                    try {
-                        await app.ttsEngine.ensurePiper(config.DEFAULT_PIPER_VOICE);
-                    } catch (err) {
-                        console.error("Error ensuring Piper instance:", err);
-                        app.ui.showInfo("Error: " + err.message);
-                        document.body.style.cursor = "default";
-                        this.app.ui.updatePlayButton(state.playerState.DONE);
-                        return;
-                    }
-                }
-                await app.ttsEngine.initVoices();
                 document.getElementById("pdf-open")?.classList.add("fa-beat");
                 document.getElementById("play-toggle-icon")?.classList.toggle("disabled");
                 return;
@@ -429,7 +417,7 @@ export class PDFLoader {
 
         for (const pageNumber of targetPages) {
             await app.pdfRenderer.ensureFullPageRendered(pageNumber);
-            await app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber, { force: forceRebuild });
+            await app.getPdfHeaderFooterDetector().ensureReadabilityForPage(pageNumber, { force: forceRebuild });
             await cooperativeYield();
         }
 
@@ -451,7 +439,7 @@ export class PDFLoader {
                 const sentence = state.sentences[i];
                 if (!sentence || sentence.layoutProcessed) continue;
                 await app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
-                await app.pdfHeaderFooterDetector.ensureReadabilityForPage(sentence.pageNumber, {
+                await app.getPdfHeaderFooterDetector().ensureReadabilityForPage(sentence.pageNumber, {
                     force: forceRebuild,
                 });
                 if (sentence.layoutProcessed && sentence.isTextToRead) {
@@ -495,29 +483,12 @@ export class PDFLoader {
             return;
         }
 
-        if (app.state.currentPiperVoice === trimmedVoiceId && app.state.piperInstance) {
-            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
-                voiceSelect.value = trimmedVoiceId;
-            }
-            return;
+        if (voiceSelect && selectOptions.some((opt) => opt.value === trimmedVoiceId)) {
+            voiceSelect.value = trimmedVoiceId;
         }
 
-        try {
-            await app.ttsEngine.ensurePiper(trimmedVoiceId);
-            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
-                voiceSelect.value = trimmedVoiceId;
-            }
-        } catch (err) {
-            console.warn(`Failed to restore saved voice ${trimmedVoiceId}:`, err);
-            app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
-            if (!app.state.currentPiperVoice) {
-                try {
-                    await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE);
-                } catch (fallbackErr) {
-                    console.warn("Fallback to default voice failed:", fallbackErr);
-                }
-            }
-        }
+        app.ttsEngine.voiceId = trimmedVoiceId;
+        app.state.currentPiperVoice = trimmedVoiceId;
     }
 
     _resolveResumeIndex(prevSentence, prevIndex) {

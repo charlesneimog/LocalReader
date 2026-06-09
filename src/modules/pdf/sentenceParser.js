@@ -26,7 +26,7 @@ export class SentenceParser {
                 continue;
             }
             if (state.generationEnabled) {
-                await app.pdfHeaderFooterDetector.detectHeadersAndFooters(pageNum);
+                await app.getPdfHeaderFooterDetector().detectHeadersAndFooters(pageNum);
             }
 
             await this.parsePageWords(pageNum, page);
@@ -54,12 +54,12 @@ export class SentenceParser {
         const useLayoutSplit =
             !!config.USE_LAYOUT_DETECTION_FOR_SENTENCE_SPLIT &&
             !!state.generationEnabled &&
-            !!app.pdfHeaderFooterDetector?.getLayoutRegions;
+            !!app.getPdfHeaderFooterDetector;
 
         let layoutRegions = null;
         if (useLayoutSplit) {
             try {
-                layoutRegions = await app.pdfHeaderFooterDetector.getLayoutRegions(pageNumber);
+                layoutRegions = await app.getPdfHeaderFooterDetector().getLayoutRegions(pageNumber);
             } catch {
                 layoutRegions = null;
             }

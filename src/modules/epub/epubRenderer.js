@@ -27,6 +27,7 @@ export class EPUBRenderer {
 
         this._activeAnnotationValue = null;
         this._hoverAnnotationValue = null;
+        this._activePhraseActionsEl = null;
         this._activeHighlightColor = ACTIVE_SENTENCE_COLOR;
         this._hoverHighlightColor = HOVER_SENTENCE_COLOR;
 
@@ -204,6 +205,7 @@ export class EPUBRenderer {
             }
         }
         this._hoverAnnotationValue = null;
+        this._removeActivePhraseActions();
 
         if (this.view) {
             if (this._boundLoad) {
@@ -315,11 +317,13 @@ export class EPUBRenderer {
     }
 
     updateHighlightFullDoc(sentence) {
-        const targetCfi = sentence?.cfi || this.app?.state?.currentSentence?.cfi || this._activeAnnotationValue;
+        const targetSentence = sentence || this.app?.state?.currentSentence || null;
+        const targetCfi = targetSentence?.cfi || this._activeAnnotationValue;
         if (targetCfi) {
             this._applySentenceHighlight(targetCfi);
         }
         this.renderHoverHighlightFullDoc();
+        this._renderActivePhraseActions(targetSentence);
     }
 
     async renderSentence(idx, options = {}) {
@@ -338,6 +342,7 @@ export class EPUBRenderer {
             }
             await this._applySentenceHighlight(sentence.cfi);
             this._clearTextSelections();
+            this._renderActivePhraseActions(sentence);
         }
 
         if (!options?.autoAdvance && state.generationEnabled) {
@@ -491,6 +496,128 @@ export class EPUBRenderer {
                 console.debug("[EPUBRenderer] Unable to clear document selection", error);
             }
         }
+    }
+
+    _removeActivePhraseActions() {
+        if (this._activePhraseActionsEl) {
+            this._activePhraseActionsEl.remove();
+            this._activePhraseActionsEl = null;
+        }
+    }
+
+    _renderActivePhraseActions(sentence) {
+        this._removeActivePhraseActions();
+        if (!sentence?.cfi || !this.view?.resolveCFI) return;
+
+        let doc = null;
+        let range = null;
+        try {
+            const resolved = this.view.resolveCFI(sentence.cfi);
+            const contents = this.view.renderer?.getContents?.() ?? [];
+            const target = contents.find((entry) => entry.index === resolved?.index);
+            doc = target?.doc || null;
+            range = resolved?.anchor?.(doc);
+        } catch (error) {
+            console.debug("[EPUBRenderer] Unable to resolve active phrase actions", error);
+            return;
+        }
+
+        if (!doc || !range) return;
+        const rect = range.getBoundingClientRect?.();
+        if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.top)) return;
+
+        const stopBubble = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+        };
+
+        const panel = document.createElement("div");
+        panel.className = "pdf-active-phrase-actions epub-active-phrase-actions";
+        panel.style.position = "fixed";
+        panel.style.zIndex = "10000";
+
+        const makeButton = ({ title, label, icon, color = "" }) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "pdf-active-phrase-btn";
+            button.title = title;
+            button.setAttribute("aria-label", label);
+
+            const span = document.createElement("span");
+            span.className = "material-symbols-outlined";
+            span.textContent = icon;
+            if (color) span.style.color = color;
+            button.appendChild(span);
+            button.addEventListener("mousedown", stopBubble);
+            return button;
+        };
+
+        const copyBtn = makeButton({
+            title: "Copy current phrase",
+            label: "Copy current phrase",
+            icon: "content_copy",
+        });
+        copyBtn.addEventListener("click", async (event) => {
+            stopBubble(event);
+            await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({ successMessage: "Current phrase copied" });
+        });
+        panel.appendChild(copyBtn);
+
+        const activeColor = this.app?.state?.savedHighlights?.get?.(sentence.index)?.color || "";
+        for (const { label, value } of [
+            { label: "Yellow", value: "#ffda76" },
+            { label: "Red", value: "#F44336" },
+            { label: "Green", value: "#81C784" },
+            { label: "Blue", value: "#4FC3F7" },
+        ]) {
+            const highlightBtn = makeButton({
+                title: `Highlight ${label.toLowerCase()}`,
+                label: `Highlight current phrase ${label.toLowerCase()}`,
+                icon: "format_ink_highlighter",
+                color: value,
+            });
+            const isActive = String(activeColor).toLowerCase() === value.toLowerCase();
+            highlightBtn.setAttribute("aria-pressed", isActive ? "true" : "false");
+            if (isActive) highlightBtn.style.borderColor = value;
+            highlightBtn.addEventListener("click", (event) => {
+                stopBubble(event);
+                this.app.highlightManager?.saveCurrentSentenceHighlight?.(value);
+            });
+            panel.appendChild(highlightBtn);
+        }
+
+        const commentBtn = makeButton({
+            title: "Add comment",
+            label: "Add comment",
+            icon: "comment",
+        });
+        commentBtn.setAttribute("aria-pressed", "false");
+        commentBtn.addEventListener("click", async (event) => {
+            stopBubble(event);
+            await this.app.highlightManager?.editCurrentSentenceComment?.();
+        });
+        panel.appendChild(commentBtn);
+
+        document.body.appendChild(panel);
+
+        const frame = doc.defaultView?.frameElement || null;
+        const frameRect = frame?.getBoundingClientRect?.() || null;
+        const containerRect = this._container?.getBoundingClientRect?.() || null;
+        const offsetLeft = frameRect?.left || 0;
+        const offsetTop = frameRect?.top || 0;
+        const viewportLeft = rect.left + offsetLeft;
+        const viewportTop = rect.top + offsetTop;
+        const boundsLeft = frameRect?.left ?? containerRect?.left ?? 0;
+        const boundsRight = frameRect?.right ?? containerRect?.right ?? window.innerWidth;
+        const panelWidth = panel.offsetWidth || 0;
+        const leftMin = boundsLeft + 6;
+        const leftMax = Math.max(leftMin, boundsRight - panelWidth - 6);
+        const left = Math.min(Math.max(leftMin, viewportLeft), leftMax);
+        const top = Math.max(6, viewportTop - 34);
+
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+        this._activePhraseActionsEl = panel;
     }
 
     _applyReaderStyles() {

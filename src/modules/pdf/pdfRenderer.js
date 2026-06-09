@@ -969,23 +969,62 @@ export class PDFRenderer {
             await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({ successMessage: "Current phrase copied" });
         });
 
-        const highlightBtn = document.createElement("button");
-        highlightBtn.type = "button";
-        highlightBtn.className = "pdf-active-phrase-btn";
-        if (highlighted) highlightBtn.classList.add("is-active");
-        highlightBtn.setAttribute("aria-pressed", highlighted ? "true" : "false");
-        highlightBtn.title = highlighted ? "Remove highlight" : "Toggle highlight";
-        highlightBtn.setAttribute("aria-label", highlighted ? "Remove highlight" : "Toggle highlight");
-        highlightBtn.innerHTML = '<span class="material-symbols-outlined">format_ink_highlighter</span>';
-        highlightBtn.addEventListener("mousedown", stopBubble);
-        highlightBtn.addEventListener("click", (e) => {
+        const highlightColors = [
+            { label: "Yellow", value: "#ffda76" },
+            { label: "Red", value: "#F44336" },
+            { label: "Green", value: "#81C784" },
+            { label: "Blue", value: "#4FC3F7" },
+        ];
+
+        const highlightButtons = highlightColors.map(({ label, value }) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "pdf-active-phrase-btn";
+            const isActive = String(highlighted || "").toLowerCase() === value.toLowerCase();
+            btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+            btn.title = `Highlight ${label.toLowerCase()}`;
+            btn.setAttribute("aria-label", `Highlight current phrase ${label.toLowerCase()}`);
+            if (isActive) {
+                btn.classList.add("is-active");
+                btn.style.borderColor = value;
+                btn.style.background = "rgba(255, 255, 255, 0.09)";
+            }
+
+            const icon = document.createElement("span");
+            icon.className = "material-symbols-outlined";
+            icon.textContent = "format_ink_highlighter";
+            icon.style.color = value;
+            btn.appendChild(icon);
+
+            btn.addEventListener("mousedown", stopBubble);
+            btn.addEventListener("click", (e) => {
+                stopBubble(e);
+                this.app.highlightManager?.saveCurrentSentenceHighlight?.(value);
+            });
+            return btn;
+        });
+
+        const commentBtn = document.createElement("button");
+        commentBtn.type = "button";
+        commentBtn.className = "pdf-active-phrase-btn";
+        commentBtn.setAttribute("aria-pressed", "false");
+        commentBtn.title = "Add comment";
+        commentBtn.setAttribute("aria-label", "Add comment");
+        commentBtn.innerHTML = '<span class="material-symbols-outlined">comment</span>';
+        commentBtn.addEventListener("mousedown", stopBubble);
+        commentBtn.addEventListener("click", async (e) => {
             stopBubble(e);
-            this.app.highlightManager?.toggleCurrentSentenceHighlight?.({ showMessage: true });
+            await this.app.highlightManager?.editCurrentSentenceComment?.();
         });
 
         panel.appendChild(copyBtn);
-        panel.appendChild(highlightBtn);
+        for (const btn of highlightButtons) panel.appendChild(btn);
+        panel.appendChild(commentBtn);
         wrapper.appendChild(panel);
+        const pageWidth = Math.max(1, wrapper.clientWidth || 0);
+        const panelWidth = panel.offsetWidth || 0;
+        const maxLeft = Math.max(6, pageWidth - panelWidth - 6);
+        panel.style.left = `${Math.min(Math.max(6, left), maxLeft)}px`;
         this._activePhraseActionsEl = panel;
     }
 
@@ -1074,7 +1113,7 @@ export class PDFRenderer {
                 scaleX,
                 scaleY,
                 sentenceIndex: targetSentence.index,
-                highlighted: !!savedHighlightData?.color,
+                highlighted: savedHighlightData?.color || "",
             });
         }
 

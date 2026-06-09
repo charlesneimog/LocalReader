@@ -787,7 +787,7 @@
                     aria-label="Self-Host Server Configurations"
                 >
                     <span class="material-symbols-outlined text-xl sm:text-lg text-slate-600 dark:text-slate-300"
-                        >person</span
+                        >cloud_off</span
                     >
                 </button>
 
@@ -961,7 +961,7 @@
                         authStatus.textContent = "Not authenticated";
                         if (authButton) {
                             const icon = authButton.querySelector(".material-symbols-outlined");
-                            if (icon) icon.textContent = "person";
+                            if (icon) icon.textContent = "cloud_off";
                             authButton.title = authTitleBase;
                             authButton.setAttribute("aria-label", authTitleBase);
                         }
@@ -973,7 +973,7 @@
                             authEmailText.textContent = me.email || "";
                             if (authButton) {
                                 const icon = authButton.querySelector(".material-symbols-outlined");
-                                if (icon) icon.textContent = "person_check";
+                                if (icon) icon.textContent = "cloud_done";
                                 const email = (me.email || "").trim();
                                 authButton.title = email
                                     ? `${authTitleBase} (Account: ${email})`
@@ -994,7 +994,7 @@
                     authStatus.textContent = "Not authenticated";
                     if (authButton) {
                         const icon = authButton.querySelector(".material-symbols-outlined");
-                        if (icon) icon.textContent = "person";
+                        if (icon) icon.textContent = "cloud_off";
                         authButton.title = authTitleBase;
                         authButton.setAttribute("aria-label", authTitleBase);
                     }

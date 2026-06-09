@@ -10,6 +10,7 @@ export class AudioManager {
         this._mediaBridgeAudio = null;
         this._mediaBridgeObjectUrl = null;
         this._mediaBridgeSyncing = false;
+        this._waitingForAudioNoticeKey = null;
         this._setupMediaBridge();
         this._setupMediaSession();
     }
@@ -25,6 +26,7 @@ export class AudioManager {
             sentenceIndex: state.currentSentenceIndex,
         };
         this._playbackContext = context;
+        this._clearWaitingForAudio();
 
         const playPromise = this._playCurrentSentence(context);
         this._playPromise = playPromise.finally(() => {
@@ -81,6 +83,7 @@ export class AudioManager {
                 this.app.ttsQueue.add(state.currentSentenceIndex, true);
                 this.app.ttsQueue.run();
             }
+            this._showWaitingForAudio(sentence);
             attempts += 1;
             try {
                 await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
@@ -93,6 +96,7 @@ export class AudioManager {
         }
 
         if (!sentence.audioReady || sentence.audioError || !sentence.audioBuffer) {
+            this._clearWaitingForAudio();
             if (!sentence.audioError && !state.stopRequested && this._isContextActive(context)) {
                 await delay(300);
                 if (this._isContextActive(context) && !state.stopRequested) {
@@ -143,6 +147,7 @@ export class AudioManager {
             }
 
             source.start();
+            this._clearWaitingForAudio();
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
@@ -220,6 +225,7 @@ export class AudioManager {
                 this.app.ttsQueue.add(state.currentSentenceIndex, true);
                 this.app.ttsQueue.run();
             }
+            this._showWaitingForAudio(sentence);
             attempts += 1;
             try {
                 await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
@@ -232,6 +238,7 @@ export class AudioManager {
         }
 
         if (!sentence.audioReady || sentence.audioError || !sentence.audioBuffer) {
+            this._clearWaitingForAudio();
             if (!sentence.audioError && !state.stopRequested && this._isContextActive(context)) {
                 await delay(300);
                 if (this._isContextActive(context) && !state.stopRequested) {
@@ -282,6 +289,7 @@ export class AudioManager {
             }
 
             source.start();
+            this._clearWaitingForAudio();
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
@@ -403,6 +411,7 @@ export class AudioManager {
         state.isPlaying = false;
         state.autoAdvanceActive = false;
         state.playingSentenceIndex = -1;
+        this._clearWaitingForAudio();
         this._pauseMediaBridge();
 
         const currentSentence = state.currentSentence;
@@ -475,6 +484,25 @@ export class AudioManager {
         sentence.audioError = null;
         sentence.prefetchQueued = false;
         sentence.wordBoundaries = [];
+    }
+
+    _showWaitingForAudio(sentence) {
+        const { state } = this.app;
+        const sentenceIndex = Number.isFinite(sentence?.index) ? sentence.index : state.currentSentenceIndex;
+        const key = `${state.currentDocumentType || "doc"}:${sentenceIndex}`;
+
+        this.app.ui.updatePlayButton(state.playerState.LOADING);
+        if (this._waitingForAudioNoticeKey === key) return;
+
+        this._waitingForAudioNoticeKey = key;
+        const friendlyPosition = Number.isFinite(sentenceIndex) && sentenceIndex >= 0 ? sentenceIndex + 1 : null;
+        const prefix = state.autoAdvanceActive ? "Preparing the next voice" : "Preparing audio";
+        const suffix = friendlyPosition ? ` (${friendlyPosition}/${state.sentences.length})` : "";
+        this.app.ui.showMessage(`${prefix}${suffix}. Long passages can take a moment.`, 4500);
+    }
+
+    _clearWaitingForAudio() {
+        this._waitingForAudioNoticeKey = null;
     }
 
     _isContextActive(context) {

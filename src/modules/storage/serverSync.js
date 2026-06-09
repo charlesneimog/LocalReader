@@ -501,11 +501,6 @@ export class ServerSync {
             return false;
         }
 
-        // console.log(`[ServerSync] Pinging server: ${serverUrl}`);
-        if (showMessages) {
-            this.app.ui?.showInfo?.("Pinging server...");
-        }
-
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000);

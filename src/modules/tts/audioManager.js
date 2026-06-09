@@ -130,6 +130,7 @@ export class AudioManager {
 
             state.currentSource = source;
             state.currentGain = gain;
+            state.playingSentenceIndex = state.currentSentenceIndex;
 
             this.setupWordBoundaryTimers(sentence);
 
@@ -143,6 +144,8 @@ export class AudioManager {
                 try {
                     source.stop();
                 } catch {}
+                state.playingSentenceIndex = -1;
+                state.playingPhraseBlockKey = null;
                 return;
             }
 
@@ -272,6 +275,7 @@ export class AudioManager {
 
             state.currentSource = source;
             state.currentGain = gain;
+            state.playingSentenceIndex = state.currentSentenceIndex;
 
             this.setupWordBoundaryTimers(sentence);
 
@@ -285,6 +289,8 @@ export class AudioManager {
                 try {
                     source.stop();
                 } catch {}
+                state.playingSentenceIndex = -1;
+                state.playingPhraseBlockKey = null;
                 return;
             }
 
@@ -411,6 +417,7 @@ export class AudioManager {
         state.isPlaying = false;
         state.autoAdvanceActive = false;
         state.playingSentenceIndex = -1;
+        state.playingPhraseBlockKey = null;
         this._clearWaitingForAudio();
         this._pauseMediaBridge();
 
@@ -484,6 +491,7 @@ export class AudioManager {
         sentence.audioError = null;
         sentence.prefetchQueued = false;
         sentence.wordBoundaries = [];
+        sentence.ttsPhraseTimings = [];
     }
 
     _showWaitingForAudio(sentence) {
@@ -537,6 +545,7 @@ export class AudioManager {
 
         state.isPlaying = false;
         state.playingSentenceIndex = -1;
+        state.playingPhraseBlockKey = null;
         this._pauseMediaBridge();
         this.app.pdfRenderer.updateHighlightFullDoc();
 
@@ -792,11 +801,31 @@ export class AudioManager {
     setupWordBoundaryTimers(s) {
         const { state, config } = this.app;
         this.clearWordBoundaryTimers(s);
-        if (!config.ENABLE_WORD_HIGHLIGHT || !s.wordBoundaries?.length) return;
-        const liveWord = document.getElementById(config.LIVE_WORD_REGION_ID);
         if (!Array.isArray(s.playbackWordTimers)) {
             s.playbackWordTimers = [];
         }
+
+        const phraseTimings = Array.isArray(s.ttsPhraseTimings) ? s.ttsPhraseTimings : [];
+        if (state.currentDocumentType === "pdf" && phraseTimings.length > 1) {
+            const setCurrentPhrase = (blockKey) => {
+                state.playingPhraseBlockKey = blockKey || null;
+                this.app.pdfRenderer?.updateHighlightFullDoc?.();
+            };
+
+            setCurrentPhrase(phraseTimings[0]?.blockKey || null);
+            for (let i = 1; i < phraseTimings.length; i++) {
+                const timing = phraseTimings[i];
+                const id = setTimeout(() => {
+                    setCurrentPhrase(timing?.blockKey || null);
+                }, Math.max(0, timing?.offsetMs || 0));
+                s.playbackWordTimers.push(id);
+            }
+        } else {
+            state.playingPhraseBlockKey = null;
+        }
+
+        if (!config.ENABLE_WORD_HIGHLIGHT || !s.wordBoundaries?.length) return;
+        const liveWord = document.getElementById(config.LIVE_WORD_REGION_ID);
         for (const wb of s.wordBoundaries) {
             const id = setTimeout(() => {
                 if (liveWord) liveWord.textContent = wb.text;
@@ -811,5 +840,8 @@ export class AudioManager {
         }
         for (const t of s.playbackWordTimers) clearTimeout(t);
         s.playbackWordTimers = [];
+        if (this.app.state.playingSentenceIndex === s.index) {
+            this.app.state.playingPhraseBlockKey = null;
+        }
     }
 }

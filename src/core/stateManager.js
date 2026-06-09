@@ -29,6 +29,9 @@ export class StateManager {
 
         // Phrase / interaction
         this.hoveredSentenceIndex = -1;
+        this.hoveredPhrasePoint = null;
+        this.hoveredPhraseBlockKey = null;
+        this.playingPhraseBlockKey = null;
         this.pageSentencesIndex = new Map();
         this.hoverRafScheduled = false;
         this.lastPointerEvent = null;

@@ -56,6 +56,21 @@ export class InteractionHandler {
         if (idx < 0) return "";
 
         const sentence = state.sentences[idx];
+        const playingPhraseWords = this.app.pdfRenderer?.getPlayingPhraseWords?.(sentence) || [];
+        const phraseWords = playingPhraseWords.length
+            ? playingPhraseWords
+            : this.app.pdfRenderer?.getHoverPhraseWords?.(sentence) || [];
+        if (phraseWords.length) {
+            const phraseText =
+                this.app.sentenceParser?.joinWords?.(phraseWords) ||
+                phraseWords
+                    .map((word) => word?.str || word?.text || "")
+                    .filter(Boolean)
+                    .join(" ");
+            const normalizedPhrase = this._normalizeSelectionText(String(phraseText || ""), { singleLine: true });
+            if (normalizedPhrase) return normalizedPhrase;
+        }
+
         const original = sentence?.originalText || sentence?.readableText || sentence?.text || "";
         return this._normalizeSelectionText(String(original), { singleLine: true });
     }
@@ -430,12 +445,33 @@ export class InteractionHandler {
         return true;
     }
 
-    setHoveredSentence(idx) {
+    setHoveredSentence(idx, mapped = null) {
         const { state } = this.app;
-        if (idx === state.hoveredSentenceIndex) return;
+        const nextPoint =
+            idx >= 0 && mapped
+                ? { pageNumber: mapped.pageNumber, xDisplay: mapped.xDisplay, yDisplay: mapped.yDisplay }
+                : null;
+        const nextBlockKey =
+            idx >= 0 && mapped && state.currentDocumentType === "pdf"
+                ? this.app.pdfRenderer?.getLayoutBlockKeyAtPoint?.(mapped.pageNumber, mapped.xDisplay, mapped.yDisplay) || null
+                : null;
+        const sameHover = idx === state.hoveredSentenceIndex && nextBlockKey === state.hoveredPhraseBlockKey;
+        if (sameHover) return;
+        const currentIdx = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+        const wasHoveringCurrent = state.hoveredSentenceIndex >= 0 && state.hoveredSentenceIndex === currentIdx;
         state.hoveredSentenceIndex = idx;
+        state.hoveredPhrasePoint = nextPoint;
+        state.hoveredPhraseBlockKey = nextBlockKey;
         if (state.currentDocumentType === "epub") {
             this.app.epubRenderer?.renderHoverHighlightFullDoc?.();
+            return;
+        }
+        if (idx >= 0 && idx === currentIdx) {
+            this.app.pdfRenderer.updateHighlightFullDoc();
+            return;
+        }
+        if (wasHoveringCurrent) {
+            this.app.pdfRenderer.updateHighlightFullDoc();
             return;
         }
         if (state.viewMode === "single") {
@@ -455,11 +491,11 @@ export class InteractionHandler {
             if (!state.lastPointerEvent) return;
             const mapped = mapClientPointToPdf(state.lastPointerEvent, state, this.app.config);
             if (!mapped) {
-                this.setHoveredSentence(-1);
+                this.setHoveredSentence(-1, null);
                 return;
             }
             const idx = hitTestSentence(state, mapped.pageNumber, mapped.xDisplay, mapped.yDisplay);
-            this.setHoveredSentence(idx);
+            this.setHoveredSentence(idx, mapped);
         });
     }
 
@@ -479,7 +515,7 @@ export class InteractionHandler {
             this.app.audioManager.stopPlayback(true);
             state.autoAdvanceActive = false;
             if (idx !== state.hoveredSentenceIndex) {
-                this.setHoveredSentence(idx);
+                this.setHoveredSentence(idx, mapped);
             }
             await this.app.pdfRenderer.renderSentence(idx);
             if (wasPlaying) {

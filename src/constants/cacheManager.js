@@ -23,6 +23,7 @@ export class CacheManager {
             s.lastSpeed = null;
             s.normalizedText = null;
             s.wordBoundaries = [];
+            s.ttsPhraseTimings = [];
             s.playbackWordTimers = [];
         }
     }

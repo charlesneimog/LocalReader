@@ -202,6 +202,158 @@ export class TTSEngine {
         }
     }
 
+    _getWordBoxViewport(word) {
+        if (word?.bbox && Number.isFinite(word.bbox.x1) && Number.isFinite(word.bbox.y1)) {
+            return { x1: word.bbox.x1, y1: word.bbox.y1, x2: word.bbox.x2, y2: word.bbox.y2 };
+        }
+        const x1 = Number(word?.x) || 0;
+        const y2 = Number(word?.y) || 0;
+        const width = Number(word?.width) || 0;
+        const height = Number(word?.height) || 0;
+        return { x1, y1: y2 - height, x2: x1 + width, y2 };
+    }
+
+    _boxesOverlap(a, b) {
+        const overlapX = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+        const overlapY = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+        return overlapX > 0 && overlapY > 0;
+    }
+
+    _findReadableLayoutBlockKey(word, readableBoxes) {
+        const box = this._getWordBoxViewport(word);
+        for (let i = 0; i < readableBoxes.length; i++) {
+            if (this._boxesOverlap(box, readableBoxes[i])) return `readable:${i}`;
+        }
+        return "readable:unassigned";
+    }
+
+    async _getSpeechPhraseEntries(sentence, sourceText) {
+        const { state, config } = this.app;
+        const fallback = (sourceText || "").trim();
+        if (!fallback) return [];
+
+        if (
+            state.currentDocumentType !== "pdf" ||
+            !config.SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS ||
+            this.app.isReadTranslationEnabled?.()
+        ) {
+            return [{ text: fallback, blockKey: null }];
+        }
+
+        const words = Array.isArray(sentence?.readableWords) && sentence.readableWords.length
+            ? sentence.readableWords
+            : Array.isArray(sentence?.words)
+              ? sentence.words.filter((word) => word?.isReadable !== false)
+              : [];
+        if (words.length < 2 || !this.app.getPdfHeaderFooterDetector || !sentence?.pageNumber) {
+            return [{ text: fallback, blockKey: null }];
+        }
+
+        let layoutRegions = null;
+        try {
+            layoutRegions = await this.app.getPdfHeaderFooterDetector().getLayoutRegions(sentence.pageNumber);
+        } catch (err) {
+            console.warn("[TTS] Failed to get PDF layout regions for audio phrase split", err);
+            return [{ text: fallback, blockKey: null }];
+        }
+
+        const readableBoxes = Array.isArray(layoutRegions?.readableBoxes) ? layoutRegions.readableBoxes : [];
+        if (readableBoxes.length < 2) return [{ text: fallback, blockKey: null }];
+
+        const groups = [];
+        let currentWords = [];
+        let currentBlockKey = null;
+
+        const flush = () => {
+            if (!currentWords.length) return;
+            const text = this.app.sentenceParser?.joinWords?.(currentWords) || currentWords.map((w) => w?.str || "").join(" ");
+            if (hasUsableSpeechText(text)) groups.push({ text: text.trim(), blockKey: currentBlockKey });
+            currentWords = [];
+        };
+
+        for (const word of words) {
+            const blockKey = this._findReadableLayoutBlockKey(word, readableBoxes);
+            if (currentBlockKey !== null && blockKey !== currentBlockKey) flush();
+            currentBlockKey = blockKey;
+            currentWords.push(word);
+        }
+        flush();
+
+        return groups.length > 1 ? groups : [{ text: fallback, blockKey: null }];
+    }
+
+    _createSilenceBuffer(durationSec, sampleRate, channels) {
+        const { state } = this.app;
+        const audioCtx = state.audioCtx;
+        const length = Math.max(0, Math.round(durationSec * sampleRate));
+        return audioCtx.createBuffer(channels, length, sampleRate);
+    }
+
+    _concatAudioBuffers(buffers) {
+        const { state } = this.app;
+        const audioCtx = state.audioCtx;
+        const validBuffers = buffers.filter(Boolean);
+        if (validBuffers.length === 1) return validBuffers[0];
+        if (!validBuffers.length) throw new Error("No decoded audio buffers to concatenate");
+
+        const sampleRate = validBuffers[0].sampleRate;
+        const channels = Math.max(...validBuffers.map((buffer) => buffer.numberOfChannels || 1));
+        const length = validBuffers.reduce((sum, buffer) => sum + buffer.length, 0);
+        const output = audioCtx.createBuffer(channels, length, sampleRate);
+
+        let offset = 0;
+        for (const buffer of validBuffers) {
+            for (let channel = 0; channel < channels; channel++) {
+                const input = buffer.getChannelData(Math.min(channel, buffer.numberOfChannels - 1));
+                output.getChannelData(channel).set(input, offset);
+            }
+            offset += buffer.length;
+        }
+
+        return output;
+    }
+
+    _buildWordBoundariesForAudio(phrases, decodedBuffers, finalBuffer, pauseSec = 0) {
+        const { config } = this.app;
+        if (!config.ENABLE_WORD_HIGHLIGHT) return [];
+
+        const wordBoundaries = [];
+        let offsetMs = 0;
+        for (let i = 0; i < phrases.length; i++) {
+            const phrase = phrases[i] || "";
+            const buffer = decodedBuffers[i];
+            if (!buffer) continue;
+
+            const words = phrase.split(/\s+/).filter(Boolean);
+            const total = words.length || 1;
+            const totalMs = buffer.duration * 1000;
+            for (let wordIndex = 0; wordIndex < words.length; wordIndex++) {
+                wordBoundaries.push({
+                    text: words[wordIndex],
+                    offsetMs: Math.floor(offsetMs + (wordIndex / total) * totalMs),
+                    durationMs: Math.floor(totalMs / total),
+                });
+            }
+            offsetMs += buffer.duration * 1000;
+            if (i < phrases.length - 1) offsetMs += pauseSec * 1000;
+        }
+
+        if (!wordBoundaries.length && finalBuffer?.duration) {
+            const words = phrases.join(" ").split(/\s+/).filter(Boolean);
+            const total = words.length || 1;
+            const totalMs = finalBuffer.duration * 1000;
+            for (let i = 0; i < words.length; i++) {
+                wordBoundaries.push({
+                    text: words[i],
+                    offsetMs: Math.floor((i / total) * totalMs),
+                    durationMs: Math.floor(totalMs / total),
+                });
+            }
+        }
+
+        return wordBoundaries;
+    }
+
     async buildPiperAudio(sentence, voice, text) {
         const { state, config } = this.app;
 
@@ -226,48 +378,79 @@ export class TTSEngine {
         }
         await cooperativeYield();
 
-        const { blob: wavBlob, wavBuffer } = await retryAsync(async () => {
-            try {
-                const cleaned = formatTextToSpeech(text);
-                const activeClient = this.app.state.piperInstance || client;
-                if (!activeClient) throw new Error("Piper worker unavailable");
-                const result = await activeClient.synthesize(cleaned, state.CURRENT_SPEED);
-                return result;
-            } catch (e) {
-                await this.ensurePiper(voice);
-                throw e;
-            } finally {
-                document.body.style.cursor = "default";
-            }
-        });
+        const rawPhraseEntries = await this._getSpeechPhraseEntries(sentence, text);
+        const phraseEntries = rawPhraseEntries
+            .map((entry) => ({
+                text: normalizeText(entry?.text || ""),
+                blockKey: entry?.blockKey || null,
+            }))
+            .filter((entry) => hasUsableSpeechText(entry.text));
+        if (!phraseEntries.length) {
+            sentence.audioError = new Error("No speech text available after PDF layout phrase split");
+            return;
+        }
+        const phrases = phraseEntries.map((entry) => entry.text);
 
-        let bufferForDecode = null;
-        if (wavBuffer instanceof ArrayBuffer) {
-            bufferForDecode = wavBuffer;
-        } else if (wavBuffer?.buffer instanceof ArrayBuffer) {
-            bufferForDecode = wavBuffer.buffer.slice(0);
-        } else if (wavBlob?.arrayBuffer) {
-            bufferForDecode = await wavBlob.arrayBuffer();
-        } else {
-            throw new Error("Invalid audio buffer returned from Piper worker");
+        const decodedSpeechBuffers = [];
+        const buffersForPlayback = [];
+        const ttsPhraseTimings = [];
+        let effectiveBlob = null;
+        const pauseSec =
+            Number.isFinite(config.PDF_AUDIO_LAYOUT_BLOCK_PAUSE_SEC) && phraseEntries.length > 1
+                ? Math.max(0, config.PDF_AUDIO_LAYOUT_BLOCK_PAUSE_SEC)
+                : 0;
+
+        let phraseOffsetMs = 0;
+        for (let i = 0; i < phraseEntries.length; i++) {
+            const phrase = phraseEntries[i].text;
+            const { blob: wavBlob, wavBuffer } = await retryAsync(async () => {
+                try {
+                    const cleaned = formatTextToSpeech(phrase);
+                    const activeClient = this.app.state.piperInstance || client;
+                    if (!activeClient) throw new Error("Piper worker unavailable");
+                    const result = await activeClient.synthesize(cleaned, state.CURRENT_SPEED);
+                    return result;
+                } catch (e) {
+                    await this.ensurePiper(voice);
+                    throw e;
+                } finally {
+                    document.body.style.cursor = "default";
+                }
+            });
+
+            let bufferForDecode = null;
+            if (wavBuffer instanceof ArrayBuffer) {
+                bufferForDecode = wavBuffer;
+            } else if (wavBuffer?.buffer instanceof ArrayBuffer) {
+                bufferForDecode = wavBuffer.buffer.slice(0);
+            } else if (wavBlob?.arrayBuffer) {
+                bufferForDecode = await wavBlob.arrayBuffer();
+            } else {
+                throw new Error("Invalid audio buffer returned from Piper worker");
+            }
+
+            const decoded = await this.safeDecodeAudioData(bufferForDecode.slice(0));
+            decodedSpeechBuffers.push(decoded);
+            buffersForPlayback.push(decoded);
+            ttsPhraseTimings.push({
+                blockKey: phraseEntries[i].blockKey,
+                offsetMs: Math.floor(phraseOffsetMs),
+                durationMs: Math.floor(decoded.duration * 1000),
+            });
+            phraseOffsetMs += decoded.duration * 1000;
+
+            if (!effectiveBlob && phraseEntries.length === 1) {
+                effectiveBlob = wavBlob || new Blob([bufferForDecode], { type: "audio/wav" });
+            }
+
+            if (pauseSec > 0 && i < phraseEntries.length - 1) {
+                buffersForPlayback.push(this._createSilenceBuffer(pauseSec, decoded.sampleRate, decoded.numberOfChannels));
+                phraseOffsetMs += pauseSec * 1000;
+            }
         }
 
-        const decoded = await this.safeDecodeAudioData(bufferForDecode.slice(0));
-        const effectiveBlob = wavBlob || new Blob([bufferForDecode], { type: "audio/wav" });
-        let wordBoundaries = [];
-        if (config.ENABLE_WORD_HIGHLIGHT) {
-            const words = text.split(/\s+/).filter(Boolean);
-            const total = words.length || 1;
-            const totalMs = decoded.duration * 1000;
-            for (let i = 0; i < words.length; i++) {
-                wordBoundaries.push({
-                    text: words[i],
-                    offsetMs: Math.floor((i / total) * totalMs),
-                    durationMs: Math.floor(totalMs / total),
-                });
-                if (i > 0 && i % config.WORD_BOUNDARY_CHUNK_SIZE === 0) await cooperativeYield();
-            }
-        }
+        const decoded = this._concatAudioBuffers(buffersForPlayback);
+        const wordBoundaries = this._buildWordBoundariesForAudio(phrases, decodedSpeechBuffers, decoded, pauseSec);
 
         const cacheKey = `${voice}|${state.CURRENT_SPEED}|${sentence.normalizedText}`;
         state.audioCache.set(cacheKey, {
@@ -275,6 +458,7 @@ export class TTSEngine {
             wavBlob: config.MAKE_WAV_COPY ? effectiveBlob : null,
             audioBuffer: decoded,
             wordBoundaries,
+            ttsPhraseTimings,
         });
 
         Object.assign(sentence, {
@@ -287,6 +471,7 @@ export class TTSEngine {
             prefetchQueued: false,
             audioError: null,
             wordBoundaries,
+            ttsPhraseTimings,
         });
         sentence._restartRetryCount = 0;
         delete sentence._restartAttempted;
@@ -331,13 +516,21 @@ export class TTSEngine {
         }
 
         const norm = normalizeText(sourceText);
+        const requiresPdfPhraseTimings =
+            state.currentDocumentType === "pdf" &&
+            config.SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS &&
+            !this.app.isReadTranslationEnabled?.() &&
+            Array.isArray(s.readableWords) &&
+            s.readableWords.length > 1;
+        const hasPhraseTimings = Array.isArray(s.ttsPhraseTimings) && s.ttsPhraseTimings.length > 0;
 
         if (
             s.audioReady &&
             s.lastVoice === voice &&
             s.lastSpeed === state.CURRENT_SPEED &&
             typeof s.normalizedText === "string" &&
-            s.normalizedText === norm
+            s.normalizedText === norm &&
+            (!requiresPdfPhraseTimings || hasPhraseTimings)
         ) {
             return;
         }
@@ -346,21 +539,27 @@ export class TTSEngine {
         const cacheKey = `${voice}|${state.CURRENT_SPEED}|${norm}`;
         if (state.audioCache.has(cacheKey)) {
             const cached = state.audioCache.get(cacheKey);
-            Object.assign(s, {
-                audioBlob: cached.audioBlob || null,
-                wavBlob: cached.wavBlob || null,
-                audioBuffer: cached.audioBuffer,
-                audioReady: true,
-                lastVoice: voice,
-                lastSpeed: state.CURRENT_SPEED,
-                audioError: null,
-                audioInProgress: false,
-                prefetchQueued: false,
-                wordBoundaries: cached.wordBoundaries || [],
-            });
-            s._restartRetryCount = 0;
-            delete s._restartAttempted;
-            return;
+            const cachedPhraseTimings = cached.ttsPhraseTimings || [];
+            if (requiresPdfPhraseTimings && !cachedPhraseTimings.length) {
+                state.audioCache.delete(cacheKey);
+            } else {
+                Object.assign(s, {
+                    audioBlob: cached.audioBlob || null,
+                    wavBlob: cached.wavBlob || null,
+                    audioBuffer: cached.audioBuffer,
+                    audioReady: true,
+                    lastVoice: voice,
+                    lastSpeed: state.CURRENT_SPEED,
+                    audioError: null,
+                    audioInProgress: false,
+                    prefetchQueued: false,
+                    wordBoundaries: cached.wordBoundaries || [],
+                    ttsPhraseTimings: cachedPhraseTimings,
+                });
+                s._restartRetryCount = 0;
+                delete s._restartAttempted;
+                return;
+            }
         }
 
         s.audioInProgress = true;
@@ -369,7 +568,7 @@ export class TTSEngine {
         this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_START, { index: idx });
 
         try {
-            await this.buildPiperAudio(s, voice, norm);
+            await this.buildPiperAudio(s, voice, sourceText);
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
         } catch (err) {
             s.audioError = err;
@@ -438,6 +637,7 @@ export class TTSEngine {
         sentence.audioError = null;
         sentence.prefetchQueued = false;
         sentence.wordBoundaries = [];
+        sentence.ttsPhraseTimings = [];
     }
 
     async initVoices() {
@@ -572,6 +772,7 @@ export class TTSEngine {
                     sentence.audioError = null;
                     sentence.prefetchQueued = false;
                     sentence.wordBoundaries = [];
+                    sentence.ttsPhraseTimings = [];
                     sentence._restartRetryCount = 0;
                     delete sentence._restartAttempted;
                 }

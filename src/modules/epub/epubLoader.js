@@ -540,6 +540,7 @@ export class EPUBLoader {
             prefetchQueued: false,
             normalizedText: null,
             wordBoundaries: [],
+            ttsPhraseTimings: [],
             playbackWordTimers: [],
             layoutProcessed: true,
             isTextToRead: true,

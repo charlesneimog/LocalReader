@@ -91,6 +91,79 @@ export class PDFRenderer {
         return Array.isArray(sentence.words) ? sentence.words : [];
     }
 
+    _getWordBoxViewport(word) {
+        if (word?.bbox && Number.isFinite(word.bbox.x1) && Number.isFinite(word.bbox.y1)) {
+            return { x1: word.bbox.x1, y1: word.bbox.y1, x2: word.bbox.x2, y2: word.bbox.y2 };
+        }
+        const x1 = Number(word?.x) || 0;
+        const y2 = Number(word?.y) || 0;
+        const width = Number(word?.width) || 0;
+        const height = Number(word?.height) || 0;
+        return { x1, y1: y2 - height, x2: x1 + width, y2 };
+    }
+
+    _boxesOverlap(a, b) {
+        const overlapX = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+        const overlapY = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+        return overlapX > 0 && overlapY > 0;
+    }
+
+    _getCachedReadableLayoutBoxes(pageNumber) {
+        const { state } = this.app;
+        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+        const cacheEntry = state.layoutDetectionCache?.get?.(pageNumber);
+        const detections = cacheEntry?.detections;
+        if (!viewportDisplay || !Array.isArray(detections) || !detections.length) return [];
+
+        const detector = this.app.getPdfHeaderFooterDetector?.();
+        const regions = detector?._buildRegionsFromDetections?.(detections, viewportDisplay);
+        return Array.isArray(regions?.readableBoxes) ? regions.readableBoxes : [];
+    }
+
+    getLayoutBlockKeyAtPoint(pageNumber, xDisplay, yDisplay) {
+        if (!this.app.config.SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS) return null;
+        const readableBoxes = this._getCachedReadableLayoutBoxes(pageNumber);
+        if (readableBoxes.length < 2) return null;
+
+        for (let i = 0; i < readableBoxes.length; i++) {
+            const box = readableBoxes[i];
+            if (xDisplay >= box.x1 && xDisplay <= box.x2 && yDisplay >= box.y1 && yDisplay <= box.y2) {
+                return `readable:${i}`;
+            }
+        }
+        return null;
+    }
+
+    getLayoutPhraseWordsForBlock(sentence, blockKey) {
+        if (!sentence || !blockKey || !this.app.config.SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS) return [];
+        const match = /^readable:(\d+)$/.exec(String(blockKey));
+        if (!match) return [];
+
+        const readableBoxes = this._getCachedReadableLayoutBoxes(sentence.pageNumber);
+        const blockIndex = Number(match[1]);
+        const block = readableBoxes[blockIndex];
+        if (!block || readableBoxes.length < 2) return [];
+
+        const words = this.getReadableWords(sentence);
+        return words.filter((word) => this._boxesOverlap(this._getWordBoxViewport(word), block));
+    }
+
+    getHoverPhraseWords(sentence) {
+        const { state } = this.app;
+        if (!sentence || state.currentDocumentType !== "pdf") return [];
+        if (state.hoveredSentenceIndex !== sentence.index) return [];
+        const point = state.hoveredPhrasePoint;
+        if (!point || point.pageNumber !== sentence.pageNumber) return [];
+        return this.getLayoutPhraseWordsForBlock(sentence, state.hoveredPhraseBlockKey);
+    }
+
+    getPlayingPhraseWords(sentence) {
+        const { state } = this.app;
+        if (!sentence || state.currentDocumentType !== "pdf") return [];
+        if (state.playingSentenceIndex !== sentence.index) return [];
+        return this.getLayoutPhraseWordsForBlock(sentence, state.playingPhraseBlockKey);
+    }
+
     getSentenceBoundingBox(sentence) {
         if (!sentence) return null;
         if (sentence.bboxReadable && sentence.bboxReadable.width && sentence.bboxReadable.height) {
@@ -897,7 +970,8 @@ export class PDFRenderer {
         const offsetLeft = canvasRect.left - wrapperRect.left;
         const { scaleX, scaleY } = this.getPageScaleFactors(wrapper, canvas, s.pageNumber);
 
-        const highlightWords = this.getReadableWords(s);
+        const hoverPhraseWords = this.getHoverPhraseWords(s);
+        const highlightWords = hoverPhraseWords.length ? hoverPhraseWords : this.getReadableWords(s);
 
         // Calibrate coordinate system for this page if not already done
         if (!this.pageCoordinateSystems.has(s.pageNumber) && highlightWords.length > 0) {
@@ -1067,7 +1141,10 @@ export class PDFRenderer {
         const offsetLeft = canvasRect.left - wrapperRect.left;
         const { scaleX, scaleY } = this.getPageScaleFactors(wrapper, canvas, targetSentence.pageNumber);
 
-        const highlightWords = this.getReadableWords(targetSentence);
+        const playingPhraseWords = this.getPlayingPhraseWords(targetSentence);
+        const hoverPhraseWords = playingPhraseWords.length ? [] : this.getHoverPhraseWords(targetSentence);
+        const phraseWords = playingPhraseWords.length ? playingPhraseWords : hoverPhraseWords;
+        const highlightWords = phraseWords.length ? phraseWords : this.getReadableWords(targetSentence);
 
         // Calibrate coordinate system for this page if not already done
         if (!this.pageCoordinateSystems.has(targetSentence.pageNumber) && highlightWords.length > 0) {

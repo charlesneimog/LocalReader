@@ -1,7 +1,7 @@
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
     VERSION_MAJOR: 0,
-    VERSION_MINOR: 32,
+    VERSION_MINOR: 33,
     VERSION_PATCH: 0,
     VERSION_BUILD: 0,
 
@@ -21,9 +21,10 @@ export const CONFIG = {
     AUDIO_CONTEXT_OPTIONS: { latencyHint: "playback" },
 
     // Sentence processing
-    // Prefer using document layout detection regions (columns/blocks) to decide where sentences split.
-    // The gap/threshold heuristics below remain as a fallback when layout data isn't available.
-    USE_LAYOUT_DETECTION_FOR_SENTENCE_SPLIT: true,
+    // Sentence parsing stays text-based so saved/highlighted sentence indexes remain stable.
+    // PDF layout blocks are split later, only while rendering audio.
+    SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS: true,
+    PDF_AUDIO_LAYOUT_BLOCK_PAUSE_SEC: 0.18,
     BREAK_ON_LINE: false,
     SPLIT_ON_LINE_GAP: false,
     LINE_GAP_THRESHOLD: 2,

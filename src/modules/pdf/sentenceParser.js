@@ -40,30 +40,25 @@ export class SentenceParser {
         let sentenceIndex = state.sentences.length; // Continue from existing sentences
 
         const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const sentenceEndings = Array.isArray(config.SENTENCE_END) ? config.SENTENCE_END.filter(Boolean) : [".", "?", "!"];
+        const sentenceEndings = Array.isArray(config.SENTENCE_END)
+            ? config.SENTENCE_END.filter(Boolean)
+            : [".", "?", "!"];
         const explicitAlt = sentenceEndings.length ? sentenceEndings.map(escapeRegExp).join("|") : "";
-            const closingPunct = "[\\\"'”’»›\\)\\]\\}]";
-            const genericEnd = `(?:[.!?…]+(?:${closingPunct}+)?|[:;]+(?:${closingPunct}+))`;
+        const closingPunct = "[\\\"'”’»›\\)\\]\\}]";
+        const genericEnd = `(?:[.!?…]+(?:${closingPunct}+)?|[:;]+(?:${closingPunct}+))`;
         const sentenceEndRegex = explicitAlt
             ? new RegExp(`(?:${explicitAlt}|${genericEnd})$`)
             : new RegExp(`(?:${genericEnd})$`);
         const abbreviationSet = new Set(
-            abbreviations.map((a) => String(a).replace(/[.!?…]+$/g, "").trim().toLowerCase()).filter(Boolean)
+            abbreviations
+                .map((a) =>
+                    String(a)
+                        .replace(/[.!?…]+$/g, "")
+                        .trim()
+                        .toLowerCase(),
+                )
+                .filter(Boolean),
         );
-
-        const useLayoutSplit =
-            !!config.USE_LAYOUT_DETECTION_FOR_SENTENCE_SPLIT &&
-            !!state.generationEnabled &&
-            !!app.getPdfHeaderFooterDetector;
-
-        let layoutRegions = null;
-        if (useLayoutSplit) {
-            try {
-                layoutRegions = await app.getPdfHeaderFooterDetector().getLayoutRegions(pageNumber);
-            } catch {
-                layoutRegions = null;
-            }
-        }
 
         const getCanonicalGeom = (w) => {
             // Prefer canonical base geometry (unscaled PDF units) to keep thresholds consistent
@@ -78,52 +73,29 @@ export class SentenceParser {
         function isSentenceEnd(wordStr, nextWordStr) {
             const token = String(wordStr || "").trim();
             const w = token.replace(sentenceEndRegex, "");
-            if (abbreviationSet.has(String(w).replace(/[.!?…]+$/g, "").trim().toLowerCase())) return false;
+            if (
+                abbreviationSet.has(
+                    String(w)
+                        .replace(/[.!?…]+$/g, "")
+                        .trim()
+                        .toLowerCase(),
+                )
+            )
+                return false;
             if (nextWordStr && /^[0-9)]/.test(nextWordStr)) return false;
             return sentenceEndRegex.test(token);
         }
 
-        // CRITICAL: Filter words by layout BEFORE creating sentences
+        // Keep sentence boundaries text-based. Layout filtering is applied later for PDF readability,
+        // and layout-block phrase splitting happens only in the TTS renderer.
         const wordsToProcess = page.pageWords;
         if (!wordsToProcess || wordsToProcess.length === 0) {
             return;
         }
 
-        const overlaps = (a, b) => {
-            const overlapX = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
-            const overlapY = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
-            return overlapX > 0 && overlapY > 0;
-        };
-
-        const getWordBoxViewport = (w) => {
-            if (w?.bbox && Number.isFinite(w.bbox.x1) && Number.isFinite(w.bbox.y1)) {
-                return { x1: w.bbox.x1, y1: w.bbox.y1, x2: w.bbox.x2, y2: w.bbox.y2 };
-            }
-            const x1 = Number(w?.x) || 0;
-            const y2 = Number(w?.y) || 0;
-            const width = Number(w?.width) || 0;
-            const height = Number(w?.height) || 0;
-            return { x1, y1: y2 - height, x2: x1 + width, y2 };
-        };
-
-        const getRegionKey = (w) => {
-            if (!layoutRegions) return null;
-            const { readableBoxes = [], ignoreBoxes = [] } = layoutRegions;
-            if (!readableBoxes.length && !ignoreBoxes.length) return null;
-            const box = getWordBoxViewport(w);
-            for (let i = 0; i < readableBoxes.length; i++) {
-                if (overlaps(box, readableBoxes[i])) return `r${i}`;
-            }
-            for (let i = 0; i < ignoreBoxes.length; i++) {
-                if (overlaps(box, ignoreBoxes[i])) return `i${i}`;
-            }
-            return "u";
-        };
-
         let buffer = [];
         let lastY = null;
         let lastHeight = null;
-        let lastRegionKey = null;
 
         const flush = () => {
             if (!buffer.length) return;
@@ -153,6 +125,7 @@ export class SentenceParser {
                 prefetchQueued: false,
                 normalizedText: null,
                 wordBoundaries: [],
+                ttsPhraseTimings: [],
                 playbackWordTimers: [],
                 layoutProcessed: !layoutActive,
                 isTextToRead: !layoutActive,
@@ -170,42 +143,29 @@ export class SentenceParser {
             const w = wordsToProcess[i];
             let gapBreak = false;
 
-            // When layout regions are available, split primarily on region changes (columns/blocks),
-            // not on arbitrary x/y padding heuristics.
-            if (layoutRegions) {
-                const regionKey = getRegionKey(w);
-                if (lastRegionKey !== null && regionKey !== lastRegionKey && buffer.length) {
-                    gapBreak = true;
-                }
-                lastRegionKey = regionKey;
-            }
-
             const { x: canonX, y: canonY, width: canonWidth, height: canonHeight } = getCanonicalGeom(w);
 
-            // Fallback heuristics (only if we don't have layout regions)
-            if (!layoutRegions) {
-                // Check vertical gap
-                if (config.SPLIT_ON_LINE_GAP && lastY !== null) {
-                    const verticalDelta = Math.abs(lastY - canonY);
-                    if (lastHeight && verticalDelta > lastHeight * config.LINE_GAP_THRESHOLD) {
-                        gapBreak = true;
-                    }
+            // Check vertical gap
+            if (config.SPLIT_ON_LINE_GAP && lastY !== null) {
+                const verticalDelta = Math.abs(lastY - canonY);
+                if (lastHeight && verticalDelta > lastHeight * config.LINE_GAP_THRESHOLD) {
+                    gapBreak = true;
                 }
+            }
 
-                // Check horizontal gap
-                if (!gapBreak && buffer.length > 0) {
-                    const lastWord = buffer[buffer.length - 1];
-                    const { x: lastX, width: lastWidth, height: lastH } = getCanonicalGeom(lastWord);
-                    const horizontalGap = canonX - (lastX + lastWidth);
-                    const em = lastH || canonHeight || 0;
-                    const wordGapThresholdEm = Number.isFinite(config.WORD_GAP_THRESHOLD_EM)
-                        ? config.WORD_GAP_THRESHOLD_EM
-                        : 2.5;
-                    const gapThreshold = em > 0 ? em * wordGapThresholdEm : config.TOLERANCE;
+            // Check horizontal gap
+            if (!gapBreak && buffer.length > 0) {
+                const lastWord = buffer[buffer.length - 1];
+                const { x: lastX, width: lastWidth, height: lastH } = getCanonicalGeom(lastWord);
+                const horizontalGap = canonX - (lastX + lastWidth);
+                const em = lastH || canonHeight || 0;
+                const wordGapThresholdEm = Number.isFinite(config.WORD_GAP_THRESHOLD_EM)
+                    ? config.WORD_GAP_THRESHOLD_EM
+                    : 2.5;
+                const gapThreshold = em > 0 ? em * wordGapThresholdEm : config.TOLERANCE;
 
-                    if (horizontalGap > gapThreshold) {
-                        gapBreak = true;
-                    }
+                if (horizontalGap > gapThreshold) {
+                    gapBreak = true;
                 }
             }
 

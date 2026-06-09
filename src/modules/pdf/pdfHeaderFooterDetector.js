@@ -6,14 +6,15 @@ export class PDFHeaderFooterDetector {
         this._pendingOverlayData = new Map();
         this.debug = false;
 
-        this.app.ui.showInfo("Loading AI layout model...");
+        this.app.ui.showInfo("Loading Layout AI model...");
         this.worker = new Worker("./src/modules/pdf/ts.js", { type: "module" });
+        this.app.ui.showInfo("AI Layout model loaded...");
 
         this._pendingWorkerRequests = new Map();
         this._pendingDetectionsByPage = new Map();
         this._requestIdCounter = 0;
 
-        const threads = navigator.hardwareConcurrency;
+        const threads = Math.floor(navigator.hardwareConcurrency / 2);
         const webgpu = "gpu" in navigator;
 
         this.workerReadyPromise = new Promise((resolve) => {
@@ -102,6 +103,60 @@ export class PDFHeaderFooterDetector {
             this._modelReady = this._initModels();
         }
         return this._modelReady;
+    }
+
+    _drawDetectedLayoutOverlay(pageNumber, detections, baseCanvas) {
+        const { state } = this.app;
+        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+        const container = document.querySelector(`[data-page-number="${pageNumber}"]`);
+        if (!container || !viewportDisplay) return;
+
+        container.querySelector(".layout-debug-overlay")?.remove();
+
+        const overlay = document.createElement("canvas");
+        overlay.width = viewportDisplay.width;
+        overlay.height = viewportDisplay.height;
+        overlay.style.position = "absolute";
+        overlay.style.top = "0";
+        overlay.style.left = "0";
+        overlay.style.pointerEvents = "none";
+        overlay.style.zIndex = "5";
+        overlay.className = "layout-debug-overlay";
+
+        const ctx = overlay.getContext("2d");
+        ctx.lineWidth = 1.5;
+        ctx.font = "11px sans-serif";
+        ctx.textBaseline = "top";
+
+        const canvasWidth = baseCanvas?.width || viewportDisplay.width;
+        const canvasHeight = baseCanvas?.height || viewportDisplay.height;
+        const scaleX = viewportDisplay.width / canvasWidth;
+        const scaleY = viewportDisplay.height / canvasHeight;
+        for (const det of detections || []) {
+            let x, y, w, h;
+            if (det.normalized) {
+                x = det.normalized.left * viewportDisplay.width;
+                y = det.normalized.top * viewportDisplay.height;
+                w = (det.normalized.right - det.normalized.left) * viewportDisplay.width;
+                h = (det.normalized.bottom - det.normalized.top) * viewportDisplay.height;
+            } else {
+                x = det.x1 * scaleX;
+                y = det.y1 * scaleY;
+                w = (det.width || det.x2 - det.x1) * scaleX;
+                h = (det.height || det.y2 - det.y1) * scaleY;
+            }
+            if (w <= 0 || h <= 0) continue;
+            ctx.strokeStyle = "rgba(255, 0, 0, 0.9)";
+            ctx.fillStyle = "rgba(255, 0, 0, 0.9)";
+            ctx.strokeRect(x, y, w, h);
+            const label = det.score ? `${det.label} ${(det.score * 100).toFixed(0)}%` : det.label;
+            const textWidth = ctx.measureText(label).width + 6;
+            const labelHeight = 14;
+            ctx.fillRect(x, Math.max(0, y - labelHeight), textWidth, labelHeight);
+            ctx.fillStyle = "white";
+            ctx.fillText(label, x + 3, Math.max(0, y - labelHeight + 2));
+        }
+        container.appendChild(overlay);
     }
 
     _drawIgnoredDetectionsOverlay(pageNumber, detections, baseCanvas) {
@@ -265,6 +320,11 @@ export class PDFHeaderFooterDetector {
 
                 state.layoutDetectionCache.set(pageNumber, cacheEntry);
                 this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
+
+                if (this.debug) {
+                    this._drawDetectedLayoutOverlay(pageNumber, detections, canvas);
+                }
+
                 return detections;
             });
         });
@@ -286,7 +346,10 @@ export class PDFHeaderFooterDetector {
                 y2: det.normalized.bottom * viewportDisplay.height,
             };
 
-            const expanded = this._expandBox(box, viewportDisplay);
+            const expanded = {
+                ...this._expandBox(box, viewportDisplay),
+                label: det.label,
+            };
             if (this.ITEMS_TO_READ.includes(det.label)) {
                 readableBoxes.push(expanded);
             } else {

@@ -1,4 +1,9 @@
-import { AutoModel, AutoProcessor, RawImage, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5";
+import {
+    AutoModel,
+    AutoProcessor,
+    RawImage,
+    env,
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/transformers.min.js";
 
 let model;
 let processor;

@@ -134,11 +134,6 @@ body {
     min-height: 40px;
 }
 
-.material-symbols-outlined.animate-spin {
-    display: inline-block;
-    transform-origin: center;
-}
-
 select,
 input[type="color"] {
     font: inherit;
@@ -167,17 +162,6 @@ input[type="color"]:focus-visible {
 select:hover:not(:disabled),
 input[type="color"]:hover:not(:disabled) {
     background: var(--btn-bg-hover);
-}
-
-#stopwatch-input {
-    appearance: textfield;
-    -moz-appearance: textfield;
-}
-
-#stopwatch-input::-webkit-outer-spin-button,
-#stopwatch-input::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
 }
 
 #viewer-region {

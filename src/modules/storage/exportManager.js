@@ -5,119 +5,6 @@ export class ExportManager {
         this.app = app;
     }
 
-    async exportHighlights() {
-        const { state } = this.app;
-        if (state.currentDocumentType === "epub") {
-            return this.exportEpubHighlightsAsMarkdown();
-        }
-        return this.exportPdfWithHighlights();
-    }
-
-    _downloadFile(filename, content, mimeType) {
-        const blob = new Blob([content], { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-    }
-
-    _safeBaseName(name, fallback = "document") {
-        const base = String(name || fallback)
-            .replace(/\.[^.]+$/, "")
-            .trim() || fallback;
-        return base.replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, " ").trim();
-    }
-
-    _toMarkdownQuote(text) {
-        const normalized = String(text || "")
-            .replace(/\r\n/g, "\n")
-            .replace(/\r/g, "\n")
-            .trim();
-        if (!normalized) return ">";
-        return normalized
-            .split("\n")
-            .map((line) => `> ${line}`)
-            .join("\n");
-    }
-
-    async exportEpubHighlightsAsMarkdown() {
-        const { state } = this.app;
-        if (!state.currentEpubDescriptor || state.savedHighlights.size === 0) {
-            alert("No highlights to export or no EPUB loaded.");
-            return;
-        }
-
-        try {
-            this.app.ui.showInfo("Preparing EPUB highlights export...");
-
-            const sorted = Array.from(state.savedHighlights.entries())
-                .filter(([sentenceIndex]) => Number.isFinite(sentenceIndex) && sentenceIndex >= 0)
-                .sort((a, b) => a[0] - b[0]);
-
-            const docTitle =
-                state.bookTitle ||
-                state.currentEpubDescriptor?.name ||
-                state.currentEpubKey ||
-                "EPUB";
-            const timestampIso = new Date().toISOString();
-            const timestamp = timestampIso.slice(0, 19).replace(/:/g, "-");
-
-            const lines = [];
-            lines.push(`# Highlights - ${docTitle}`);
-            lines.push("");
-            lines.push(`- Exported: ${timestampIso}`);
-            lines.push(`- Total highlights: ${sorted.length}`);
-            lines.push("");
-
-            for (const [sentenceIndex, highlightData] of sorted) {
-                const sentence = state.sentences?.[sentenceIndex];
-                const quoteText =
-                    sentence?.text || highlightData?.sentenceText || highlightData?.text || "";
-                if (!quoteText.trim()) continue;
-
-                lines.push(this._toMarkdownQuote(quoteText));
-
-                const meta = [];
-                if (typeof sentenceIndex === "number") {
-                    meta.push(`sentence ${sentenceIndex + 1}`);
-                }
-                if (highlightData?.color) {
-                    meta.push(`color ${highlightData.color}`);
-                }
-                if (highlightData?.timestamp) {
-                    const d = new Date(highlightData.timestamp);
-                    if (!Number.isNaN(d.getTime())) meta.push(`saved ${d.toISOString()}`);
-                }
-                if (meta.length) {
-                    lines.push("");
-                    lines.push(`_${meta.join(" | ")}_`);
-                }
-
-                const comment =
-                    typeof highlightData?.comment === "string" ? highlightData.comment.trim() : "";
-                if (comment) {
-                    lines.push("");
-                    lines.push(`Note: ${comment}`);
-                }
-
-                lines.push("");
-            }
-
-            const markdown = lines.join("\n").trim() + "\n";
-            const baseName = this._safeBaseName(docTitle, "epub");
-            const filename = `${baseName}_highlights_${timestamp}.md`;
-
-            this._downloadFile(filename, markdown, "text/markdown;charset=utf-8");
-            this.app.ui.showInfo(`Exported: ${filename}`);
-        } catch (error) {
-            console.error("EPUB highlight export failed:", error);
-            this.app.ui.showInfo("Export failed: " + error.message);
-            alert("Failed to export EPUB highlights: " + error.message);
-        }
-    }
-
     async exportPdfWithHighlights() {
         const { state, config } = this.app;
         if (!state.currentPdfDescriptor || state.savedHighlights.size === 0) {
@@ -134,10 +21,7 @@ export class ExportManager {
                     throw new Error("Original file object not available for export");
                 }
             } else if (state.currentPdfDescriptor.type === "url") {
-                const response = await this.app.network.fetch(state.currentPdfDescriptor.url);
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
-                }
+                const response = await fetch(state.currentPdfDescriptor.url);
                 pdfBytes = await response.arrayBuffer();
             } else {
                 throw new Error("Cannot export: unsupported PDF source");

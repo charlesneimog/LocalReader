@@ -30,10 +30,7 @@ export class InteractionHandler {
         const trimmed = text.trim();
         if (!trimmed) return "";
         if (!singleLine) return trimmed;
-        return trimmed
-            .replace(/\s*\n\s*/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
+        return trimmed.replace(/\s*\n\s*/g, " ").replace(/\s+/g, " ").trim();
     }
 
     _getSelectionTextForCopy() {
@@ -70,16 +67,6 @@ export class InteractionHandler {
         return this._getSelectionTextForCopy();
     }
 
-    _getHoveredTranslatePopupTextForCopy() {
-        const popup = this.app.ui?._translatePopupEl;
-        if (!popup || !popup.isConnected) return "";
-        if (!popup.matches(":hover")) return "";
-
-        const textEl = popup.querySelector("[data-translate-popup-text]");
-        const translated = textEl?.textContent || "";
-        return this._normalizeSelectionText(String(translated), { singleLine: true });
-    }
-
     async copyCurrentPhraseToClipboard({ successMessage = "Current phrase copied" } = {}) {
         const text = this.getCurrentPhraseTextForCopy({ fallbackToSelection: true });
         if (!text) return false;
@@ -98,14 +85,11 @@ export class InteractionHandler {
         const isCopy = (e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.key === "c" || e.key === "C");
         if (!isCopy) return;
 
-        const translatedPopupText = this._getHoveredTranslatePopupTextForCopy();
-        const text = translatedPopupText || this.getCurrentPhraseTextForCopy({ fallbackToSelection: true });
+        const text = this.getCurrentPhraseTextForCopy({ fallbackToSelection: true });
         if (!text) return;
 
         e.preventDefault();
-        await this._copyTextToClipboard(text, {
-            successMessage: translatedPopupText ? "Translated phrase copied" : "Current phrase copied",
-        });
+        await this._copyTextToClipboard(text, { successMessage: "Current phrase copied" });
     }
 
     _clearPdfTextSelectionOverlays() {
@@ -142,11 +126,7 @@ export class InteractionHandler {
             lastTop = top;
         }
 
-        return parts
-            .join("")
-            .replace(/[ \t]+\n/g, "\n")
-            .replace(/\n[ \t]+/g, "\n")
-            .trim();
+        return parts.join("").replace(/[ \t]+\n/g, "\n").replace(/\n[ \t]+/g, "\n").trim();
     }
 
     _buildPageLineModel({ state, wrapper, canvas, pageNumber }) {
@@ -167,12 +147,7 @@ export class InteractionHandler {
 
             for (const w of words) {
                 if (!w) continue;
-                if (
-                    !Number.isFinite(w.x) ||
-                    !Number.isFinite(w.y) ||
-                    !Number.isFinite(w.width) ||
-                    !Number.isFinite(w.height)
-                ) {
+                if (!Number.isFinite(w.x) || !Number.isFinite(w.y) || !Number.isFinite(w.width) || !Number.isFinite(w.height)) {
                     continue;
                 }
 
@@ -182,7 +157,7 @@ export class InteractionHandler {
                 const widthPx = Math.max(1, w.width * scaleX);
                 const heightPx = Math.max(1, w.height * scaleY);
 
-                const text = w.str ?? w.text ?? "";
+                const text = (w.str ?? w.text ?? "");
                 items.push({ leftPx, topPx, widthPx, heightPx, text, sentenceIndex: idx });
             }
         }
@@ -404,8 +379,8 @@ export class InteractionHandler {
         const sentenceIndices = Array.isArray(sentenceIndicesOverride)
             ? sentenceIndicesOverride
             : Array.isArray(this._textSelect?.selectedSentenceIndices)
-              ? this._textSelect.selectedSentenceIndices
-              : [];
+                ? this._textSelect.selectedSentenceIndices
+                : [];
 
         if (!sentenceIndices.length) return false;
 
@@ -470,32 +445,14 @@ export class InteractionHandler {
         }
     }
 
-    _isFloatingPhraseUiTarget(target) {
-        return !!(
-            target?.closest?.(".pdf-active-phrase-actions") ||
-            target?.closest?.(".pdf-selection-menu") ||
-            target?.closest?.(".pdf-comment-tooltip") ||
-            target?.closest?.(".pdf-comment-marker")
-        );
-    }
-
     handlePointerMove(e) {
         const { state } = this.app;
         state.lastPointerEvent = e;
-
-        if (this._isFloatingPhraseUiTarget(e?.target)) {
-            this.setHoveredSentence(-1);
-        }
-
         if (state.hoverRafScheduled) return;
         state.hoverRafScheduled = true;
         requestAnimationFrame(() => {
             state.hoverRafScheduled = false;
             if (!state.lastPointerEvent) return;
-            if (this._isFloatingPhraseUiTarget(state.lastPointerEvent?.target)) {
-                this.setHoveredSentence(-1);
-                return;
-            }
             const mapped = mapClientPointToPdf(state.lastPointerEvent, state, this.app.config);
             if (!mapped) {
                 this.setHoveredSentence(-1);
@@ -508,10 +465,6 @@ export class InteractionHandler {
 
     async handlePointerClick(e) {
         const { state } = this.app;
-
-        if (this._isFloatingPhraseUiTarget(e?.target)) {
-            return;
-        }
 
         if (this._suppressNextClick) {
             this._suppressNextClick = false;
@@ -637,24 +590,9 @@ export class InteractionHandler {
             listeners.push({ element: pdfDocContainer, type: "click", handler: click });
             listeners.push({ element: pdfDocContainer, type: "mousedown", handler: mouseDown });
             listeners.push({ element: pdfDocContainer, type: "dblclick", handler: doubleClick });
-            listeners.push({
-                element: pdfDocContainer,
-                type: "touchstart",
-                handler: touchStart,
-                options: { passive: true },
-            });
-            listeners.push({
-                element: pdfDocContainer,
-                type: "touchmove",
-                handler: touchMove,
-                options: { passive: true },
-            });
-            listeners.push({
-                element: pdfDocContainer,
-                type: "touchend",
-                handler: touchEnd,
-                options: { passive: true },
-            });
+            listeners.push({ element: pdfDocContainer, type: "touchstart", handler: touchStart, options: { passive: true } });
+            listeners.push({ element: pdfDocContainer, type: "touchmove", handler: touchMove, options: { passive: true } });
+            listeners.push({ element: pdfDocContainer, type: "touchend", handler: touchEnd, options: { passive: true } });
 
             const keyDown = (e) => this._handleSelectionCopyShortcut(e);
             listeners.push({ element: window, type: "keydown", handler: keyDown, options: { capture: true } });
@@ -757,9 +695,7 @@ export class InteractionHandler {
         }
 
         this._textSelect.selectedText = this._buildSelectedTextFromLines(selectedLines);
-        this._textSelect.selectedTextOneLine = this._normalizeSelectionText(this._textSelect.selectedText, {
-            singleLine: true,
-        });
+        this._textSelect.selectedTextOneLine = this._normalizeSelectionText(this._textSelect.selectedText, { singleLine: true });
         const indices = new Set();
         for (const line of selectedLines) {
             for (const w of line.words) {

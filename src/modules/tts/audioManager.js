@@ -9,40 +9,20 @@ export class AudioManager {
         this._playbackContextId = 0;
     }
 
-    async playCurrentSentence(options = {}) {
+    async playCurrentSentence() {
         const { state } = this.app;
-        const { userInitiated = false } = options;
         if (state.isPlaying) {
             return;
-        }
-
-        if (state.playbackPending && this._playPromise) {
-            return this._playPromise;
-        }
-
-        if (userInitiated) {
-            state.playbackPending = true;
-            this.app.ui.updatePlayButton(state.playerState.LOADING);
-            try {
-                await this.app.ttsEngine.ensureAudioContext({ resume: true });
-            } catch (error) {
-                console.debug("[TTS] AudioContext resume failed", error);
-            }
         }
 
         const context = {
             id: this._playbackContextId++,
             sentenceIndex: state.currentSentenceIndex,
-            userInitiated: userInitiated,
         };
         this._playbackContext = context;
 
         const playPromise = this._playCurrentSentence(context);
         this._playPromise = playPromise.finally(() => {
-            if (!state.isPlaying && state.playbackPending) {
-                state.playbackPending = false;
-                this.app.ui.updatePlayButton(state.playerState.DONE);
-            }
             if (this._playPromise === playPromise) {
                 this._playPromise = null;
             }
@@ -53,13 +33,6 @@ export class AudioManager {
     async _playEPUBSentence(context) {
         const { config, state } = this.app;
 
-        const voiceSelect = document.getElementById("voice-select");
-        const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "EPUB", {
-            userInitiated: context?.userInitiated === true,
-        });
-        if (!canWarmup) return;
-
         await this.app.epubLoader.ensureLayoutFilteringReady();
         if (!this._isContextActive(context)) return;
 
@@ -69,7 +42,7 @@ export class AudioManager {
         }
 
         if (state.currentSentenceIndex < 0) {
-            await this.app.getActiveRenderer()?.renderSentence?.(0, { suppressScroll: true });
+            await this.app.pdfRenderer.renderSentence(0, { suppressScroll: true });
             if (!this._isContextActive(context)) return;
         }
 
@@ -87,44 +60,29 @@ export class AudioManager {
         }
 
         sentence = ensuredSentence;
+        context.sentenceIndex = state.currentSentenceIndex;
+
+        await this.app.ttsEngine.ensureAudioContext();
+        if (!this._isContextActive(context)) return;
+
         if (!state.generationEnabled) {
             state.generationEnabled = true;
         }
-        // Kick off rolling prefetch as soon as we have a valid sentence.
-        this.app.ttsEngine.schedulePrefetch();
-        context.sentenceIndex = state.currentSentenceIndex;
 
-        await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
-        if (!this._isContextActive(context)) return;
-
-        const maxWaitMs = context?.userInitiated ? 60000 : 15000;
-        const startTs = Date.now();
-        let queued = false;
+        let attempts = 0;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
-            if (!queued) {
-                this.app.ttsQueue.add(state.currentSentenceIndex, {
-                    priority: "critical",
-                    force: true,
-                });
+            if (attempts === 0) {
+                this.app.ttsQueue.add(state.currentSentenceIndex, true);
                 this.app.ttsQueue.run();
-                queued = true;
             }
+            attempts += 1;
             try {
-                await waitFor(() => sentence.audioReady || sentence.audioError, 2000);
+                await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
             } catch {}
             if (!this._isContextActive(context)) return;
             if (sentence.audioReady && sentence.audioBuffer) break;
-            if (sentence.audioError || state.stopRequested) {
-                break;
-            }
-            const elapsed = Date.now() - startTs;
-            const stillWorking =
-                sentence.audioInProgress ||
-                sentence.rendering ||
-                state.piperLoading ||
-                !!this.app.ttsEngine?.initializingPromise;
-            if (!stillWorking || elapsed >= maxWaitMs) {
+            if (sentence.audioError || state.stopRequested || attempts >= 3) {
                 break;
             }
         }
@@ -183,7 +141,6 @@ export class AudioManager {
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
-            state.playbackPending = false;
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -211,16 +168,8 @@ export class AudioManager {
 
     async _playPDFSentence(context) {
         const { config, state } = this.app;
-        const voiceSelect = document.getElementById("voice-select");
-        const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "PDF", {
-            userInitiated: context?.userInitiated === true,
-        });
-        if (!canWarmup) return;
         try {
-            await this.app.pdfLoader.ensureLayoutFilteringReady({
-                userInitiated: context?.userInitiated === true,
-            });
+            await this.app.pdfLoader.ensureLayoutFilteringReady();
         } catch (err) {
             console.error("Layout preparation failed:", err);
             if (this._isContextActive(context)) {
@@ -249,44 +198,29 @@ export class AudioManager {
         }
 
         sentence = ensuredSentence;
+        context.sentenceIndex = state.currentSentenceIndex;
+
+        await this.app.ttsEngine.ensureAudioContext();
+        if (!this._isContextActive(context)) return;
+
         if (!state.generationEnabled) {
             state.generationEnabled = true;
         }
-        // Kick off rolling prefetch as soon as we have a valid sentence.
-        this.app.ttsEngine.schedulePrefetch();
-        context.sentenceIndex = state.currentSentenceIndex;
 
-        await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
-        if (!this._isContextActive(context)) return;
-
-        const maxWaitMs = context?.userInitiated ? 60000 : 15000;
-        const startTs = Date.now();
-        let queued = false;
+        let attempts = 0;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
-            if (!queued) {
-                this.app.ttsQueue.add(state.currentSentenceIndex, {
-                    priority: "critical",
-                    force: true,
-                });
+            if (attempts === 0) {
+                this.app.ttsQueue.add(state.currentSentenceIndex, true);
                 this.app.ttsQueue.run();
-                queued = true;
             }
+            attempts += 1;
             try {
-                await waitFor(() => sentence.audioReady || sentence.audioError, 2000);
+                await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
             } catch {}
             if (!this._isContextActive(context)) return;
             if (sentence.audioReady && sentence.audioBuffer) break;
-            if (sentence.audioError || state.stopRequested) {
-                break;
-            }
-            const elapsed = Date.now() - startTs;
-            const stillWorking =
-                sentence.audioInProgress ||
-                sentence.rendering ||
-                state.piperLoading ||
-                !!this.app.ttsEngine?.initializingPromise;
-            if (!stillWorking || elapsed >= maxWaitMs) {
+            if (sentence.audioError || state.stopRequested || attempts >= 3) {
                 break;
             }
         }
@@ -346,7 +280,6 @@ export class AudioManager {
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
             this.app.pdfRenderer.updateHighlightFullDoc();
-            state.playbackPending = false;
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -382,15 +315,6 @@ export class AudioManager {
             return;
         }
 
-        if (context?.userInitiated && this.app.isReadTranslationEnabled?.()) {
-            try {
-                await this.app.ensureReadTranslationVoiceReady?.();
-            } catch (error) {
-                console.warn("[TTS] Read translation voice sync failed", error);
-            }
-            if (!this._isContextActive(context)) return;
-        }
-
         try {
             if (state.currentDocumentType === "pdf") {
                 await this._playPDFSentence(context);
@@ -410,49 +334,9 @@ export class AudioManager {
 
     }
 
-    async _warmupVoiceForPlayback(selectedVoice, label, options = {}) {
-        const offline = this.app.network?.isOffline?.() === true;
-        const userInitiated = options?.userInitiated === true;
-        if (!offline) {
-            try {
-                await this.app.ttsEngine.ensurePiper(selectedVoice, { silent: !userInitiated });
-                return true;
-            } catch (err) {
-                if (this.app.ttsEngine.isOfflineVoiceError?.(err)) {
-                    const msg =
-                        typeof err?.message === "string" && err.message.trim()
-                            ? err.message
-                            : "This voice is not available offline. Please connect to the internet to download it first.";
-                    this.app.ui?.showInfo?.(msg);
-                    return false;
-                }
-                console.warn(`[TTS] Piper warm-up during ${label} playback start failed`, err);
-                return false;
-            }
-        }
-
-        try {
-            await this.app.ttsEngine.ensurePiper(selectedVoice);
-            return true;
-        } catch (err) {
-            if (this.app.ttsEngine.isOfflineVoiceError?.(err)) {
-                const msg =
-                    typeof err?.message === "string" && err.message.trim()
-                        ? err.message
-                        : "This voice is not available offline. Please connect to the internet to download it first.";
-                this.app.ui?.showInfo?.(msg);
-                return false;
-            }
-            console.warn(`[TTS] Piper warm-up during ${label} playback start failed`, err);
-            return false;
-        }
-    }
-
     async stopPlayback(fade = true, options = {}) {
         const { state, config } = this.app;
         const { clearContext = true, emitEvent = true } = options;
-
-        const wasPending = state.playbackPending;
 
         state.stopRequested = true;
 
@@ -511,7 +395,6 @@ export class AudioManager {
         state.currentSource = null;
         state.currentGain = null;
         state.isPlaying = false;
-        state.playbackPending = false;
         state.autoAdvanceActive = false;
         state.playingSentenceIndex = -1;
 
@@ -525,10 +408,6 @@ export class AudioManager {
         if (clearContext) {
             this._playbackContext = null;
         }
-
-        if (wasPending && !state.isPlaying) {
-            this.app.ui.updatePlayButton(state.playerState.DONE);
-        }
     }
 
     togglePlay() {
@@ -538,7 +417,8 @@ export class AudioManager {
             state.autoAdvanceActive = false;
             this.app.ui.updatePlayButton(state.playerState.PAUSE);
         } else {
-            this.playCurrentSentence({ userInitiated: true });
+            this.playCurrentSentence();
+            this.app.ui.updatePlayButton(state.playerState.PLAY);
         }
     }
 
@@ -564,7 +444,7 @@ export class AudioManager {
                 return null;
             }
 
-            await this.app.getActiveRenderer()?.renderSentence?.(nextIndex, { autoAdvance: true });
+            await this.app.pdfRenderer.renderSentence(nextIndex, { autoAdvance: true });
             current = state.currentSentence;
             attempts += 1;
         }
@@ -585,8 +465,6 @@ export class AudioManager {
         sentence.audioReady = false;
         sentence.audioBuffer = null;
         sentence.audioError = null;
-        sentence.audioInProgress = false;
-        sentence.rendering = false;
         sentence.prefetchQueued = false;
         sentence.wordBoundaries = [];
     }
@@ -645,7 +523,6 @@ export class AudioManager {
 
         try {
             await this.app.pdfRenderer.renderSentence(finishedIndex + 1, { autoAdvance: true });
-            this.app.ttsEngine.schedulePrefetch();
         } catch (err) {
             console.warn("Auto-advance render failed", err);
             state.autoAdvanceActive = false;

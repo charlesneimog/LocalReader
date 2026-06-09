@@ -5,7 +5,6 @@ export class PDFLoader {
     constructor(app) {
         this.app = app;
         this._headerFooterStylesInjected = false;
-        this._voicePreloadTimer = null;
     }
 
     computePdfKeyFromSource(source) {
@@ -74,9 +73,6 @@ export class PDFLoader {
 
             const createWord = ({ str, x: xPos, width: wordWidth, lineBreak }) => {
                 const bboxTop = y - height;
-                const safeScale = Number.isFinite(displayScale) && displayScale > 0 ? displayScale : 1;
-                const baseX = xPos / safeScale;
-                const baseWidth = wordWidth / safeScale;
                 const word = {
                     pageNumber,
                     str: str.trim(),
@@ -99,10 +95,9 @@ export class PDFLoader {
                     isReadable: null,
 
                     // Canonical base geometry (for lazy rescaling)
-                    // IMPORTANT: use token-level x/width so split text items keep distinct boxes after rescale.
-                    _baseX: Number.isFinite(baseX) ? baseX : canonX,
+                    _baseX: canonX,
                     _baseYDisplay: canonYDisplay,
-                    _baseWidth: Number.isFinite(baseWidth) ? baseWidth : canonWidth,
+                    _baseWidth: canonWidth,
                     _baseHeight: canonHeight,
                 };
                 pageWords.push(word);
@@ -131,8 +126,6 @@ export class PDFLoader {
     async loadPDF(file = null, { resume = true, existingKey = null } = {}) {
         const { app } = this;
         const { state, config } = app;
-        state.playbackPending = false;
-        state.documentLoading = true;
         app.ui.updatePlayButton(state.playerState.LOADING);
         document.body.style.cursor = "wait";
         try {
@@ -144,11 +137,20 @@ export class PDFLoader {
                     lastModified: file.lastModified,
                     fileObject: file,
                 };
-                state.translationFallbackPromptShown = false;
-                state.documentOriginalLanguage = null;
-                state.lastDetectedSourceLanguage = null;
                 document.getElementById("pdf-open")?.classList.remove("fa-beat");
             } else {
+                if (!state.piperInstance) {
+                    try {
+                        await app.ttsEngine.ensurePiper(config.DEFAULT_PIPER_VOICE);
+                    } catch (err) {
+                        console.error("Error ensuring Piper instance:", err);
+                        app.ui.showInfo("Error: " + err.message);
+                        document.body.style.cursor = "default";
+                        this.app.ui.updatePlayButton(state.playerState.DONE);
+                        return;
+                    }
+                }
+                await app.ttsEngine.initVoices();
                 document.getElementById("pdf-open")?.classList.add("fa-beat");
                 document.getElementById("play-toggle-icon")?.classList.toggle("disabled");
                 return;
@@ -254,25 +256,29 @@ export class PDFLoader {
 
             let startIndex = 0;
             let resumeVoiceId = null;
-
+            
             // First, try to load from server if enabled
             if (app.serverSync?.isEnabled() && state.currentPdfKey) {
                 try {
                     const serverData = await app.serverSync.loadPositionAndHighlightsFromServer(state.currentPdfKey);
-
+                    
                     // Update position from server if available
                     if (serverData.position !== null && serverData.position >= 0) {
                         startIndex = Math.min(Math.max(serverData.position, 0), state.sentences.length - 1);
                         //console.log(`[PDFLoader] Restored position from server: ${startIndex}`);
                     }
-
-                    // Voice restore should use local cache only.
-
+                    
+                    // Update voice from server if available
+                    if (resume && serverData.voice) {
+                        resumeVoiceId = serverData.voice;
+                        //console.log(`[PDFLoader] Restored voice from server: ${resumeVoiceId}`);
+                    }
+                    
                     // Update highlights from server if available
                     if (serverData.highlights && serverData.highlights.size > 0) {
                         state.savedHighlights = serverData.highlights;
                         //console.log(`[PDFLoader] Restored ${serverData.highlights.size} highlights from server`);
-
+                        
                         // Also save to local storage
                         app.highlightsStorage?.saveHighlights?.(state.currentPdfKey, serverData.highlights);
                     }
@@ -300,12 +306,12 @@ export class PDFLoader {
                     console.warn("[PDFLoader] Failed to load from server, using local data:", error);
                 }
             }
-
+            
             // If no server data, load from local storage
-            if (state.currentPdfKey) {
+            if (startIndex === 0 && state.currentPdfKey) {
                 const saved = app.progressManager.loadSavedPosition(state.currentPdfKey);
                 if (saved) {
-                    if (startIndex === 0 && typeof saved.sentenceIndex === "number") {
+                    if (typeof saved.sentenceIndex === "number") {
                         startIndex = Math.min(Math.max(saved.sentenceIndex, 0), state.sentences.length - 1);
                     }
                     if (resume && typeof saved.voice === "string" && saved.voice.trim()) {
@@ -314,53 +320,12 @@ export class PDFLoader {
                 }
             }
 
-            if (state.viewMode === "full") {
-                await app.pdfRenderer.renderFullDocumentIfNeeded();
+            if (resume && resumeVoiceId) {
+                await this._applySavedVoice(resumeVoiceId);
             }
 
-            // Attempt to restore small per-sentence audio snapshots around resume index
-            try {
-                const storageKey = state.currentPdfKey || state.currentEpubKey || null;
-                if (storageKey) {
-                    const docType = state.currentDocumentType === "epub" ? "epub" : "pdf";
-                    const compound = app.progressManager._progressKey(docType, storageKey);
-                    const base = Math.min(Math.max(startIndex, 0), state.sentences.length - 1);
-                    const from = Math.max(0, base - 3);
-                    const to = Math.min(state.sentences.length - 1, base + 3);
-                    const voice = state.currentPiperVoice || app.config.DEFAULT_PIPER_VOICE;
-                    const voiceSpeed = `${voice}|${state.CURRENT_SPEED}`;
-                    for (let i = from; i <= to; i++) {
-                        try {
-                            const rec = await app.progressManager.loadSentenceAudio(compound, i, voiceSpeed);
-                            if (rec && rec.blob) {
-                                try {
-                                    const ab = await rec.blob.arrayBuffer();
-                                    const decoded = await app.ttsEngine.safeDecodeAudioData(ab);
-                                    const key = `${voice}|${state.CURRENT_SPEED}|${state.sentences[i].normalizedText || state.sentences[i].text}`;
-                                    state.audioCache.set(key, {
-                                        audioBlob: rec.blob,
-                                        wavBlob: rec.blob,
-                                        audioBuffer: decoded,
-                                        wordBoundaries: rec.meta?.wordBoundaries || [],
-                                    });
-                                    const s = state.sentences[i];
-                                    if (s) {
-                                        s.audioBuffer = decoded;
-                                        s.audioReady = true;
-                                        s.lastVoice = voice;
-                                        s.lastSpeed = state.CURRENT_SPEED;
-                                    }
-                                } catch (err) {
-                                    console.debug("[PDFLoader] restore sentence audio failed", err);
-                                }
-                            }
-                        } catch (err) {
-                            /* ignore individual load errors */
-                        }
-                    }
-                }
-            } catch (err) {
-                console.debug("[PDFLoader] restore audio snapshots failed", err);
+            if (state.viewMode === "full") {
+                await app.pdfRenderer.renderFullDocumentIfNeeded();
             }
 
             // Load highlights from local storage if not already loaded from server
@@ -372,26 +337,12 @@ export class PDFLoader {
                 if (lastSaved?.color) state.selectedHighlightColor = lastSaved.color;
             }
             await app.pdfRenderer.renderSentence(startIndex);
-
-            const preloadVoiceId = this._resolveVoiceForPreload(resume ? resumeVoiceId : null);
-            if (preloadVoiceId) {
-                this._scheduleVoicePreload(preloadVoiceId);
-            }
-
-            this._scheduleSentencePrewarm();
-
             app.ui.showInfo(`Total sentences: ${state.sentences.length}`);
             app.interactionHandler.setupInteractionListeners();
             app.controlsManager.reflectSelectedHighlightColor();
 
             app.eventBus.emit(EVENTS.PDF_LOADED, { pages: state.pdf.numPages, sentences: state.sentences.length });
             app.eventBus.emit(EVENTS.SENTENCES_PARSED, state.sentences);
-            // Kick a small persistent prefetch so next 3 sentences are synthesized and saved
-            try {
-                Promise.resolve().then(() => app.ttsEngine.schedulePrefetch());
-            } catch (e) {
-                /* ignore */
-            }
             const header = document.getElementById("previous-pdf-header");
             header.classList.add("hidden");
         } catch (e) {
@@ -399,12 +350,11 @@ export class PDFLoader {
             app.ui.showInfo("Error: " + e.message);
         } finally {
             document.body.style.cursor = "default";
-            state.documentLoading = false;
             this.app.ui.updatePlayButton(state.playerState.DONE);
         }
     }
 
-    async ensureLayoutFilteringReady({ forceRebuild = false, userInitiated = false } = {}) {
+    async ensureLayoutFilteringReady({ forceRebuild = false } = {}) {
         const { app } = this;
         const { state } = app;
 
@@ -417,15 +367,11 @@ export class PDFLoader {
         }
 
         if (state.layoutFilteringPromise) {
-            if (userInitiated) {
-                state.playbackPending = true;
-                app.ui.updatePlayButton(state.playerState.LOADING);
-            }
             app.ui.showInfo("Finishing layout analysis...");
             return state.layoutFilteringPromise;
         }
 
-        const promise = this._prepareLayoutFiltering({ forceRebuild, userInitiated });
+        const promise = this._prepareLayoutFiltering({ forceRebuild });
         state.layoutFilteringPromise = promise;
         try {
             await promise;
@@ -434,26 +380,17 @@ export class PDFLoader {
         }
     }
 
-    async _prepareLayoutFiltering({ forceRebuild = false, userInitiated = false } = {}) {
+    async _prepareLayoutFiltering({ forceRebuild = false } = {}) {
         const { app } = this;
         const { state } = app;
 
-        const keepPending = userInitiated || state.playbackPending === true;
-        const stopOptions = keepPending ? { clearContext: false, emitEvent: false } : undefined;
-        app.audioManager.stopPlayback(true, stopOptions);
-        if (keepPending) {
-            state.stopRequested = false;
-        }
+        app.audioManager.stopPlayback(true);
         state.autoAdvanceActive = false;
         state.layoutFilteringReady = false;
         state.generationEnabled = true;
         state.audioCache.clear();
         app.ttsQueue.reset();
         state.prefetchedPages.clear();
-
-        if (keepPending) {
-            state.playbackPending = true;
-        }
 
         for (const sentence of state.sentences) {
             if (!sentence) continue;
@@ -480,9 +417,7 @@ export class PDFLoader {
         const prevSentence = state.currentSentence || null;
         const prevIndex = state.currentSentenceIndex;
 
-        if (keepPending) {
-            app.ui.updatePlayButton(state.playerState.LOADING);
-        }
+        app.ui.updatePlayButton(state.playerState.LOADING);
         app.ui.showInfo("Preparing current page for playback...");
 
         const targetPages = new Set();
@@ -542,96 +477,12 @@ export class PDFLoader {
         // app.ui.updatePlayButton(state.playerState.DONE);
     }
 
-    _resolveVoiceForPreload(savedVoiceId) {
-        const trimmedSaved = typeof savedVoiceId === "string" ? savedVoiceId.trim() : "";
-        return trimmedSaved || null;
-    }
-
-    _scheduleVoicePreload(voiceId) {
-        const trimmed = typeof voiceId === "string" ? voiceId.trim() : "";
-        if (!trimmed) return;
-        if (typeof this.app?.isReadTranslationEnabled === "function" && this.app.isReadTranslationEnabled()) {
-            return;
-        }
-        this._clearVoicePreloadTimer();
-        this._voicePreloadTimer = setTimeout(() => {
-            this._voicePreloadTimer = null;
-            if (typeof this.app?.isReadTranslationEnabled === "function" && this.app.isReadTranslationEnabled()) {
-                return;
-            }
-            void this._applySavedVoice(trimmed, { silent: true });
-        }, 600);
-    }
-
-    _clearVoicePreloadTimer() {
-        if (this._voicePreloadTimer) {
-            clearTimeout(this._voicePreloadTimer);
-            this._voicePreloadTimer = null;
-        }
-    }
-
-    cancelVoicePreload() {
-        this._clearVoicePreloadTimer();
-    }
-
-    _scheduleSentencePrewarm() {
-        const { app } = this;
-        const { state } = app || {};
-        if (!state?.sentences?.length) return;
-        if (typeof app.isReadTranslationEnabled === "function" && app.isReadTranslationEnabled()) return;
-        if (!state.currentPiperVoice || !state.piperInstance) return;
-
-        const idx =
-            typeof state.currentSentenceIndex === "number" && state.currentSentenceIndex >= 0
-                ? state.currentSentenceIndex
-                : 0;
-        const sentence = state.sentences[idx];
-        if (!sentence || sentence.audioReady || sentence.audioInProgress) return;
-        if (!sentence.layoutProcessed || !sentence.isTextToRead) return;
-
-        const schedule =
-            typeof requestIdleCallback === "function"
-                ? (cb) => requestIdleCallback(cb, { timeout: 1500 })
-                : (cb) => setTimeout(cb, 0);
-
-        schedule(() => {
-            if (!state || state.isPlaying || state.playbackPending) return;
-            const current = state.sentences[idx];
-            if (!current || current.audioReady || current.audioInProgress) return;
-
-            const wasEnabled = state.generationEnabled;
-            if (!state.generationEnabled) {
-                state.generationEnabled = true;
-            }
-
-            Promise.resolve()
-                .then(() => app.ttsEngine.synthesizeSequential(idx))
-                .catch((err) => console.debug("[PDFLoader] Warmup synthesis failed", err))
-                .finally(() => {
-                    if (!wasEnabled && !state.isPlaying && !state.playbackPending) {
-                        state.generationEnabled = false;
-                    }
-                });
-        });
-    }
-
-    async _applySavedVoice(voiceId, options = {}) {
+    async _applySavedVoice(voiceId) {
         const { app } = this;
         if (typeof voiceId !== "string") return;
 
         const trimmedVoiceId = voiceId.trim();
         if (!trimmedVoiceId) return;
-
-        const silent = options?.silent === true;
-        const allowDuringReadTranslation = options?.allowDuringReadTranslation === true;
-
-        if (
-            !allowDuringReadTranslation &&
-            typeof app.isReadTranslationEnabled === "function" &&
-            app.isReadTranslationEnabled()
-        ) {
-            return;
-        }
 
         const voiceSelect = document.getElementById("voice-select");
         const selectOptions = voiceSelect ? Array.from(voiceSelect.options || []) : [];
@@ -644,28 +495,28 @@ export class PDFLoader {
             return;
         }
 
-        if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
-            voiceSelect.value = trimmedVoiceId;
-        }
-
         if (app.state.currentPiperVoice === trimmedVoiceId && app.state.piperInstance) {
+            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
+                voiceSelect.value = trimmedVoiceId;
+            }
             return;
         }
 
         try {
-            await app.ttsEngine.ensurePiper(trimmedVoiceId, { silent });
+            await app.ttsEngine.ensurePiper(trimmedVoiceId);
+            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
+                voiceSelect.value = trimmedVoiceId;
+            }
         } catch (err) {
             console.warn(`Failed to restore saved voice ${trimmedVoiceId}:`, err);
-            if (!silent) {
-                app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
+            app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
+            if (!app.state.currentPiperVoice) {
+                try {
+                    await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE);
+                } catch (fallbackErr) {
+                    console.warn("Fallback to default voice failed:", fallbackErr);
+                }
             }
-            // if (!app.state.currentPiperVoice) {
-            //     try {
-            //         await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE, { silent });
-            //     } catch (fallbackErr) {
-            //         console.warn("Fallback to default voice failed:", fallbackErr);
-            //     }
-            // }
         }
     }
 

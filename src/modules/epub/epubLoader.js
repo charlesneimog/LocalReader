@@ -12,7 +12,6 @@ export class EPUBLoader {
         this._sentencesPromise = null;
         this._sectionSentenceMap = new Map();
         this._localeHint = null;
-        this._voicePreloadTimer = null;
 
         this.app.epubRenderer = this.renderer;
     }
@@ -38,30 +37,16 @@ export class EPUBLoader {
     }
 
     async applyCSS(view, url) {
-        try {
-            const css = await this.app.network.fetchText(url, {}, { allowOfflineCache: true });
-            view.setStyles(css);
-        } catch (error) {
-            console.warn("[EPUBLoader] Failed to load EPUB CSS", error);
-        }
+        const response = await fetch(url);
+        const css = await response.text();
+        view.setStyles(css);
     }
 
     async loadEPUB(input, options = {}) {
         const { resume = true, existingKey = null } = options ?? {};
         const state = this.app.state;
 
-        if (this.app.network?.isOffline?.()) {
-            const raw = typeof input === "string" ? input.trim() : "";
-            if (/^https?:\/\//i.test(raw)) {
-                this.app.ui?.showInfo?.("Offline mode: remote EPUBs are not available.");
-                return;
-            }
-        }
-
         try {
-            if (state) {
-                state.documentLoading = true;
-            }
             this.app.ui.showInfo("Loading EPUB...");
             this.app.ui.updatePlayButton(state.playerState.LOADING);
 
@@ -87,11 +72,9 @@ export class EPUBLoader {
                 state.currentSource = null;
                 state.currentGain = null;
                 state.isPlaying = false;
-                state.playbackPending = false;
                 state.autoAdvanceActive = false;
                 state.playingSentenceIndex = -1;
                 state.sentences = [];
-                state.savedHighlights = new Map();
                 state.pageSentencesIndex?.clear?.();
                 state.hoveredSentenceIndex = -1;
                 state.currentSentenceIndex = -1;
@@ -102,13 +85,9 @@ export class EPUBLoader {
             const source = this._resolveSource(input);
             const view = await this.renderer.open(source);
             this.applyCSS(view.renderer, "src/css/epub.css");
-
             document.getElementById("previous-pdf-header")?.classList.add("hidden");
 
             if (state) {
-                state.translationFallbackPromptShown = false;
-                state.documentOriginalLanguage = null;
-                state.lastDetectedSourceLanguage = null;
                 state.currentDocumentType = "epub";
                 state.pdf = null;
                 state.pagesCache.clear();
@@ -198,7 +177,6 @@ export class EPUBLoader {
             if (state.sentences?.length) {
                 let startIndex = Math.max(0, state.currentSentenceIndex ?? 0);
                 let resumeVoiceId = null;
-                let loadedHighlightsFromServer = false;
 
                 // First, try to load from server if enabled
                 if (this.app.serverSync?.isEnabled() && state.currentEpubKey) {
@@ -213,12 +191,15 @@ export class EPUBLoader {
                             console.log(`[EPUBLoader] Restored position from server: ${startIndex}`);
                         }
 
-                        // Voice restore should use local cache only.
+                        // Update voice from server if available
+                        if (resume && serverData.voice) {
+                            resumeVoiceId = serverData.voice;
+                            console.log(`[EPUBLoader] Restored voice from server: ${resumeVoiceId}`);
+                        }
 
-                        // Update highlights from server when present (including empty map)
-                        if (serverData.highlights instanceof Map) {
+                        // Update highlights from server if available
+                        if (serverData.highlights && serverData.highlights.size > 0) {
                             state.savedHighlights = serverData.highlights;
-                            loadedHighlightsFromServer = true;
                             console.log(`[EPUBLoader] Restored ${serverData.highlights.size} highlights from server`);
 
                             // Also save to local storage
@@ -230,10 +211,10 @@ export class EPUBLoader {
                 }
 
                 // If no server data, load from local storage
-                if (resume && state.currentEpubKey) {
+                if (startIndex === 0 && resume && state.currentEpubKey) {
                     const saved = this.app.progressManager.loadSavedPosition(state.currentEpubKey, "epub");
                     if (saved) {
-                        if (startIndex === 0 && typeof saved.sentenceIndex === "number") {
+                        if (typeof saved.sentenceIndex === "number") {
                             startIndex = Math.min(Math.max(saved.sentenceIndex, 0), state.sentences.length - 1);
                         }
                         if (typeof saved.voice === "string" && saved.voice.trim()) {
@@ -242,25 +223,11 @@ export class EPUBLoader {
                     }
                 }
 
-                // If server did not provide highlights, restore them from local storage.
-                if (!loadedHighlightsFromServer && state.currentEpubKey) {
-                    state.savedHighlights = this.app.highlightsStorage.loadSavedHighlights(state.currentEpubKey);
-                }
-
-                if (state.savedHighlights.size) {
-                    const lastSaved = Array.from(state.savedHighlights.values()).pop();
-                    if (lastSaved?.color) state.selectedHighlightColor = lastSaved.color;
+                if (resume && resumeVoiceId) {
+                    await this._applySavedVoice(resumeVoiceId);
                 }
 
                 await this.renderer.renderSentence(startIndex, { suppressScroll: true });
-                await this.renderer.updateHighlightDisplay();
-
-                const preloadVoiceId = this._resolveVoiceForPreload(resume ? resumeVoiceId : null);
-                if (preloadVoiceId) {
-                    this._scheduleVoicePreload(preloadVoiceId);
-                }
-
-                this._scheduleSentencePrewarm();
             } else {
                 this.app.ui.showInfo("No readable text detected in EPUB.");
             }
@@ -268,141 +235,55 @@ export class EPUBLoader {
             this.renderer.setupInteractionListeners();
             this.app.interactionHandler.setupInteractionListeners();
 
+            this.app.ui.updatePlayButton(state.playerState.DONE);
             this.app.ui.showInfo("EPUB loaded successfully.");
         } catch (error) {
             console.error("EPUB load error", error);
             this.app.ui.showInfo(`Error loading EPUB: ${error.message}`);
             this.reset();
         } finally {
-            if (state) {
-                state.documentLoading = false;
-            }
             this.app.ui.updatePlayButton(state.playerState.DONE);
         }
     }
 
-    _resolveVoiceForPreload(savedVoiceId) {
-        const trimmedSaved = typeof savedVoiceId === "string" ? savedVoiceId.trim() : "";
-        return trimmedSaved || null;
-    }
-
-    _scheduleVoicePreload(voiceId) {
-        const trimmed = typeof voiceId === "string" ? voiceId.trim() : "";
-        if (!trimmed) return;
-        if (typeof this.app?.isReadTranslationEnabled === "function" && this.app.isReadTranslationEnabled()) {
-            return;
-        }
-        this._clearVoicePreloadTimer();
-        this._voicePreloadTimer = setTimeout(() => {
-            this._voicePreloadTimer = null;
-            if (typeof this.app?.isReadTranslationEnabled === "function" && this.app.isReadTranslationEnabled()) {
-                return;
-            }
-            void this._applySavedVoice(trimmed, { silent: true });
-        }, 600);
-    }
-
-    _clearVoicePreloadTimer() {
-        if (this._voicePreloadTimer) {
-            clearTimeout(this._voicePreloadTimer);
-            this._voicePreloadTimer = null;
-        }
-    }
-
-    cancelVoicePreload() {
-        this._clearVoicePreloadTimer();
-    }
-
-    _scheduleSentencePrewarm() {
-        const { app } = this;
-        const { state } = app || {};
-        if (!state?.sentences?.length) return;
-        if (typeof app.isReadTranslationEnabled === "function" && app.isReadTranslationEnabled()) return;
-        if (!state.currentPiperVoice || !state.piperInstance) return;
-
-        const idx =
-            typeof state.currentSentenceIndex === "number" && state.currentSentenceIndex >= 0
-                ? state.currentSentenceIndex
-                : 0;
-        const sentence = state.sentences[idx];
-        if (!sentence || sentence.audioReady || sentence.audioInProgress) return;
-        if (!sentence.layoutProcessed || !sentence.isTextToRead) return;
-
-        const schedule =
-            typeof requestIdleCallback === "function"
-                ? (cb) => requestIdleCallback(cb, { timeout: 1500 })
-                : (cb) => setTimeout(cb, 0);
-
-        schedule(() => {
-            if (!state || state.isPlaying || state.playbackPending) return;
-            const current = state.sentences[idx];
-            if (!current || current.audioReady || current.audioInProgress) return;
-
-            const wasEnabled = state.generationEnabled;
-            if (!state.generationEnabled) {
-                state.generationEnabled = true;
-            }
-
-            Promise.resolve()
-                .then(() => app.ttsEngine.synthesizeSequential(idx))
-                .catch((err) => console.debug("[EPUBLoader] Warmup synthesis failed", err))
-                .finally(() => {
-                    if (!wasEnabled && !state.isPlaying && !state.playbackPending) {
-                        state.generationEnabled = false;
-                    }
-                });
-        });
-    }
-
-    async _applySavedVoice(voiceId, options = {}) {
+    async _applySavedVoice(voiceId) {
         if (typeof voiceId !== "string") return;
         const trimmedVoiceId = voiceId.trim();
         if (!trimmedVoiceId) return;
 
-        const silent = options?.silent === true;
-        const allowDuringReadTranslation = options?.allowDuringReadTranslation === true;
-
         const { app } = this;
-        if (
-            !allowDuringReadTranslation &&
-            typeof app.isReadTranslationEnabled === "function" &&
-            app.isReadTranslationEnabled()
-        ) {
-            return;
-        }
         const voiceSelect = document.getElementById("voice-select");
-        const selectOptions = voiceSelect ? Array.from(voiceSelect.options || []) : [];
+        const options = voiceSelect ? Array.from(voiceSelect.options || []) : [];
         const voiceAvailable =
-            selectOptions.some((opt) => opt.value === trimmedVoiceId) ||
-            app.config.PIPER_VOICES.includes(trimmedVoiceId);
+            options.some((opt) => opt.value === trimmedVoiceId) || app.config.PIPER_VOICES.includes(trimmedVoiceId);
 
         if (!voiceAvailable) {
             console.warn(`Saved voice ${trimmedVoiceId} not available, skipping restore.`);
             return;
         }
 
-        if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
-            voiceSelect.value = trimmedVoiceId;
-        }
-
         if (app.state.currentPiperVoice === trimmedVoiceId && app.state.piperInstance) {
+            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
+                voiceSelect.value = trimmedVoiceId;
+            }
             return;
         }
 
         try {
-            await app.ttsEngine.ensurePiper(trimmedVoiceId, { silent });
+            await app.ttsEngine.ensurePiper(trimmedVoiceId);
+            if (voiceSelect && voiceSelect.value !== trimmedVoiceId) {
+                voiceSelect.value = trimmedVoiceId;
+            }
         } catch (error) {
             console.warn(`Failed to restore saved voice ${trimmedVoiceId}:`, error);
-            if (!silent) {
-                app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
+            app.ui?.showInfo?.("Failed to restore saved voice; using default voice instead.");
+            if (!app.state.currentPiperVoice) {
+                try {
+                    await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE);
+                } catch (fallbackError) {
+                    console.warn("Fallback to default voice failed:", fallbackError);
+                }
             }
-            // if (!app.state.currentPiperVoice) {
-            //     try {
-            //         // await app.ttsEngine.ensurePiper(app.config.DEFAULT_PIPER_VOICE, { silent });
-            //     } catch (fallbackError) {
-            //         console.warn("Fallback to default voice failed:", fallbackError);
-            //     }
-            // }
         }
     }
 
@@ -670,7 +551,6 @@ export class EPUBLoader {
             audioBuffer: null,
             audioReady: false,
             audioInProgress: false,
-            rendering: false,
             audioError: null,
             lastVoice: null,
             lastSpeed: null,

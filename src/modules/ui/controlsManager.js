@@ -31,7 +31,7 @@ export class ControlsManager {
         this.btnPlayToggle = document.getElementById("play-toggle");
         this.btnNextPage = document.getElementById("next-page");
         this.btnPrevPage = document.getElementById("prev-page");
-        this.bntHelp = document.getElementById("toggle-help") || document.getElementById("help-button");
+        this.bntHelp = document.getElementById("help-button");
         this.bntHelpClose = document.getElementById("help-close");
         this.bntFullScreen = document.getElementById("toggle-fullscreen");
 
@@ -46,10 +46,10 @@ export class ControlsManager {
         this.lockBtn = document.getElementById("lock-screen");
 
         // Translate
-        // this.toggleTranslateBtn = document.getElementById("toggle-translate");
+        this.toggleTranslateBtn = document.getElementById("toggle-translate");
 
         // Read translation (use translated sentence for TTS)
-        // this.toggleReadTranslationBtn = document.getElementById("toggle-read-translation");
+        this.toggleReadTranslationBtn = document.getElementById("toggle-read-translation");
 
         // Default highlight color
         this.app.highlightManager?.setSelectedHighlightColor("#ffda76");
@@ -58,12 +58,13 @@ export class ControlsManager {
             icon.style.color = "#ffda76";
         }
 
+        // cache
+        this.btnClearCache = document.getElementById("clear-cache-btn");
+
         // stopwatch
         this.autoStopInput = document.getElementById("stopwatch-input");
         this.btnPlayTimer = document.getElementById("btn-timer-play");
         this.btnStopTimer = document.getElementById("btn-timer-stop");
-        this.btnTimerIncrease = document.getElementById("btn-timer-increase");
-        this.btnTimerDecrease = document.getElementById("btn-timer-decrease");
     }
 
     _setupEventListeners() {
@@ -97,13 +98,8 @@ export class ControlsManager {
         on(this.bntFullScreen, "click", () => this.toggleFullscreen());
 
         // Help overlay
-        on(this.bntHelp, "click", () => this.overlayHelp?.classList.remove("hidden"));
-        on(this.bntHelpClose, "click", () => this.overlayHelp?.classList.add("hidden"));
-        on(this.overlayHelp, "click", (e) => {
-            if (e.target === this.overlayHelp) {
-                this.overlayHelp.classList.add("hidden");
-            }
-        });
+        on(this.bntHelp, "click", () => (this.overlayHelp.style.display = "block"));
+        on(this.bntHelpClose, "click", () => (this.overlayHelp.style.display = "none"));
 
         // Page navigation
         on(this.btnNextPage, "click", () => {
@@ -225,7 +221,34 @@ export class ControlsManager {
         if (this.saveCommentBtn && !isAuthButton(this.saveCommentBtn)) {
             on(this.saveCommentBtn, "click", () => app.highlightManager.editCurrentSentenceComment());
         }
-        on(this.exportHighlightsBtn, "click", () => app.exportManager.exportHighlights());
+        on(this.exportHighlightsBtn, "click", () => app.exportManager.exportPdfWithHighlights());
+
+        // Translate toggle (auto translate every spoken sentence)
+        if (this.toggleTranslateBtn) {
+            // Initialize UI from persisted value (app will also load into state).
+            const raw = localStorage.getItem("config.autoTranslate");
+            const enabled = raw === "1" || raw === "true";
+            this.reflectAutoTranslateToggle(enabled);
+
+            on(this.toggleTranslateBtn, "click", () => {
+                const next = !app.isAutoTranslateEnabled?.();
+                app.setAutoTranslateEnabled?.(next);
+                this.showInfo(next ? "Auto-translate: ON" : "Auto-translate: OFF", 1500);
+            });
+        }
+
+        // Read translation toggle (replace spoken text with translated text)
+        if (this.toggleReadTranslationBtn) {
+            const raw = localStorage.getItem("config.readTranslation");
+            const enabled = raw === "1" || raw === "true";
+            this.reflectReadTranslationToggle(enabled);
+
+            on(this.toggleReadTranslationBtn, "click", () => {
+                const next = !app.isReadTranslationEnabled?.();
+                app.setReadTranslationEnabled?.(next);
+                this.showInfo(next ? "Read translation: ON" : "Read translation: OFF", 1500);
+            });
+        }
 
         if (this.highlightColorButtons?.length) {
             this.highlightColorButtons.forEach((btn) => {
@@ -244,14 +267,10 @@ export class ControlsManager {
 
         // Voice and speed
         on(this.voiceSelect, "change", () => {
-            const selectedVoice = this.voiceSelect?.value || app.config.DEFAULT_PIPER_VOICE;
             app.audioManager.stopPlayback(true);
             app.state.autoAdvanceActive = false;
             app.cache.clearAudioFrom(app.state.currentSentenceIndex);
-            Promise.resolve()
-                .then(() => app.ttsEngine.ensurePiper(selectedVoice, { silent: false }))
-                .then(() => app.ttsEngine.schedulePrefetch())
-                .catch((err) => console.warn("[TTS] Voice load failed after selection", err));
+            app.ttsEngine.schedulePrefetch();
         });
 
         if (this.speedSelect) {
@@ -352,19 +371,25 @@ export class ControlsManager {
         this.orientationChange = this.orientationChange.bind(this);
         window.addEventListener("orientationchange", this.orientationChange, { passive: true });
 
+        //
+        on(this.btnClearCache, "click", () => {
+            {
+                const confirmed = confirm("Are you sure you want to clear all pdfs saved?");
+                if (confirmed) {
+                    this.app.progressManager.clearPDFCache();
+                }
+            }
+        });
+
         // Stop Watch
         this.btnPlayTimer.addEventListener("click", () => this._toggleTimer());
         this.btnStopTimer.addEventListener("click", () => this._stopTimer());
-        this.btnTimerIncrease?.addEventListener("click", () => this._stepAutoStopMinutes(1));
-        this.btnTimerDecrease?.addEventListener("click", () => this._stepAutoStopMinutes(-1));
-        const commitAutoStopMinutes = () => this._applyAutoStopMinutes(this.autoStopInput?.value);
-        this.autoStopInput.addEventListener("change", commitAutoStopMinutes);
-        this.autoStopInput.addEventListener("blur", commitAutoStopMinutes);
-        this.autoStopInput.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                commitAutoStopMinutes();
-                this.autoStopInput.blur();
+        this.autoStopInput.addEventListener("change", (e) => {
+            const val = parseInt(e.target.value, 10);
+            if (!isNaN(val) && val >= 0) {
+                this.autoStopDuration = val * 60;
+                this.timeLeft = this.autoStopDuration;
+                this._updateTimerDisplay();
             }
         });
 
@@ -399,6 +424,14 @@ export class ControlsManager {
         // Match the styling used by other toggles (e.g. fullscreen).
         this.toggleTranslateBtn.classList.toggle("bg-primary/10", active);
         this.toggleTranslateBtn.classList.toggle("text-primary", active);
+    }
+
+    reflectReadTranslationToggle(enabled) {
+        if (!this.toggleReadTranslationBtn) return;
+        const active = !!enabled;
+        this.toggleReadTranslationBtn.setAttribute("aria-pressed", active ? "true" : "false");
+        this.toggleReadTranslationBtn.classList.toggle("bg-primary/10", active);
+        this.toggleReadTranslationBtn.classList.toggle("text-primary", active);
     }
 
     orientationChange() {
@@ -539,35 +572,11 @@ export class ControlsManager {
         if (this.btnPlayTimer) this.btnPlayTimer.querySelector("span").textContent = "play_arrow";
     }
 
-    _applyAutoStopMinutes(rawValue) {
-        const parsed = Number.parseInt(String(rawValue ?? "").trim(), 10);
-        if (!Number.isFinite(parsed)) {
-            this._updateTimerDisplay();
-            return false;
-        }
-
-        const minutes = Math.min(720, Math.max(1, parsed));
-        this.autoStopDuration = minutes * 60;
-        this.timeLeft = this.autoStopDuration;
-        this._updateTimerDisplay();
-        return true;
-    }
-
-    _stepAutoStopMinutes(delta = 1) {
-        if (!this.autoStopInput) return;
-        const currentRaw = Number.parseInt(String(this.autoStopInput.value || "").trim(), 10);
-        const fallbackMinutes = Math.max(1, Math.ceil(this.timeLeft / 60));
-        const current = Number.isFinite(currentRaw) ? currentRaw : fallbackMinutes;
-        const next = Math.min(720, Math.max(1, current + delta));
-        this.autoStopInput.value = String(next);
-        this._applyAutoStopMinutes(next);
-    }
-
     _updateTimerDisplay() {
         if (!this.autoStopInput) return;
-        // Minutes-only UI: avoid second-level churn on small/mobile screens.
-        const minutes = Math.max(1, Math.ceil(this.timeLeft / 60));
-        this.autoStopInput.value = String(minutes);
+        const minutes = Math.floor(this.timeLeft / 60);
+        const seconds = this.timeLeft % 60;
+        this.autoStopInput.value = `${minutes}:${seconds.toString().padStart(2, "0")}`;
     }
 
     showInfo(message, duration = 2000) {

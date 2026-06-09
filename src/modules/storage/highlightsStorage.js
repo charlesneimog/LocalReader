@@ -29,27 +29,9 @@ export class HighlightsStorage {
         }
         return highlightsMap;
     }
-
-    _getCurrentHighlightKey() {
+    saveHighlightsForPdf({ allowEmpty = false } = {}) {
         const { state } = this.app;
-        if (!state) return null;
-        if (state.currentDocumentType === "epub") return state.currentEpubKey;
-        return state.currentPdfKey;
-    }
-
-    _refreshCurrentDocumentHighlights() {
-        const { state } = this.app;
-        if (!state) return;
-        if (state.currentDocumentType === "epub") {
-            this.app.epubRenderer?.updateHighlightDisplay?.();
-            return;
-        }
-        this.app.pdfRenderer?.updateHighlightDisplay?.();
-    }
-
-    saveHighlightsForCurrentDocument({ allowEmpty = false } = {}) {
-        const { state } = this.app;
-        const key = this._getCurrentHighlightKey();
+        const key = state.currentPdfKey;
         if (!key) return;
 
         const all = this.getHighlightsMap();
@@ -60,21 +42,26 @@ export class HighlightsStorage {
             for (const [sentenceIndex, data] of Object.entries(existing)) {
                 state.savedHighlights.set(parseInt(sentenceIndex, 10), data);
             }
-            this._refreshCurrentDocumentHighlights();
+            this.app.pdfRenderer?.updateHighlightDisplay?.();
             return;
         }
 
-        const docHighlights = {};
+        const pdfHighlights = {};
         for (const [sentenceIndex, data] of state.savedHighlights.entries()) {
-            docHighlights[sentenceIndex] = data;
+            pdfHighlights[sentenceIndex] = data;
         }
 
-        if (!allowEmpty && hasExisting && Object.keys(docHighlights).length === 0) {
+        if (!allowEmpty && hasExisting && Object.keys(pdfHighlights).length === 0) {
             return;
         }
 
-        all[key] = docHighlights;
+        all[key] = pdfHighlights;
         this.setHighlightsMap(all);
+
+        //console.log("[HighlightsStorage] Saved highlights locally", {
+        //    key,
+        //    count: this.app.state?.savedHighlights?.size ?? 0,
+        //});
 
         // Sync to server if enabled
         if (this.app.serverSync?.isEnabled()) {
@@ -89,10 +76,6 @@ export class HighlightsStorage {
                     console.warn("[HighlightsStorage] Server sync failed:", err);
                 });
         }
-    }
-
-    saveHighlightsForPdf({ allowEmpty = false } = {}) {
-        this.saveHighlightsForCurrentDocument({ allowEmpty });
     }
 
     saveHighlights(key, highlights, { merge = false } = {}) {

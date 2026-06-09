@@ -47,8 +47,6 @@ export class SentenceParser {
         const sentenceEndRegex = explicitAlt
             ? new RegExp(`(?:${explicitAlt}|${genericEnd})$`)
             : new RegExp(`(?:${genericEnd})$`);
-        const citationSuffixRegex =
-            /(?:\s*(?:\[\s*\d+(?:\s*[-,]\s*\d+)*\s*\]|\d+))+$/;
         const abbreviationSet = new Set(
             abbreviations.map((a) => String(a).replace(/[.!?…]+$/g, "").trim().toLowerCase()).filter(Boolean)
         );
@@ -77,48 +75,12 @@ export class SentenceParser {
             return { x, y, width, height };
         };
 
-        const stripTrailingNumericCitations = (wordStr) => {
+        function isSentenceEnd(wordStr, nextWordStr) {
             const token = String(wordStr || "").trim();
-            if (!token) return "";
-            return token.replace(citationSuffixRegex, "").trimEnd();
-        };
-
-        const getVisibleTokenOutsideParentheses = (wordStr, initialDepth = 0) => {
-            const raw = String(wordStr || "");
-            let depth = Number.isFinite(initialDepth) ? Math.max(0, initialDepth) : 0;
-            let visibleText = "";
-
-            for (const ch of raw) {
-                if (ch === "(") {
-                    depth += 1;
-                    continue;
-                }
-
-                if (ch === ")") {
-                    if (depth > 0) {
-                        depth -= 1;
-                        continue;
-                    }
-                }
-
-                if (depth === 0) visibleText += ch;
-            }
-
-            return {
-                visibleText,
-                depth,
-            };
-        };
-
-        function isSentenceEnd(wordStr) {
-            const token = String(wordStr || "").trim();
-            if (!token) return false;
-
-            const tokenWithoutCitations = stripTrailingNumericCitations(token);
-            const candidate = tokenWithoutCitations || token;
-            const w = candidate.replace(sentenceEndRegex, "");
+            const w = token.replace(sentenceEndRegex, "");
             if (abbreviationSet.has(String(w).replace(/[.!?…]+$/g, "").trim().toLowerCase())) return false;
-            return sentenceEndRegex.test(candidate);
+            if (nextWordStr && /^[0-9)]/.test(nextWordStr)) return false;
+            return sentenceEndRegex.test(token);
         }
 
         // CRITICAL: Filter words by layout BEFORE creating sentences
@@ -162,9 +124,6 @@ export class SentenceParser {
         let lastY = null;
         let lastHeight = null;
         let lastRegionKey = null;
-        let lastParsingWordGeom = null;
-        let parenDepth = 0;
-        let suppressGapChecksFromParentheses = false;
 
         const flush = () => {
             if (!buffer.length) return;
@@ -188,7 +147,6 @@ export class SentenceParser {
                 audioBuffer: null,
                 audioReady: false,
                 audioInProgress: false,
-                rendering: false,
                 audioError: null,
                 lastVoice: null,
                 lastSpeed: null,
@@ -210,27 +168,22 @@ export class SentenceParser {
 
         for (let i = 0; i < wordsToProcess.length; i++) {
             const w = wordsToProcess[i];
-            const tokenView = getVisibleTokenOutsideParentheses(w?.str, parenDepth);
-            const tokenForParsing = tokenView.visibleText.trim();
-            const tokenAffectsParsing = tokenForParsing.length > 0;
             let gapBreak = false;
 
             // When layout regions are available, split primarily on region changes (columns/blocks),
             // not on arbitrary x/y padding heuristics.
             if (layoutRegions) {
                 const regionKey = getRegionKey(w);
-                if (tokenAffectsParsing) {
-                    if (!suppressGapChecksFromParentheses && lastRegionKey !== null && regionKey !== lastRegionKey && buffer.length) {
-                        gapBreak = true;
-                    }
-                    lastRegionKey = regionKey;
+                if (lastRegionKey !== null && regionKey !== lastRegionKey && buffer.length) {
+                    gapBreak = true;
                 }
+                lastRegionKey = regionKey;
             }
 
             const { x: canonX, y: canonY, width: canonWidth, height: canonHeight } = getCanonicalGeom(w);
 
             // Fallback heuristics (only if we don't have layout regions)
-            if (!layoutRegions && tokenAffectsParsing && !suppressGapChecksFromParentheses) {
+            if (!layoutRegions) {
                 // Check vertical gap
                 if (config.SPLIT_ON_LINE_GAP && lastY !== null) {
                     const verticalDelta = Math.abs(lastY - canonY);
@@ -240,8 +193,9 @@ export class SentenceParser {
                 }
 
                 // Check horizontal gap
-                if (!gapBreak && lastParsingWordGeom) {
-                    const { x: lastX, width: lastWidth, height: lastH } = lastParsingWordGeom;
+                if (!gapBreak && buffer.length > 0) {
+                    const lastWord = buffer[buffer.length - 1];
+                    const { x: lastX, width: lastWidth, height: lastH } = getCanonicalGeom(lastWord);
                     const horizontalGap = canonX - (lastX + lastWidth);
                     const em = lastH || canonHeight || 0;
                     const wordGapThresholdEm = Number.isFinite(config.WORD_GAP_THRESHOLD_EM)
@@ -259,26 +213,13 @@ export class SentenceParser {
 
             buffer.push(w);
 
-            if ((tokenAffectsParsing && isSentenceEnd(tokenForParsing)) || (config.BREAK_ON_LINE && w.lineBreak && tokenAffectsParsing)) {
+            const nextWord = wordsToProcess[i + 1]?.str || "";
+            if (isSentenceEnd(w.str, nextWord) || (config.BREAK_ON_LINE && w.lineBreak)) {
                 flush();
             }
 
-            if (tokenAffectsParsing) {
-                lastY = canonY;
-                lastHeight = canonHeight;
-                lastParsingWordGeom = {
-                    x: canonX,
-                    width: canonWidth,
-                    height: canonHeight,
-                };
-                suppressGapChecksFromParentheses = false;
-            }
-
-            if (!tokenAffectsParsing || tokenView.depth > 0) {
-                suppressGapChecksFromParentheses = true;
-            }
-
-            parenDepth = tokenView.depth;
+            lastY = canonY;
+            lastHeight = canonHeight;
         }
 
         flush(); // Flush any remaining words

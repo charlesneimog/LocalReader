@@ -132,6 +132,19 @@ def _guess_content_type(path: str) -> str:
     return "application/octet-stream"
 
 
+def _set_no_cache_headers(handler: BaseHTTPRequestHandler) -> None:
+    """Prevent browsers, service workers, and reverse proxies from reusing stale app files."""
+    handler.send_header(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0",
+    )
+    handler.send_header("Pragma", "no-cache")
+    handler.send_header("Expires", "0")
+    handler.send_header("Surrogate-Control", "no-store")
+    handler.send_header("X-Accel-Expires", "0")
+    handler.send_header("X-LocalReader-Version", SERVER_APP_VERSION)
+
+
 def _safe_static_path(url_path: str) -> str | None:
     """Map a URL path to a file under STATIC_ROOT, preventing path traversal."""
     if not url_path:
@@ -675,6 +688,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if not full_path:
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            _set_no_cache_headers(self)
             if self._should_apply_coi_headers(url_path):
                 self._set_cross_origin_isolation_headers()
             self.end_headers()
@@ -685,6 +699,7 @@ class APIHandler(BaseHTTPRequestHandler):
             logger.info("Static 404: url_path=%s resolved=%s", url_path, full_path)
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            _set_no_cache_headers(self)
             if self._should_apply_coi_headers(url_path):
                 self._set_cross_origin_isolation_headers()
             self.end_headers()
@@ -716,8 +731,7 @@ class APIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", content_type)
             if self._should_apply_coi_headers(url_path):
                 self._set_cross_origin_isolation_headers()
-            # Force fresh assets for every request.
-            self.send_header("Cache-Control", "no-store, max-age=0")
+            _set_no_cache_headers(self)
 
             # Allow service worker to control the whole origin even if installed from /LocalReader/
             if url_path.startswith("/LocalReader/") and full_path.endswith("sw.js"):
@@ -729,6 +743,7 @@ class APIHandler(BaseHTTPRequestHandler):
             logger.exception("Static file serve failed: path=%s", url_path)
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            _set_no_cache_headers(self)
             if self._should_apply_coi_headers(url_path):
                 self._set_cross_origin_isolation_headers()
             self.end_headers()

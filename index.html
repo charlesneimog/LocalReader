@@ -9,7 +9,7 @@
             };
         </script>
         <script src="./threads.js"></script>
-        <title>PDF Local IA Podcast</title>
+        <title>PocketReader - AI TTS reader</title>
 
         <!-- Web Manifest -->
         <link rel="manifest" href="manifest.webmanifest" />
@@ -103,7 +103,7 @@
         >
             <img src="./assets/icons/icon-192.png" alt="App Icon" class="w-24 h-24" />
             <div class="flex flex-col items-center">
-                <h1 class="text-2xl font-bold text-text-primary dark:text-white">LocalReader</h1>
+                <h1 class="text-2xl font-bold text-text-primary dark:text-white">PocketReader</h1>
                 <span id="appversion-p" class="text-[10px] font-medium text-gray-300 dark:text-gray-300 -mt-1"></span>
             </div>
 
@@ -131,7 +131,7 @@
                     <img src="./assets/icons/icon-512.png" alt="App Icon" class="w-24 h-24" />
                 </div>
 
-                <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">LocalReader</h1>
+                <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">PocketReader</h1>
                 <h3 class="text-6l font-bold text-gray-900 dark:text-white mb-2">Please open a PDF or EPUB file.</h3>
                 <div class="hidden sm:block space-y-4 text-left">
                     <div class="flex items-center p-3 bg-background-light dark:bg-background-dark rounded-lg">
@@ -212,7 +212,7 @@
                     <div class="flex items-center gap-3">
                         <img src="./assets/icons/icon-192.png" alt="App Icon" class="w-10 h-10" />
                         <div>
-                            <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">LocalReader</h2>
+                            <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">PocketReader</h2>
                             <p id="auth-status" class="text-xs text-slate-500 dark:text-slate-400"></p>
                         </div>
                     </div>
@@ -536,7 +536,7 @@
                     </button>
 
                     <button
-                        id="toggle-help"
+                        id="toogle-help"
                         title="Show help menu"
                         class="flex items-center justify-center rounded p-2"
                     >
@@ -553,17 +553,18 @@
         <!-- Help Overlay -->
         <div
             id="help-overlay"
+            aria-hidden="true"
             class="hidden fixed inset-0 z-40 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-sm p-3 sm:p-6"
         >
             <div
-                class="mx-auto w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-xl border border-white/20 dark:border-background-dark/20 bg-white/70 dark:bg-background-dark/70 shadow-2xl"
+                class="mx-auto w-full max-w-xl max-h-[88vh] overflow-y-auto rounded-lg border border-white/20 dark:border-background-dark/20 bg-white/85 dark:bg-background-dark/85 shadow-2xl"
             >
                 <div
-                    class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700"
+                    class="flex items-center justify-between px-3 py-2 border-b border-slate-200 dark:border-slate-700"
                 >
                     <div>
-                        <h2 class="text-xl font-bold text-slate-800 dark:text-slate-100">Help</h2>
-                        <p class="text-xs text-slate-500 dark:text-slate-400">LocalReader shortcuts and controls</p>
+                        <h2 class="text-base font-bold text-slate-800 dark:text-slate-100">Help</h2>
+                        <p class="text-[11px] text-slate-500 dark:text-slate-400">Quick controls</p>
                     </div>
                     <button
                         id="help-close"
@@ -575,92 +576,73 @@
                     </button>
                 </div>
 
-                <div class="p-4 space-y-4">
-                    <section
-                        class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20"
-                    >
-                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">
-                            Desktop / Keyboard
+                <div class="p-3 grid gap-3 sm:grid-cols-2">
+                    <section>
+                        <h3 class="mb-2 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                            Computer
                         </h3>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                        <div class="space-y-1.5 text-xs text-slate-700 dark:text-slate-200">
                             <div class="flex items-center gap-2">
-                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">Space</kbd>
-                                <span>Play / Pause reading</span>
+                                <kbd class="min-w-12 px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono text-[11px] text-center">Space</kbd>
+                                <span>Play / pause</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">h</kbd>
-                                <span>Highlight current sentence</span>
+                                <kbd class="min-w-12 px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono text-[11px] text-center">← / →</kbd>
+                                <span>Previous / next</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs"
-                                    >1 2 3 4</kbd
-                                >
-                                <span>Select highlight color preset</span>
+                                <kbd class="min-w-12 px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono text-[11px] text-center">H</kbd>
+                                <span>Highlight</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">c</kbd>
-                                <span>Add / edit comment</span>
+                                <kbd class="min-w-12 px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono text-[11px] text-center">C</kbd>
+                                <span>Comment</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">t</kbd>
-                                <span>Translate current sentence</span>
+                                <kbd class="min-w-12 px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono text-[11px] text-center">T</kbd>
+                                <span>Translate</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">f</kbd>
-                                <span>Toggle fullscreen</span>
+                                <kbd class="min-w-12 px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono text-[11px] text-center">F</kbd>
+                                <span>Fullscreen</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <kbd class="px-2 py-1 rounded bg-primary/10 text-primary font-mono text-xs">← / →</kbd>
-                                <span>Previous / next sentence</span>
+                                <kbd class="min-w-12 px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono text-[11px] text-center">1-4</kbd>
+                                <span>Highlight color</span>
                             </div>
                         </div>
                     </section>
 
-                    <section
-                        class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20"
-                    >
-                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">
-                            Smartphone / Tablet
+                    <section>
+                        <h3 class="mb-2 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                            Smartphone
                         </h3>
-                        <div class="space-y-2 text-sm text-slate-700 dark:text-slate-200">
-                            <div class="flex items-start gap-2">
-                                <span class="material-symbols-outlined text-base text-primary mt-0.5">touch_app</span>
-                                <span
-                                    >Tap the highlighter icon to open the highlight menu and choose
-                                    color/comments.</span
-                                >
+                        <div class="space-y-1.5 text-xs text-slate-700 dark:text-slate-200">
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-sm text-primary">play_circle</span>
+                                <span>Center button plays / pauses</span>
                             </div>
-                            <div class="flex items-start gap-2">
-                                <span class="material-symbols-outlined text-base text-primary mt-0.5">gesture</span>
-                                <span>Long-press the highlighter icon to quickly highlight the current sentence.</span>
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-sm text-primary">skip_next</span>
+                                <span>Arrow buttons move sentence</span>
                             </div>
-                            <div class="flex items-start gap-2">
-                                <span class="material-symbols-outlined text-base text-primary mt-0.5">play_circle</span>
-                                <span>Use the center play button to start/pause reading and prefetch audio.</span>
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-sm text-primary">edit</span>
+                                <span>Tap highlight for colors/comments</span>
                             </div>
-                            <div class="flex items-start gap-2">
-                                <span class="material-symbols-outlined text-base text-primary mt-0.5">timer</span>
-                                <span>Auto-stop timer uses minutes only. Use + / - buttons to adjust quickly.</span>
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-sm text-primary">touch_app</span>
+                                <span>Long-press highlight to save fast</span>
                             </div>
-                            <div class="flex items-start gap-2">
-                                <span class="material-symbols-outlined text-base text-primary mt-0.5">settings</span>
-                                <span
-                                    >Open Settings for voice, speed, translation mode, orientation lock, and help.</span
-                                >
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-sm text-primary">settings</span>
+                                <span>Settings changes voice, speed, translation</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-sm text-primary">screen_lock_rotation</span>
+                                <span>Lock keeps the current orientation</span>
                             </div>
                         </div>
-                    </section>
-
-                    <section
-                        class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white/60 dark:bg-black/20"
-                    >
-                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">
-                            Highlight Menu Tips
-                        </h3>
-                        <p class="text-sm text-slate-700 dark:text-slate-200">
-                            Use <span class="font-semibold">1 2 3 4</span> on desktop to switch colors instantly, or
-                            open the highlight popup to pick custom colors and add comments.
-                        </p>
                     </section>
                 </div>
             </div>

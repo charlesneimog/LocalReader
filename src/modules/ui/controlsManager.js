@@ -33,7 +33,10 @@ export class ControlsManager {
         this.btnPlayToggle = document.getElementById("play-toggle");
         this.btnNextPage = document.getElementById("next-page");
         this.btnPrevPage = document.getElementById("prev-page");
-        this.bntHelp = document.getElementById("help-button");
+        this.bntHelp =
+            document.getElementById("toogle-help") ||
+            document.getElementById("toggle-help") ||
+            document.getElementById("help-button");
         this.bntHelpClose = document.getElementById("help-close");
         this.bntFullScreen = document.getElementById("toggle-fullscreen");
 
@@ -102,8 +105,11 @@ export class ControlsManager {
         on(this.bntFullScreen, "click", () => this.toggleFullscreen());
 
         // Help overlay
-        on(this.bntHelp, "click", () => (this.overlayHelp.style.display = "block"));
-        on(this.bntHelpClose, "click", () => (this.overlayHelp.style.display = "none"));
+        on(this.bntHelp, "click", () => this.showHelpOverlay());
+        on(this.bntHelpClose, "click", () => this.hideHelpOverlay());
+        on(this.overlayHelp, "click", (event) => {
+            if (event.target === this.overlayHelp) this.hideHelpOverlay();
+        });
 
         // Page navigation
         on(this.btnNextPage, "click", () => {
@@ -436,6 +442,18 @@ export class ControlsManager {
         this.toggleReadTranslationBtn.setAttribute("aria-pressed", active ? "true" : "false");
         this.toggleReadTranslationBtn.classList.toggle("bg-primary/10", active);
         this.toggleReadTranslationBtn.classList.toggle("text-primary", active);
+    }
+
+    showHelpOverlay() {
+        if (!this.overlayHelp) return;
+        this.overlayHelp.classList.remove("hidden");
+        this.overlayHelp.setAttribute("aria-hidden", "false");
+    }
+
+    hideHelpOverlay() {
+        if (!this.overlayHelp) return;
+        this.overlayHelp.classList.add("hidden");
+        this.overlayHelp.setAttribute("aria-hidden", "true");
     }
 
     orientationChange() {

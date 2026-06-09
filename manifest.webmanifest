@@ -1,15 +1,13 @@
 {
-    "id": "/LocalReader/index.html",
-    "name": "LocalReader",
+    "id": "/PocketReader/index.html",
+    "name": "PocketReader",
     "description": "Local AI PDF Reader",
-    "short_name": "LocalReader",
+    "short_name": "PocketReader",
     "categories": ["education", "productivity"],
-    "start_url": "/LocalReader/index.html",
-    "scope": "/LocalReader/",
-    "scope_extensions": [
-        { "type": "origin", "origin": "https://charlesneimog.github.io/LocalReader/" }
-    ],
-      "edge_side_panel": {},
+    "start_url": "/PocketReader/index.html",
+    "scope": "/PocketReader/",
+    "scope_extensions": [{ "type": "origin", "origin": "https://charlesneimog.github.io/PocketReader/" }],
+    "edge_side_panel": {},
     "launch_handler": {
         "client_mode": "auto"
     },

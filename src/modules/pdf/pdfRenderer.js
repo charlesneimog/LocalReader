@@ -26,8 +26,7 @@ export class PDFRenderer {
             if (page && !state.pagesCache.has(pageNumber)) state.pagesCache.set(pageNumber, page);
 
             const unscaled = page.getViewport({ scale: 1 });
-            const baseWidthCss =
-                typeof config.BASE_WIDTH_CSS === "function" ? config.BASE_WIDTH_CSS() : window.innerWidth;
+            const baseWidthCss = typeof config.BASE_WIDTH_CSS === "function" ? config.BASE_WIDTH_CSS() : window.innerWidth;
             const displayScale = baseWidthCss / Math.max(1, unscaled.width);
             const viewportDisplay = page.getViewport({ scale: displayScale });
 
@@ -168,7 +167,7 @@ export class PDFRenderer {
             if (!candidate) continue;
 
             if (state.generationEnabled && !candidate.layoutProcessed) {
-                await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(candidate.pageNumber);
+                await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(candidate.pageNumber);
                 candidate = state.sentences[i];
             }
 
@@ -304,10 +303,10 @@ export class PDFRenderer {
             observer.observe(wrapper);
 
             const pageObject = state.pagesCache.get(p);
-            if (pageObject) {
-                this.app.pdfHeaderFooterDetector.registerPageDomElement(pageObject, wrapper);
-            } else {
+            if (!pageObject) {
                 console.warn(`[renderFullDocumentIfNeeded] No page object found in cache for page ${p}`);
+            } else if (this.app.pdfHeaderFooterDetector) {
+                this.app.pdfHeaderFooterDetector.registerPageDomElement(pageObject, wrapper);
             }
         }
     }
@@ -382,7 +381,10 @@ export class PDFRenderer {
         const container = document.getElementById("pdf-doc-container");
         const effectiveWidth = Math.max(
             1,
-            containerWidth || (container ? container.clientWidth : 0) || window.innerWidth || 1,
+            containerWidth ||
+                (container ? container.clientWidth : 0) ||
+                window.innerWidth ||
+                1,
         );
 
         let processed = 0;
@@ -393,25 +395,6 @@ export class PDFRenderer {
                 const unscaledWidth = page.unscaledWidth || baseViewport.width;
                 const unscaledHeight = page.unscaledHeight || baseViewport.height;
                 const displayScale = effectiveWidth / Math.max(1, unscaledWidth);
-                const previousScale =
-                    Number.isFinite(page.currentDisplayScale) && page.currentDisplayScale > 0
-                        ? page.currentDisplayScale
-                        : Number.isFinite(page.baseDisplayScale) && page.baseDisplayScale > 0
-                          ? page.baseDisplayScale
-                          : displayScale;
-
-                // Normalize canonical geometry from the currently rendered words so subsequent
-                // rescaling preserves token boundaries even for split text items.
-                if (Array.isArray(page.pageWords) && previousScale > 0) {
-                    for (const w of page.pageWords) {
-                        if (!w) continue;
-                        if (Number.isFinite(w.x)) w._baseX = w.x / previousScale;
-                        if (Number.isFinite(w.y)) w._baseYDisplay = w.y / previousScale;
-                        if (Number.isFinite(w.width)) w._baseWidth = w.width / previousScale;
-                        if (Number.isFinite(w.height)) w._baseHeight = w.height / previousScale;
-                    }
-                }
-
                 const viewportDisplay = {
                     width: unscaledWidth * displayScale,
                     height: unscaledHeight * displayScale,
@@ -450,7 +433,8 @@ export class PDFRenderer {
         }
 
         if (state.viewMode === "full") {
-            const activeSentence = state.currentSentenceIndex >= 0 ? state.sentences[state.currentSentenceIndex] : null;
+            const activeSentence =
+                state.currentSentenceIndex >= 0 ? state.sentences[state.currentSentenceIndex] : null;
             const hoveredSentence =
                 state.hoveredSentenceIndex >= 0 && state.hoveredSentenceIndex < state.sentences.length
                     ? state.sentences[state.hoveredSentenceIndex]
@@ -473,16 +457,20 @@ export class PDFRenderer {
                 }
             }
 
-            if (hoveredSentence && (!activeSentence || hoveredSentence.pageNumber !== activeSentence.pageNumber)) {
+            if (
+                hoveredSentence &&
+                (!activeSentence || hoveredSentence.pageNumber !== activeSentence.pageNumber)
+            ) {
                 await this.ensurePageCanvasMounted(hoveredSentence.pageNumber);
                 pagesToRebuild.add(hoveredSentence.pageNumber);
             }
 
             await this.refreshLayoutAfterViewportChange();
-            if (pagesToRebuild.size && this.app?.pdfHeaderFooterDetector?.ensureReadabilityForPage) {
+            if (pagesToRebuild.size && this.app?.getPdfHeaderFooterDetector) {
+                const detector = this.app.getPdfHeaderFooterDetector();
                 await Promise.allSettled(
                     Array.from(pagesToRebuild, (pageNumber) =>
-                        this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber, { force: true }),
+                        detector.ensureReadabilityForPage(pageNumber, { force: true }),
                     ),
                 );
             }
@@ -525,7 +513,9 @@ export class PDFRenderer {
             if (state.fullPageRenderCache.size > MAX_RENDERED_PAGES) {
                 const oldest = state.fullPageRenderCache.keys().next().value;
                 if (oldest !== undefined && oldest !== pageNumber) {
-                    const oldWrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${oldest}"]`);
+                    const oldWrapper = container.querySelector(
+                        `.pdf-page-wrapper[data-page-number="${oldest}"]`,
+                    );
                     if (oldWrapper) oldWrapper.querySelector("canvas.page-canvas")?.remove();
                     state.fullPageRenderCache.delete(oldest);
                 }
@@ -648,12 +638,7 @@ export class PDFRenderer {
         const items = [];
         for (const w of words) {
             if (!w) continue;
-            if (
-                !Number.isFinite(w.x) ||
-                !Number.isFinite(w.y) ||
-                !Number.isFinite(w.width) ||
-                !Number.isFinite(w.height)
-            ) {
+            if (!Number.isFinite(w.x) || !Number.isFinite(w.y) || !Number.isFinite(w.width) || !Number.isFinite(w.height)) {
                 continue;
             }
             const top = this.getCorrectedVerticalPosition(w, offsetYDisplay, pageNumber);
@@ -825,7 +810,8 @@ export class PDFRenderer {
             if (hasComment && firstMarkerRect) {
                 const marker = document.createElement("div");
                 marker.className = "pdf-comment-marker";
-                marker.style.left = offsetLeft + (firstMarkerRect.x + firstMarkerRect.width) * scaleX + "px";
+                marker.style.left =
+                    offsetLeft + (firstMarkerRect.x + firstMarkerRect.width) * scaleX + "px";
                 marker.style.top = offsetTop + firstMarkerRect.y * scaleY + "px";
                 marker.dataset.sentenceIndex = String(sentenceIndex);
                 marker.dataset.comment = String(highlightData.comment);
@@ -951,7 +937,6 @@ export class PDFRenderer {
         scaleY,
         sentenceIndex,
         highlighted,
-        hasComment = false,
     }) {
         if (!wrapper || !anchorRect || !Number.isFinite(sentenceIndex)) {
             this._removeActivePhraseActions();
@@ -973,68 +958,74 @@ export class PDFRenderer {
             e.stopPropagation();
         };
 
-        const stopPropagationOnly = (e) => {
-            e.stopPropagation();
-        };
-
-        const guardPointerEvents = (el) => {
-            if (!el) return;
-            el.addEventListener("pointerdown", stopPropagationOnly);
-            el.addEventListener("pointerup", stopPropagationOnly);
-            el.addEventListener("mousedown", stopPropagationOnly);
-            el.addEventListener("mouseup", stopPropagationOnly);
-            el.addEventListener("touchstart", stopPropagationOnly, { passive: true });
-            el.addEventListener("touchend", stopPropagationOnly, { passive: true });
-        };
-
-        guardPointerEvents(panel);
-
         const copyBtn = document.createElement("button");
         copyBtn.type = "button";
         copyBtn.className = "pdf-active-phrase-btn";
         copyBtn.title = "Copy current phrase";
         copyBtn.setAttribute("aria-label", "Copy current phrase");
         copyBtn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>';
-        guardPointerEvents(copyBtn);
+        copyBtn.addEventListener("mousedown", stopBubble);
         copyBtn.addEventListener("click", async (e) => {
             stopBubble(e);
-            await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({
-                successMessage: "Current phrase copied",
-            });
+            await this.app.interactionHandler?.copyCurrentPhraseToClipboard?.({ successMessage: "Current phrase copied" });
         });
 
-        const highlightBtn = document.createElement("button");
-        highlightBtn.type = "button";
-        highlightBtn.className = "pdf-active-phrase-btn";
-        if (highlighted) highlightBtn.classList.add("is-active");
-        highlightBtn.setAttribute("aria-pressed", highlighted ? "true" : "false");
-        highlightBtn.title = highlighted ? "Remove highlight" : "Toggle highlight";
-        highlightBtn.setAttribute("aria-label", highlighted ? "Remove highlight" : "Toggle highlight");
-        highlightBtn.innerHTML = '<span class="material-symbols-outlined">format_ink_highlighter</span>';
-        guardPointerEvents(highlightBtn);
-        highlightBtn.addEventListener("click", (e) => {
-            stopBubble(e);
-            this.app.highlightManager?.toggleCurrentSentenceHighlight?.({ showMessage: true });
+        const highlightColors = [
+            { label: "Yellow", value: "#ffda76" },
+            { label: "Red", value: "#F44336" },
+            { label: "Green", value: "#81C784" },
+            { label: "Blue", value: "#4FC3F7" },
+        ];
+
+        const highlightButtons = highlightColors.map(({ label, value }) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "pdf-active-phrase-btn";
+            const isActive = String(highlighted || "").toLowerCase() === value.toLowerCase();
+            btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+            btn.title = `Highlight ${label.toLowerCase()}`;
+            btn.setAttribute("aria-label", `Highlight current phrase ${label.toLowerCase()}`);
+            if (isActive) {
+                btn.classList.add("is-active");
+                btn.style.borderColor = value;
+                btn.style.background = "rgba(255, 255, 255, 0.09)";
+            }
+
+            const icon = document.createElement("span");
+            icon.className = "material-symbols-outlined";
+            icon.textContent = "format_ink_highlighter";
+            icon.style.color = value;
+            btn.appendChild(icon);
+
+            btn.addEventListener("mousedown", stopBubble);
+            btn.addEventListener("click", (e) => {
+                stopBubble(e);
+                this.app.highlightManager?.saveCurrentSentenceHighlight?.(value);
+            });
+            return btn;
         });
 
         const commentBtn = document.createElement("button");
         commentBtn.type = "button";
         commentBtn.className = "pdf-active-phrase-btn";
-        if (hasComment) commentBtn.classList.add("is-active");
-        commentBtn.setAttribute("aria-pressed", hasComment ? "true" : "false");
-        commentBtn.title = hasComment ? "Edit comment" : "Add comment";
-        commentBtn.setAttribute("aria-label", hasComment ? "Edit comment" : "Add comment");
+        commentBtn.setAttribute("aria-pressed", "false");
+        commentBtn.title = "Add comment";
+        commentBtn.setAttribute("aria-label", "Add comment");
         commentBtn.innerHTML = '<span class="material-symbols-outlined">comment</span>';
-        guardPointerEvents(commentBtn);
+        commentBtn.addEventListener("mousedown", stopBubble);
         commentBtn.addEventListener("click", async (e) => {
             stopBubble(e);
-            await this.app.interactionHandler?.promptCommentForSelection?.([sentenceIndex]);
+            await this.app.highlightManager?.editCurrentSentenceComment?.();
         });
 
         panel.appendChild(copyBtn);
-        panel.appendChild(highlightBtn);
+        for (const btn of highlightButtons) panel.appendChild(btn);
         panel.appendChild(commentBtn);
         wrapper.appendChild(panel);
+        const pageWidth = Math.max(1, wrapper.clientWidth || 0);
+        const panelWidth = panel.offsetWidth || 0;
+        const maxLeft = Math.max(6, pageWidth - panelWidth - 6);
+        panel.style.left = `${Math.min(Math.max(6, left), maxLeft)}px`;
         this._activePhraseActionsEl = panel;
     }
 
@@ -1123,9 +1114,7 @@ export class PDFRenderer {
                 scaleX,
                 scaleY,
                 sentenceIndex: targetSentence.index,
-                highlighted: !!savedHighlightData?.color,
-                hasComment:
-                    typeof savedHighlightData?.comment === "string" && savedHighlightData.comment.trim().length > 0,
+                highlighted: savedHighlightData?.color || "",
             });
         }
 
@@ -1183,7 +1172,7 @@ export class PDFRenderer {
         const pdfDocContainer = document.getElementById("pdf-doc-container");
 
         if (state.generationEnabled && !sentence.layoutProcessed) {
-            await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(pageNumber);
+            await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(pageNumber);
             sentence = state.sentences[idx];
         }
 
@@ -1214,59 +1203,52 @@ export class PDFRenderer {
         this.updateHighlightFullDoc(sentence);
         this.scrollSentenceIntoView(sentence);
 
+        // Prefetch da próxima frase
+        if (state.generationEnabled) {
+            let nextReadableIdx = -1;
+            try {
+                nextReadableIdx = await this.findNextReadableSentenceForward(idx, new Set([idx]));
+            } catch (err) {
+                console.warn("[renderSentence] Failed to resolve next readable sentence", err);
+            }
+
+            if (nextReadableIdx >= 0) {
+                const readableSentence = state.sentences[nextReadableIdx];
+                if (readableSentence && readableSentence.pageNumber !== pageNumber) {
+                    const targetPage = readableSentence.pageNumber;
+                    if (!state.prefetchedPages.has(targetPage)) {
+                        state.prefetchedPages.add(targetPage);
+
+                        const queueSentence = () => {
+                            const candidate = state.sentences[nextReadableIdx];
+                            if (!candidate) return;
+                            if (!candidate.layoutProcessed || !candidate.isTextToRead) return;
+                            if (!candidate.audioReady && !candidate.audioInProgress) {
+                                this.app.ttsQueue.add(nextReadableIdx, true);
+                                this.app.ttsQueue.run();
+                            }
+                        };
+
+                        try {
+                            await this.ensureFullPageRendered(targetPage);
+                            await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(targetPage);
+                            queueSentence();
+                        } catch (err) {
+                            console.warn("[renderSentence] Prefetch workflow failed for page", targetPage, err);
+                            state.prefetchedPages.delete(targetPage);
+                        }
+                    }
+                }
+            }
+        }
+
         if (state.generationEnabled && !sentence.isTextToRead) {
             this.app.ui.showInfo(
                 `Sentence ${sentence.index + 1} is outside readable layout regions. Select another sentence to play.`,
             );
         } else if (!skipTTS) {
-            this.app.ttsQueue.add(state.currentSentenceIndex, {
-                priority: "critical",
-                force: true,
-            });
+            this.app.ttsQueue.add(state.currentSentenceIndex, true);
             this.app.ttsQueue.run();
-        }
-
-        // Keep first-audio latency low: queue current sentence first and prefetch ahead asynchronously.
-        if (state.generationEnabled) {
-            Promise.resolve()
-                .then(async () => {
-                    let nextReadableIdx = -1;
-                    try {
-                        nextReadableIdx = await this.findNextReadableSentenceForward(idx, new Set([idx]));
-                    } catch (err) {
-                        console.warn("[renderSentence] Failed to resolve next readable sentence", err);
-                        return;
-                    }
-
-                    if (nextReadableIdx < 0) return;
-                    const readableSentence = state.sentences[nextReadableIdx];
-                    if (!readableSentence || readableSentence.pageNumber === pageNumber) return;
-
-                    const targetPage = readableSentence.pageNumber;
-                    if (state.prefetchedPages.has(targetPage)) return;
-
-                    state.prefetchedPages.add(targetPage);
-
-                    const queueSentence = () => {
-                        const candidate = state.sentences[nextReadableIdx];
-                        if (!candidate) return;
-                        if (!candidate.layoutProcessed || !candidate.isTextToRead) return;
-                        if (!candidate.audioReady && !candidate.audioInProgress) {
-                            this.app.ttsQueue.add(nextReadableIdx, { priority: "high" });
-                            this.app.ttsQueue.run();
-                        }
-                    };
-
-                    try {
-                        await this.ensureFullPageRendered(targetPage);
-                        await this.app.pdfHeaderFooterDetector.ensureReadabilityForPage(targetPage);
-                        queueSentence();
-                    } catch (err) {
-                        console.warn("[renderSentence] Prefetch workflow failed for page", targetPage, err);
-                        state.prefetchedPages.delete(targetPage);
-                    }
-                })
-                .catch((err) => console.warn("[renderSentence] Async prefetch failed", err));
         }
 
         this.app.ttsEngine.schedulePrefetch();

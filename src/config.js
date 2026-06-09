@@ -1,9 +1,9 @@
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
     VERSION_MAJOR: 0,
-    VERSION_MINOR: 29,
-    VERSION_PATCH: 1,
-    VERSION_BUILD: 4,
+    VERSION_MINOR: 32,
+    VERSION_PATCH: 0,
+    VERSION_BUILD: 0,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -34,11 +34,8 @@ export const CONFIG = {
     SENTENCE_END: [".", ":", "?", "!", ".\"", ":\""],
 
     // TTS
-    PREFETCH_TARGET: 5,
     PREFETCH_AHEAD: 10,
-    // Limit concurrent synthesis while keeping rolling prefetch warm.
-    MAX_CONCURRENT_TTS: 2,
-    MAX_CONCURRENT_SYNTH: 2,
+    MAX_CONCURRENT_SYNTH: navigator.hardwareConcurrency - 1 || 1,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,
     PIPER_VOICES: [

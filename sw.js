@@ -1,15 +1,15 @@
-const APP_VERSION = "0.29.1+4";
+const APP_VERSION = "0.32.0+0";
 const IDB_VERSION = 1;
-const cacheName = `LocalReader-v${APP_VERSION}`;
-const runtimeCache = `LocalReader-runtime-v${APP_VERSION}`;
+const cacheName = `PocketReader-v${APP_VERSION}`;
+const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;
 let coepCredentialless = true;
 
 // Determine the base path (works for both root and subpath deployments)
 const getBasePath = () => {
     const path = self.location.pathname;
-    // If hosted in subdirectory like /LocalReader/
-    if (path.includes("/LocalReader/")) {
-        return "/LocalReader";
+    // If hosted in subdirectory like /PocketReader/
+    if (path.includes("/PocketReader/")) {
+        return "/PocketReader";
     }
     return "";
 };
@@ -397,10 +397,7 @@ const applyCoepHeaders = (response) => {
     const clonedResponse = response.clone();
     const headers = new Headers(clonedResponse.headers);
 
-    headers.set(
-        "Cross-Origin-Embedder-Policy",
-        coepCredentialless ? "credentialless" : "require-corp",
-    );
+    headers.set("Cross-Origin-Embedder-Policy", coepCredentialless ? "credentialless" : "require-corp");
     if (!coepCredentialless) {
         headers.set("Cross-Origin-Resource-Policy", "cross-origin");
     }

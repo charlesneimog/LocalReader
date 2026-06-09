@@ -3,10 +3,6 @@ export class HighlightManager {
         this.app = app;
     }
 
-    _persistHighlights({ allowEmpty = false } = {}) {
-        this.app.highlightsStorage?.saveHighlightsForCurrentDocument?.({ allowEmpty });
-    }
-
     _getActiveSentenceIndex() {
         const { state } = this.app;
         if (!state?.sentences?.length) return -1;
@@ -38,7 +34,7 @@ export class HighlightManager {
         const existingHighlight = state.savedHighlights.get(activeIndex);
         if (existingHighlight?.color) {
             state.savedHighlights.delete(activeIndex);
-            this._persistHighlights({ allowEmpty: true });
+            this.app.highlightsStorage?.saveHighlightsForPdf?.({ allowEmpty: true });
             this._refreshHighlightsForCurrentDocument();
             if (showMessage) this.app.ui?.showInfo?.("Highlight removed");
             return false;
@@ -59,7 +55,7 @@ export class HighlightManager {
             sentenceText,
         });
 
-        this._persistHighlights();
+        this.app.highlightsStorage?.saveHighlightsForPdf?.();
         this._refreshHighlightsForCurrentDocument();
         if (showMessage) this.app.ui?.showInfo?.("Highlight saved");
         return true;
@@ -89,7 +85,7 @@ export class HighlightManager {
                 const next = { ...existing };
                 delete next.comment;
                 state.savedHighlights.set(activeIndex, next);
-                this._persistHighlights();
+                this.app.highlightsStorage?.saveHighlightsForPdf?.();
                 if (state.currentDocumentType === "epub") {
                     this.app.epubRenderer?.updateHighlightDisplay?.();
                 } else {
@@ -114,7 +110,7 @@ export class HighlightManager {
             comment: nextComment,
         });
 
-        this._persistHighlights();
+        this.app.highlightsStorage?.saveHighlightsForPdf?.();
         if (state.currentDocumentType === "epub") {
             this.app.epubRenderer?.updateHighlightDisplay?.();
         } else {
@@ -140,7 +136,7 @@ export class HighlightManager {
 
         if (existingHighlight?.color === highlightColor) {
             state.savedHighlights.delete(currentIndex);
-            this._persistHighlights({ allowEmpty: true });
+            this.app.highlightsStorage.saveHighlightsForPdf({ allowEmpty: true });
             if (state.currentDocumentType === "epub") {
                 this.app.epubRenderer.updateHighlightDisplay();
             } else {
@@ -159,7 +155,7 @@ export class HighlightManager {
             sentenceText: state.sentences[currentIndex].text,
         });
 
-        this._persistHighlights();
+        this.app.highlightsStorage.saveHighlightsForPdf();
         if (state.currentDocumentType === "epub") {
             this.app.epubRenderer.updateHighlightDisplay();
         } else {
@@ -188,7 +184,7 @@ export class HighlightManager {
             return;
         }
         state.savedHighlights.delete(sentenceIndex);
-        this._persistHighlights({ allowEmpty: true });
+        this.app.highlightsStorage.saveHighlightsForPdf({ allowEmpty: true });
         if (state.currentDocumentType === "epub") {
             this.app.epubRenderer.updateHighlightDisplay();
         } else {

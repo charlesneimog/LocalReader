@@ -1,13 +1,13 @@
 <p align="center">
-  <h1 align="center">LocalReader</h1>
+  <h1 align="center">PocketReader</h1>
   <p align="center">
-    <a href="https://charlesneimog.github.io/LocalReader">
+    <a href="https://charlesneimog.github.io/PocketReader">
       <img src="assets/icons/icon.svg" width="10%" alt="Logo">
     </a>
   </p>
 </p>
 
-**LocalReader** is a privacy-focused, offline PDF & EPUB reader with natural-sounding text-to-speech using **Piper**.  
+**PocketReader** is a privacy-focused, offline PDF & EPUB reader with natural-sounding text-to-speech using **Piper**.  
 It runs entirely in your browser and can be installed as a **Progressive Web App (PWA)** for desktop or mobile.
 
 ---
@@ -117,7 +117,7 @@ If you want the same server to also serve the web UI (so you can open `http(s):/
 
 You can configure the target translation language (used by `t`) with `TRANSLATE_TARGET_LANG` in `compose.yml` (example: `pt`, `es`, `fr`).
 
-Put the domain where the selfhost will be accessible in the `Server Link` in the `LocalReader` configuration.
+Put the domain where the selfhost will be accessible in the `Server Link` in the `PocketReader` configuration.
 
 ---
 
@@ -131,5 +131,5 @@ With appreciation to the creators of **Piper**, **Foliate-JS**, **PDF.js**, and 
 
 ### Links
 
-* [Demo (GitHub Pages)](https://charlesneimog.github.io/LocalReader/)
-* [Source Repository](https://github.com/charlesneimog/LocalReader)
+* [Demo (GitHub Pages)](https://charlesneimog.github.io/PocketReader/)
+* [Source Repository](https://github.com/charlesneimog/PocketReader)

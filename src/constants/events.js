@@ -18,8 +18,5 @@ export const EVENTS = {
     HIGHLIGHT_REMOVED: 'highlight:removed',
 
     SENTENCE_HOVER: 'sentence:hover',
-    SENTENCE_CLICK: 'sentence:click',
-
-    NETWORK_ONLINE: 'network:online',
-    NETWORK_OFFLINE: 'network:offline'
+    SENTENCE_CLICK: 'sentence:click'
 };

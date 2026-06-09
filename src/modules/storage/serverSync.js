@@ -1,5 +1,3 @@
-import { NetworkService } from "../../core/networkService.js";
-
 export class ServerSync {
     constructor(app) {
         this.app = app;
@@ -22,9 +20,6 @@ export class ServerSync {
         this.serverPullIntervalMs = 30000; // Check every 30 seconds
         this.lastServerPullCheck = 0;
 
-        this._lastVersionWarningKey = "";
-        this.lastPingMeta = null;
-
         try {
             if (localStorage.getItem("localreaderAuthToken")) {
                 this.pingServer(true).catch(() => {});
@@ -32,16 +27,6 @@ export class ServerSync {
         } catch {
             // ignore
         }
-    }
-
-    _isOffline() {
-        return this.app?.network?.isOffline?.() === true;
-    }
-
-    _blockIfOffline({ showMessage = false, message = "Offline mode: network requests are disabled." } = {}) {
-        if (!this._isOffline()) return false;
-        if (showMessage) this.app.ui?.showInfo?.(message);
-        return true;
     }
 
     _setReloadSuppressionWindow(ms = 15000) {
@@ -74,72 +59,24 @@ export class ServerSync {
     }
 
     async apiFetch(path, { method = "GET", body = null, withAuth = true } = {}) {
-        this.app.network.assertOnline("Offline mode: network requests are disabled.");
         const serverUrl = this.getServerUrl();
         if (!serverUrl) throw new Error("No server URL configured");
 
         this._setReloadSuppressionWindow();
 
         const headers = { "Content-Type": "application/json" };
-        const url = `${serverUrl}${path}`;
+        const finalHeaders = withAuth ? this._withAuthHeaders(headers) : headers;
 
-        let res;
-        try {
-            res = await this._fetch(
-                url,
-                {
-                    method,
-                    headers,
-                    body: body ? JSON.stringify(body) : undefined,
-                },
-                { withAuth },
-            );
-        } catch (error) {
-            if (NetworkService.isOfflineError(error)) {
-                throw error;
-            }
-            console.error("[ServerSync] Network error during API request", {
-                method,
-                path,
-                serverUrl,
-                error,
-            });
-            const e = new Error(
-                "Network error while contacting server. Check Server Link, HTTPS certificate, and reverse proxy.",
-            );
-            e.cause = error;
-            e.path = path;
-            e.method = method;
-            throw e;
-        }
+        const res = await fetch(`${serverUrl}${path}`, {
+            method,
+            headers: finalHeaders,
+            body: body ? JSON.stringify(body) : undefined,
+        });
 
-        const rawText = await res.text().catch(() => "");
-        let data = {};
-        if (rawText) {
-            try {
-                data = JSON.parse(rawText);
-            } catch {
-                data = {};
-            }
-        }
-
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-            const rawSnippet = (rawText || "").trim().slice(0, 400);
-            const msg = data?.error || rawSnippet || `${res.status} ${res.statusText}`;
-            const e = new Error(msg);
-            e.status = res.status;
-            e.statusText = res.statusText;
-            e.path = path;
-            e.method = method;
-            e.responseText = rawSnippet;
-            console.error("[ServerSync] API request failed", {
-                method,
-                path,
-                status: res.status,
-                statusText: res.statusText,
-                responseText: rawSnippet,
-            });
-            throw e;
+            const msg = data?.error || `${res.status} ${res.statusText}`;
+            throw new Error(msg);
         }
         return data;
     }
@@ -200,81 +137,9 @@ export class ServerSync {
         return { ...headers, Authorization: `Bearer ${token}` };
     }
 
-    _isPrivateIpv4(hostname) {
-        if (typeof hostname !== "string") return false;
-        const m = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-        if (!m) return false;
-        const octets = m.slice(1).map((n) => Number.parseInt(n, 10));
-        if (octets.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) return false;
-
-        const [a, b] = octets;
-        if (a === 10) return true;
-        if (a === 172 && b >= 16 && b <= 31) return true;
-        if (a === 192 && b === 168) return true;
-        if (a === 169 && b === 254) return true;
-        // RFC 6598 shared address space (CGNAT), commonly seen behind reverse proxies/tunnels.
-        if (a === 100 && b >= 64 && b <= 127) return true;
-        return false;
-    }
-
-    _isCrossOriginHttpsUrl(url) {
-        try {
-            const u = new URL(String(url), window.location.href);
-            return u.origin !== window.location.origin && u.protocol === "https:";
-        } catch {
-            return false;
-        }
-    }
-
-    _inferTargetAddressSpace(url) {
-        try {
-            const u = new URL(String(url), window.location.href);
-            const host = (u.hostname || "").toLowerCase();
-
-            // Loopback/local hostnames
-            if (host === "localhost" || host === "::1" || host.startsWith("127.")) return "local";
-
-            // mDNS/local devices and private RFC1918/link-local ranges
-            if (host.endsWith(".local") || this._isPrivateIpv4(host)) return "private";
-
-            // IPv6 private/link-local ranges
-            if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return "private";
-        } catch {
-            // ignore URL parse issues
-        }
-        return null;
-    }
-
-    _buildPnaAwareFetchOptions(url, options = {}) {
-        const requestOptions = {
-            mode: "cors",
-            credentials: "omit",
-            redirect: "follow",
-            cache: "no-store",
-            ...options,
-        };
-
-        if (!requestOptions.targetAddressSpace) {
-            const targetAddressSpace = this._inferTargetAddressSpace(url);
-            if (targetAddressSpace) {
-                // Hint for modern Chrome networking checks when talking to local/private network targets.
-                requestOptions.targetAddressSpace = targetAddressSpace;
-            } else if (this._isCrossOriginHttpsUrl(url)) {
-                // Some self-hosted domains resolve to private/shared ranges (e.g. CGNAT) and
-                // Chrome enforces PNA more strictly there. Default to "private" for cross-origin
-                // HTTPS API calls to avoid browser-side "Failed to fetch" blocks.
-                requestOptions.targetAddressSpace = "private";
-            }
-        }
-
-        return requestOptions;
-    }
-
-    _fetch(url, options = {}, { withAuth = true } = {}) {
-        const baseHeaders = options.headers || {};
-        const headers = withAuth ? this._withAuthHeaders(baseHeaders) : baseHeaders;
-        const requestOptions = this._buildPnaAwareFetchOptions(url, { ...options, headers });
-        return this.app.network.fetch(url, requestOptions);
+    _fetch(url, options = {}) {
+        const headers = this._withAuthHeaders(options.headers || {});
+        return fetch(url, { ...options, headers });
     }
 
     _addAutoSyncListener(element, type, handler, options) {
@@ -377,7 +242,6 @@ export class ServerSync {
     }
 
     async _maybePullServerStateUpdates() {
-        if (this._isOffline()) return;
         const now = Date.now();
         if (now - this.lastServerPullCheck < this.serverPullIntervalMs) return;
         this.lastServerPullCheck = now;
@@ -389,7 +253,6 @@ export class ServerSync {
     }
 
     queuePositionSync(fileId, sentenceIndex, { debounceMs } = {}) {
-        if (this._isOffline()) return;
         if (!this.isEnabled()) return;
         if (!fileId) return;
         if (!Number.isFinite(sentenceIndex) || sentenceIndex < 0) return;
@@ -412,7 +275,6 @@ export class ServerSync {
     }
 
     queueVoiceSync(fileId, voice, { debounceMs } = {}) {
-        if (this._isOffline()) return;
         if (!this.isEnabled()) return;
         if (!fileId) return;
         if (typeof voice !== "string" || !voice.trim()) return;
@@ -435,7 +297,6 @@ export class ServerSync {
     }
 
     async pullServerStateUpdates() {
-        if (this._isOffline()) return;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) return;
 
@@ -607,7 +468,6 @@ export class ServerSync {
     }
 
     async deleteFileOnServer(fileId) {
-        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) return false;
 
@@ -627,66 +487,10 @@ export class ServerSync {
     }
 
     async checkServerAvailability() {
-        if (this._isOffline()) return false;
         return await this.pingServer(false);
     }
 
-    _normalizeVersionValue(value) {
-        if (typeof value !== "string" && typeof value !== "number") return "";
-        return String(value).trim().replace(/^v/i, "");
-    }
-
-    _getCurrentAppVersion() {
-        const cfg = this.app?.config || {};
-        const major = Number.parseInt(cfg.VERSION_MAJOR, 10);
-        const minor = Number.parseInt(cfg.VERSION_MINOR, 10);
-        const patch = Number.parseInt(cfg.VERSION_PATCH, 10);
-        const build = Number.parseInt(cfg.VERSION_BUILD, 10);
-
-        if (![major, minor, patch, build].every((n) => Number.isFinite(n))) {
-            return "";
-        }
-
-        return `${major}.${minor}.${patch}+${build}`;
-    }
-
-    _warnIfVersionMismatch(pingData, showMessages = false) {
-        const appVersion = this._normalizeVersionValue(this._getCurrentAppVersion());
-        const serverVersion = this._normalizeVersionValue(
-            pingData?.version || pingData?.server_version || pingData?.app_version,
-        );
-
-        this.lastPingMeta = {
-            checkedAt: Date.now(),
-            appVersion,
-            serverVersion,
-        };
-
-        if (!appVersion || !serverVersion) return;
-
-        if (appVersion === serverVersion) {
-            this._lastVersionWarningKey = "";
-            return;
-        }
-
-        const warningKey = `${appVersion}|${serverVersion}`;
-        const warningMsg = `⚠️ Version mismatch: app v${appVersion} and server v${serverVersion}.`;
-        console.warn("[ServerSync] Version mismatch detected", {
-            appVersion,
-            serverVersion,
-        });
-
-        if (this._lastVersionWarningKey !== warningKey || showMessages) {
-            this.app.ui?.showInfo?.(warningMsg);
-        }
-
-        this._lastVersionWarningKey = warningKey;
-    }
-
     async pingServer(showMessages = true) {
-        if (this._blockIfOffline({ showMessage: showMessages })) {
-            return false;
-        }
         const serverUrl = this.getServerUrl();
         if (!serverUrl) {
             const msg = "No server URL configured";
@@ -695,11 +499,6 @@ export class ServerSync {
                 this.app.ui?.showInfo?.("❌ Ping failed: No server URL configured");
             }
             return false;
-        }
-
-        // console.log(`[ServerSync] Pinging server: ${serverUrl}`);
-        if (showMessages) {
-            this.app.ui?.showInfo?.("Pinging server...");
         }
 
         try {
@@ -717,15 +516,10 @@ export class ServerSync {
 
             if (response.ok) {
                 const data = await response.json();
-                this._warnIfVersionMismatch(data, showMessages);
                 // console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
                 if (showMessages) {
                     //this.app.ui?.showInfo?.(`✓ Server is accessible (${pingTime}ms)`);
-                    const serverVersion = this._normalizeVersionValue(
-                        data?.version || data?.server_version || data?.app_version,
-                    );
-                    const versionSuffix = serverVersion ? ` [server v${serverVersion}]` : "";
-                    console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms)${versionSuffix}:`, data.message);
+                    console.log(`[ServerSync] ✓ Ping successful (${pingTime}ms):`, data.message);
                 }
                 return true;
             } else {
@@ -740,12 +534,6 @@ export class ServerSync {
             let errorMsg = error.message;
             if (error.name === "AbortError") {
                 errorMsg = "Connection timeout (server not responding)";
-            } else if (/failed to fetch|networkerror/i.test(String(error?.message || ""))) {
-                const pingUrl = `${serverUrl}/api/ping`;
-                if (this._isCrossOriginHttpsUrl(pingUrl)) {
-                    errorMsg =
-                        "Failed to fetch (browser blocked network path). Check PNA/private-network access and DNS routing for this server host.";
-                }
             }
             console.error("[ServerSync] ✗ Ping failed:", errorMsg);
             if (showMessages) {
@@ -772,16 +560,13 @@ export class ServerSync {
     async _translateTextWithGoogleFallback(text, { target = null } = {}) {
         const payloadText = (text || "").trim();
         if (!payloadText) return null;
-        if (this._isOffline()) {
-            this.app.network.assertOnline("Translation requires an internet connection.");
-        }
 
         const targetLang = this._resolveTranslationTarget(target);
         const url =
             "https://translate.googleapis.com/translate_a/single" +
             `?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(payloadText)}`;
 
-        const res = await this._fetch(url, { method: "GET" }, { withAuth: false });
+        const res = await fetch(url);
         if (!res.ok) return null;
 
         const data = await res.json().catch(() => null);
@@ -803,123 +588,35 @@ export class ServerSync {
     async translateText(text, { target = null } = {}) {
         const payloadText = (text || "").trim();
         if (!payloadText) return null;
-
-        this.app.network.assertOnline("Translation requires an internet connection.");
-
         const effectiveTarget = this._resolveTranslationTarget(target);
 
         const serverUrl = this.getServerUrl();
-
-        // no server -> google only
         if (!serverUrl) {
-            try {
-                const result = await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
-                if (result?.detectedSource && this.app?.state) {
-                    this.app.state.lastDetectedSourceLanguage = result.detectedSource;
-                    if (!this.app.state.documentOriginalLanguage) {
-                        this.app.state.documentOriginalLanguage = result.detectedSource;
-                    }
-                }
-                if (!result) {
-                    void this.app?.handleTranslationFailure?.({
-                        target: effectiveTarget,
-                        text: payloadText,
-                    });
-                }
-                return result;
-            } catch {
-                void this.app?.handleTranslationFailure?.({
-                    target: effectiveTarget,
-                    text: payloadText,
-                });
-                return null;
-            }
-        }
-
-        const serverPromise = (async () => {
-            try {
-                const response = await this._fetch(`${serverUrl}/api/translate`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        text: payloadText,
-                        target: effectiveTarget,
-                    }),
-                });
-
-                const data = await response.json().catch(() => ({}));
-
-                if (!response.ok) {
-                    throw new Error(data?.error || `Translate failed: ${response.status}`);
-                }
-
-                return data;
-            } catch (e) {
-                if (NetworkService.isOfflineError(e)) {
-                    throw e;
-                }
-
-                return null;
-            }
-        })();
-
-        const googlePromise = (async () => {
-            // delay google start by 200ms
-            await new Promise((resolve) => setTimeout(resolve, 200));
-
             try {
                 return await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
             } catch {
                 return null;
             }
-        })();
+        }
 
-        return await new Promise((resolve, reject) => {
-            let finished = false;
-            let failures = 0;
-
-            const tryResolve = (result) => {
-                if (finished) return;
-
-                if (result) {
-                    if (result?.detectedSource && this.app?.state) {
-                        this.app.state.lastDetectedSourceLanguage = result.detectedSource;
-                        if (!this.app.state.documentOriginalLanguage) {
-                            this.app.state.documentOriginalLanguage = result.detectedSource;
-                        }
-                    }
-                    finished = true;
-                    resolve(result);
-                    return;
-                }
-
-                failures++;
-
-                if (failures >= 2) {
-                    void this.app?.handleTranslationFailure?.({
-                        target: effectiveTarget,
-                        text: payloadText,
-                    });
-                    finished = true;
-                    resolve(null);
-                }
-            };
-
-            serverPromise.then(tryResolve).catch((e) => {
-                if (NetworkService.isOfflineError(e)) {
-                    reject(e);
-                    return;
-                }
-
-                tryResolve(null);
+        try {
+            const response = await this._fetch(`${serverUrl}/api/translate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: payloadText, target: effectiveTarget }),
             });
 
-            googlePromise.then(tryResolve).catch(() => {
-                tryResolve(null);
-            });
-        });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const msg = data?.error || `Translate failed: ${response.status} ${response.statusText}`;
+                this.app.ui?.showInfo?.(msg);
+                return null;
+            }
+            return data;
+        } catch (e) {
+            this.app.ui?.showInfo?.("⚠️ Translate request failed");
+            return null;
+        }
     }
 
     async checkFileExists(fileId) {
@@ -942,7 +639,6 @@ export class ServerSync {
     }
 
     async uploadFile(file, fileId, format, voice = null) {
-        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) {
             console.warn("[ServerSync] No server URL configured");
@@ -994,7 +690,6 @@ export class ServerSync {
     }
 
     async syncPosition(fileId, sentenceIndex) {
-        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId || sentenceIndex < 0) return false;
 
@@ -1042,7 +737,6 @@ export class ServerSync {
     }
 
     async syncVoice(fileId, voice) {
-        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId || !voice) return false;
 
@@ -1090,7 +784,6 @@ export class ServerSync {
     }
 
     async syncTranslationSettings(fileId, { target, mode } = {}) {
-        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) return false;
 
@@ -1143,7 +836,6 @@ export class ServerSync {
     }
 
     async syncHighlights(fileId, highlights) {
-        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) return false;
 
@@ -1216,9 +908,6 @@ export class ServerSync {
     }
 
     async loadPositionAndHighlightsFromServer(fileId) {
-        if (this._isOffline()) {
-            return { position: null, voice: null, highlights: null, translationTarget: null, translationMode: null };
-        }
         const serverUrl = this.getServerUrl();
         if (!serverUrl || !fileId) {
             // console.log("[ServerSync] Cannot load from server - no URL or file ID");
@@ -1297,7 +986,6 @@ export class ServerSync {
     }
 
     async findFileIdOnServer(localFileId) {
-        if (this._isOffline()) return null;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) return null;
 
@@ -1347,7 +1035,6 @@ export class ServerSync {
     }
 
     async ensureFileOnServer() {
-        if (this._isOffline()) return false;
         const { state } = this.app;
         if (!this.isEnabled()) return false;
 
@@ -1489,7 +1176,6 @@ export class ServerSync {
     }
 
     async syncAll() {
-        if (this._isOffline()) return;
         if (this.isSyncing || !this.isEnabled()) return;
 
         const { state } = this.app;
@@ -1536,7 +1222,7 @@ export class ServerSync {
     startAutoSync() {
         this.stopAutoSync();
 
-        if (this._isOffline() || !this.isEnabled()) {
+        if (!this.isEnabled()) {
             // console.log("[ServerSync] Auto-sync disabled - no server configured");
             return;
         }
@@ -1544,7 +1230,6 @@ export class ServerSync {
 
         const onWake = async () => {
             if (!this._autoSyncEnabled) return;
-            if (this._isOffline()) return;
             await this._maybePullServerStateUpdates();
             // Keep downloads up to date when the app regains focus/network.
             await this.syncFromServer();
@@ -1588,7 +1273,6 @@ export class ServerSync {
     }
 
     async manualSync() {
-        if (this._blockIfOffline({ showMessage: true })) return;
         this.app.ui?.showInfo?.("Syncing to server...");
         await this.syncAll();
         if (this.lastSyncTime > 0) {
@@ -1597,10 +1281,8 @@ export class ServerSync {
     }
 
     async syncFromServer() {
-        if (this._isOffline()) return;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) {
-            // console.log("[ServerSync] No server configured for download");
             return;
         }
 
@@ -1620,8 +1302,6 @@ export class ServerSync {
 
             const data = await response.json();
             const serverFiles = data.files || [];
-
-            // console.log(`[ServerSync] Found ${serverFiles.length} files on server`);
 
             // Get local files
             const localPdfKeys = await this.app.progressManager.listSavedPDFs();
@@ -1727,7 +1407,6 @@ export class ServerSync {
     }
 
     async downloadFile(fileInfo) {
-        if (this._isOffline()) return false;
         const serverUrl = this.getServerUrl();
         if (!serverUrl) return false;
 

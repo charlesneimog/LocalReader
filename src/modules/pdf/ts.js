@@ -5,29 +5,6 @@ let processor;
 let initPromise = null;
 const MODEL_VERSION = "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis";
 
-let lastProgressPct = -1;
-let lastProgressAt = 0;
-
-const reportProgress = (progress) => {
-    if (!progress) return;
-    const loaded = Number(progress.loaded ?? progress.completed ?? NaN);
-    const total = Number(progress.total ?? progress.size ?? NaN);
-    let pct = Number(progress.progress ?? progress.percentage ?? NaN);
-
-    if (!Number.isFinite(pct) && Number.isFinite(loaded) && Number.isFinite(total) && total > 0) {
-        pct = (loaded / total) * 100;
-    }
-    if (!Number.isFinite(pct)) return;
-
-    const rounded = Math.max(0, Math.min(100, Math.round(pct)));
-    const now = self.performance?.now ? self.performance.now() : Date.now();
-    if (rounded === lastProgressPct && now - lastProgressAt < 250) return;
-
-    lastProgressPct = rounded;
-    lastProgressAt = now;
-    self.postMessage({ status: "download-progress", pct: rounded });
-};
-
 const serializeError = (error) => ({
     message: error?.message || String(error),
     stack: error?.stack || null,
@@ -42,14 +19,10 @@ function ensureInitialized(config) {
             env.backends.onnx.backend = config.webgpu ? "webgpu" : "wasm";
             env.backends.onnx.logLevel = "error";
             env.allowLocalModels = false;
-            env.progress_callback = reportProgress;
             model = await AutoModel.from_pretrained("Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis", {
                 dtype: "fp32",
-                progress_callback: reportProgress,
             });
-            processor = await AutoProcessor.from_pretrained("Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis", {
-                progress_callback: reportProgress,
-            });
+            processor = await AutoProcessor.from_pretrained("Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis");
         })()
             .then(() => {
                 self.postMessage({ status: "ready" });

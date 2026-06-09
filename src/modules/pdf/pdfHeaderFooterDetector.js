@@ -5,8 +5,6 @@ export class PDFHeaderFooterDetector {
         this._pageContainers = new Map();
         this._pendingOverlayData = new Map();
         this.debug = false;
-        this._lastDownloadPct = -1;
-        this._lastDownloadAt = 0;
 
         this.app.ui.showInfo("Loading AI layout model...");
         this.worker = new Worker("./src/modules/pdf/ts.js", { type: "module" });
@@ -24,10 +22,6 @@ export class PDFHeaderFooterDetector {
 
         this.worker.onmessage = (event) => {
             const { status, requestId } = event.data || {};
-            if (status === "download-progress") {
-                this._handleDownloadProgress(event.data);
-                return;
-            }
             if (status === "ready") {
                 if (typeof this._resolveWorkerReady === "function") this._resolveWorkerReady();
                 return;
@@ -83,18 +77,20 @@ export class PDFHeaderFooterDetector {
         this._modelReady = this.workerReadyPromise;
     }
 
-    _handleDownloadProgress(payload) {
-        const pct = Number(payload?.pct);
-        if (!Number.isFinite(pct)) return;
-
-        const rounded = Math.max(0, Math.min(100, Math.round(pct)));
-        const now = performance.now ? performance.now() : Date.now();
-
-        if (rounded === this._lastDownloadPct && now - this._lastDownloadAt < 250) return;
-        this._lastDownloadPct = rounded;
-        this._lastDownloadAt = now;
-
-        this.app.ui?.showMessage?.(`Downloading layout model: ${rounded}%`, 1200);
+    dispose() {
+        try {
+            this.worker?.terminate?.();
+        } catch (error) {
+            console.debug("[Layout] Failed to terminate worker", error);
+        }
+        this._pendingWorkerRequests.forEach((pending) => {
+            pending.reject(new Error("Layout detector disposed"));
+        });
+        this._pendingWorkerRequests.clear();
+        this._pendingDetectionsByPage.clear();
+        this.worker = null;
+        this._modelReady = null;
+        this.workerReadyPromise = null;
     }
 
     _initModels() {

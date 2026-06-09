@@ -7,42 +7,29 @@ export class AudioManager {
         this._playPromise = null;
         this._playbackContext = null;
         this._playbackContextId = 0;
+        this._mediaBridgeAudio = null;
+        this._mediaBridgeObjectUrl = null;
+        this._mediaBridgeSyncing = false;
+        this._waitingForAudioNoticeKey = null;
+        this._setupMediaBridge();
+        this._setupMediaSession();
     }
 
-    async playCurrentSentence(options = {}) {
+    async playCurrentSentence() {
         const { state } = this.app;
-        const { userInitiated = false } = options;
         if (state.isPlaying) {
             return;
-        }
-
-        if (state.playbackPending && this._playPromise) {
-            return this._playPromise;
-        }
-
-        if (userInitiated) {
-            state.playbackPending = true;
-            this.app.ui.updatePlayButton(state.playerState.LOADING);
-            try {
-                await this.app.ttsEngine.ensureAudioContext({ resume: true });
-            } catch (error) {
-                console.debug("[TTS] AudioContext resume failed", error);
-            }
         }
 
         const context = {
             id: this._playbackContextId++,
             sentenceIndex: state.currentSentenceIndex,
-            userInitiated: userInitiated,
         };
         this._playbackContext = context;
+        this._clearWaitingForAudio();
 
         const playPromise = this._playCurrentSentence(context);
         this._playPromise = playPromise.finally(() => {
-            if (!state.isPlaying && state.playbackPending) {
-                state.playbackPending = false;
-                this.app.ui.updatePlayButton(state.playerState.DONE);
-            }
             if (this._playPromise === playPromise) {
                 this._playPromise = null;
             }
@@ -53,13 +40,6 @@ export class AudioManager {
     async _playEPUBSentence(context) {
         const { config, state } = this.app;
 
-        const voiceSelect = document.getElementById("voice-select");
-        const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "EPUB", {
-            userInitiated: context?.userInitiated === true,
-        });
-        if (!canWarmup) return;
-
         await this.app.epubLoader.ensureLayoutFilteringReady();
         if (!this._isContextActive(context)) return;
 
@@ -69,7 +49,7 @@ export class AudioManager {
         }
 
         if (state.currentSentenceIndex < 0) {
-            await this.app.getActiveRenderer()?.renderSentence?.(0, { suppressScroll: true });
+            await this.app.pdfRenderer.renderSentence(0, { suppressScroll: true });
             if (!this._isContextActive(context)) return;
         }
 
@@ -87,49 +67,36 @@ export class AudioManager {
         }
 
         sentence = ensuredSentence;
+        context.sentenceIndex = state.currentSentenceIndex;
+
+        await this.app.ttsEngine.ensureAudioContext();
+        if (!this._isContextActive(context)) return;
+
         if (!state.generationEnabled) {
             state.generationEnabled = true;
         }
-        // Kick off rolling prefetch as soon as we have a valid sentence.
-        this.app.ttsEngine.schedulePrefetch();
-        context.sentenceIndex = state.currentSentenceIndex;
 
-        await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
-        if (!this._isContextActive(context)) return;
-
-        const maxWaitMs = context?.userInitiated ? 60000 : 15000;
-        const startTs = Date.now();
-        let queued = false;
+        let attempts = 0;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
-            if (!queued) {
-                this.app.ttsQueue.add(state.currentSentenceIndex, {
-                    priority: "critical",
-                    force: true,
-                });
+            if (attempts === 0) {
+                this.app.ttsQueue.add(state.currentSentenceIndex, true);
                 this.app.ttsQueue.run();
-                queued = true;
             }
+            this._showWaitingForAudio(sentence);
+            attempts += 1;
             try {
-                await waitFor(() => sentence.audioReady || sentence.audioError, 2000);
+                await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
             } catch {}
             if (!this._isContextActive(context)) return;
             if (sentence.audioReady && sentence.audioBuffer) break;
-            if (sentence.audioError || state.stopRequested) {
-                break;
-            }
-            const elapsed = Date.now() - startTs;
-            const stillWorking =
-                sentence.audioInProgress ||
-                sentence.rendering ||
-                state.piperLoading ||
-                !!this.app.ttsEngine?.initializingPromise;
-            if (!stillWorking || elapsed >= maxWaitMs) {
+            if (sentence.audioError || state.stopRequested || attempts >= 3) {
                 break;
             }
         }
 
         if (!sentence.audioReady || sentence.audioError || !sentence.audioBuffer) {
+            this._clearWaitingForAudio();
             if (!sentence.audioError && !state.stopRequested && this._isContextActive(context)) {
                 await delay(300);
                 if (this._isContextActive(context) && !state.stopRequested) {
@@ -180,10 +147,11 @@ export class AudioManager {
             }
 
             source.start();
+            this._clearWaitingForAudio();
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
-            state.playbackPending = false;
+            await this._activateMediaBridge(sentence);
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -211,16 +179,8 @@ export class AudioManager {
 
     async _playPDFSentence(context) {
         const { config, state } = this.app;
-        const voiceSelect = document.getElementById("voice-select");
-        const selectedVoice = voiceSelect?.value || config.DEFAULT_PIPER_VOICE;
-        const canWarmup = await this._warmupVoiceForPlayback(selectedVoice, "PDF", {
-            userInitiated: context?.userInitiated === true,
-        });
-        if (!canWarmup) return;
         try {
-            await this.app.pdfLoader.ensureLayoutFilteringReady({
-                userInitiated: context?.userInitiated === true,
-            });
+            await this.app.pdfLoader.ensureLayoutFilteringReady();
         } catch (err) {
             console.error("Layout preparation failed:", err);
             if (this._isContextActive(context)) {
@@ -249,49 +209,36 @@ export class AudioManager {
         }
 
         sentence = ensuredSentence;
+        context.sentenceIndex = state.currentSentenceIndex;
+
+        await this.app.ttsEngine.ensureAudioContext();
+        if (!this._isContextActive(context)) return;
+
         if (!state.generationEnabled) {
             state.generationEnabled = true;
         }
-        // Kick off rolling prefetch as soon as we have a valid sentence.
-        this.app.ttsEngine.schedulePrefetch();
-        context.sentenceIndex = state.currentSentenceIndex;
 
-        await this.app.ttsEngine.ensureAudioContext({ resume: context?.userInitiated === true });
-        if (!this._isContextActive(context)) return;
-
-        const maxWaitMs = context?.userInitiated ? 60000 : 15000;
-        const startTs = Date.now();
-        let queued = false;
+        let attempts = 0;
         while ((!sentence.audioReady || !sentence.audioBuffer) && !sentence.audioError) {
             if (!this._isContextActive(context)) return;
-            if (!queued) {
-                this.app.ttsQueue.add(state.currentSentenceIndex, {
-                    priority: "critical",
-                    force: true,
-                });
+            if (attempts === 0) {
+                this.app.ttsQueue.add(state.currentSentenceIndex, true);
                 this.app.ttsQueue.run();
-                queued = true;
             }
+            this._showWaitingForAudio(sentence);
+            attempts += 1;
             try {
-                await waitFor(() => sentence.audioReady || sentence.audioError, 2000);
+                await waitFor(() => sentence.audioReady || sentence.audioError, 5000);
             } catch {}
             if (!this._isContextActive(context)) return;
             if (sentence.audioReady && sentence.audioBuffer) break;
-            if (sentence.audioError || state.stopRequested) {
-                break;
-            }
-            const elapsed = Date.now() - startTs;
-            const stillWorking =
-                sentence.audioInProgress ||
-                sentence.rendering ||
-                state.piperLoading ||
-                !!this.app.ttsEngine?.initializingPromise;
-            if (!stillWorking || elapsed >= maxWaitMs) {
+            if (sentence.audioError || state.stopRequested || attempts >= 3) {
                 break;
             }
         }
 
         if (!sentence.audioReady || sentence.audioError || !sentence.audioBuffer) {
+            this._clearWaitingForAudio();
             if (!sentence.audioError && !state.stopRequested && this._isContextActive(context)) {
                 await delay(300);
                 if (this._isContextActive(context) && !state.stopRequested) {
@@ -342,11 +289,12 @@ export class AudioManager {
             }
 
             source.start();
+            this._clearWaitingForAudio();
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
+            await this._activateMediaBridge(sentence);
             this.app.pdfRenderer.updateHighlightFullDoc();
-            state.playbackPending = false;
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -382,15 +330,6 @@ export class AudioManager {
             return;
         }
 
-        if (context?.userInitiated && this.app.isReadTranslationEnabled?.()) {
-            try {
-                await this.app.ensureReadTranslationVoiceReady?.();
-            } catch (error) {
-                console.warn("[TTS] Read translation voice sync failed", error);
-            }
-            if (!this._isContextActive(context)) return;
-        }
-
         try {
             if (state.currentDocumentType === "pdf") {
                 await this._playPDFSentence(context);
@@ -407,52 +346,11 @@ export class AudioManager {
             } catch {}
             state.audioCtx = null;
         }
-
-    }
-
-    async _warmupVoiceForPlayback(selectedVoice, label, options = {}) {
-        const offline = this.app.network?.isOffline?.() === true;
-        const userInitiated = options?.userInitiated === true;
-        if (!offline) {
-            try {
-                await this.app.ttsEngine.ensurePiper(selectedVoice, { silent: !userInitiated });
-                return true;
-            } catch (err) {
-                if (this.app.ttsEngine.isOfflineVoiceError?.(err)) {
-                    const msg =
-                        typeof err?.message === "string" && err.message.trim()
-                            ? err.message
-                            : "This voice is not available offline. Please connect to the internet to download it first.";
-                    this.app.ui?.showInfo?.(msg);
-                    return false;
-                }
-                console.warn(`[TTS] Piper warm-up during ${label} playback start failed`, err);
-                return false;
-            }
-        }
-
-        try {
-            await this.app.ttsEngine.ensurePiper(selectedVoice);
-            return true;
-        } catch (err) {
-            if (this.app.ttsEngine.isOfflineVoiceError?.(err)) {
-                const msg =
-                    typeof err?.message === "string" && err.message.trim()
-                        ? err.message
-                        : "This voice is not available offline. Please connect to the internet to download it first.";
-                this.app.ui?.showInfo?.(msg);
-                return false;
-            }
-            console.warn(`[TTS] Piper warm-up during ${label} playback start failed`, err);
-            return false;
-        }
     }
 
     async stopPlayback(fade = true, options = {}) {
         const { state, config } = this.app;
         const { clearContext = true, emitEvent = true } = options;
-
-        const wasPending = state.playbackPending;
 
         state.stopRequested = true;
 
@@ -511,23 +409,21 @@ export class AudioManager {
         state.currentSource = null;
         state.currentGain = null;
         state.isPlaying = false;
-        state.playbackPending = false;
         state.autoAdvanceActive = false;
         state.playingSentenceIndex = -1;
+        this._clearWaitingForAudio();
+        this._pauseMediaBridge();
 
         const currentSentence = state.currentSentence;
         if (currentSentence) this.clearWordBoundaryTimers(currentSentence);
         this.app.pdfRenderer.updateHighlightFullDoc();
+        this._setMediaSessionPlaybackState("paused");
         if (emitEvent) {
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_PAUSE, { index: state.currentSentenceIndex });
         }
 
         if (clearContext) {
             this._playbackContext = null;
-        }
-
-        if (wasPending && !state.isPlaying) {
-            this.app.ui.updatePlayButton(state.playerState.DONE);
         }
     }
 
@@ -538,7 +434,8 @@ export class AudioManager {
             state.autoAdvanceActive = false;
             this.app.ui.updatePlayButton(state.playerState.PAUSE);
         } else {
-            this.playCurrentSentence({ userInitiated: true });
+            this.playCurrentSentence();
+            this.app.ui.updatePlayButton(state.playerState.PLAY);
         }
     }
 
@@ -564,7 +461,7 @@ export class AudioManager {
                 return null;
             }
 
-            await this.app.getActiveRenderer()?.renderSentence?.(nextIndex, { autoAdvance: true });
+            await this.app.pdfRenderer.renderSentence(nextIndex, { autoAdvance: true });
             current = state.currentSentence;
             attempts += 1;
         }
@@ -585,10 +482,27 @@ export class AudioManager {
         sentence.audioReady = false;
         sentence.audioBuffer = null;
         sentence.audioError = null;
-        sentence.audioInProgress = false;
-        sentence.rendering = false;
         sentence.prefetchQueued = false;
         sentence.wordBoundaries = [];
+    }
+
+    _showWaitingForAudio(sentence) {
+        const { state } = this.app;
+        const sentenceIndex = Number.isFinite(sentence?.index) ? sentence.index : state.currentSentenceIndex;
+        const key = `${state.currentDocumentType || "doc"}:${sentenceIndex}`;
+
+        this.app.ui.updatePlayButton(state.playerState.LOADING);
+        if (this._waitingForAudioNoticeKey === key) return;
+
+        this._waitingForAudioNoticeKey = key;
+        const friendlyPosition = Number.isFinite(sentenceIndex) && sentenceIndex >= 0 ? sentenceIndex + 1 : null;
+        const prefix = state.autoAdvanceActive ? "Preparing the next voice" : "Preparing audio";
+        const suffix = friendlyPosition ? ` (${friendlyPosition}/${state.sentences.length})` : "";
+        this.app.ui.showMessage(`${prefix}${suffix}. Long passages can take a moment.`, 4500);
+    }
+
+    _clearWaitingForAudio() {
+        this._waitingForAudioNoticeKey = null;
     }
 
     _isContextActive(context) {
@@ -623,6 +537,7 @@ export class AudioManager {
 
         state.isPlaying = false;
         state.playingSentenceIndex = -1;
+        this._pauseMediaBridge();
         this.app.pdfRenderer.updateHighlightFullDoc();
 
         const hasNextSentence =
@@ -631,6 +546,7 @@ export class AudioManager {
         if (!state.autoAdvanceActive || !hasNextSentence) {
             state.autoAdvanceActive = false;
             this._invalidateContext(context);
+            this._setMediaSessionPlaybackState("paused");
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
             return;
         }
@@ -639,17 +555,18 @@ export class AudioManager {
         if (!this._isContextActive(context) || state.stopRequested) {
             state.autoAdvanceActive = false;
             this._invalidateContext(context);
+            this._setMediaSessionPlaybackState("paused");
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
             return;
         }
 
         try {
             await this.app.pdfRenderer.renderSentence(finishedIndex + 1, { autoAdvance: true });
-            this.app.ttsEngine.schedulePrefetch();
         } catch (err) {
             console.warn("Auto-advance render failed", err);
             state.autoAdvanceActive = false;
             this._invalidateContext(context);
+            this._setMediaSessionPlaybackState("paused");
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
             return;
         }
@@ -660,6 +577,216 @@ export class AudioManager {
             await this.playCurrentSentence();
         }
         this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
+    }
+
+    _setupMediaBridge() {
+        if (typeof document === "undefined") return;
+
+        const audio = document.createElement("audio");
+        audio.id = "localreader-media-bridge";
+        audio.preload = "auto";
+        audio.setAttribute("aria-hidden", "true");
+        audio.tabIndex = -1;
+        audio.controls = false;
+        audio.volume = 0;
+        audio.style.display = "none";
+
+        audio.addEventListener("play", () => {
+            if (this._mediaBridgeSyncing || this.app.state.isPlaying) return;
+            this.playCurrentSentence().catch((error) => {
+                console.warn("[MediaBridge] Failed to resume playback", error);
+            });
+        });
+
+        audio.addEventListener("pause", () => {
+            if (this._mediaBridgeSyncing || !this.app.state.isPlaying) return;
+            this.stopPlayback(true).catch((error) => {
+                console.warn("[MediaBridge] Failed to pause playback", error);
+            });
+        });
+
+        document.body?.appendChild(audio);
+        this._mediaBridgeAudio = audio;
+    }
+
+    _setupMediaSession() {
+        if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+        const setHandler = (action, handler) => {
+            try {
+                navigator.mediaSession.setActionHandler(action, handler);
+            } catch {
+                // Some browsers expose a partial Media Session implementation.
+            }
+        };
+
+        setHandler("play", () => {
+            this.playCurrentSentence().catch((error) => console.warn("[MediaSession] play failed", error));
+        });
+        setHandler("pause", () => {
+            this.stopPlayback(true).catch((error) => console.warn("[MediaSession] pause failed", error));
+        });
+        setHandler("stop", () => {
+            this.stopPlayback(true).catch((error) => console.warn("[MediaSession] stop failed", error));
+        });
+        setHandler("previoustrack", () => {
+            this._skipSentenceFromMediaControl(-1).catch((error) => {
+                console.warn("[MediaSession] previous failed", error);
+            });
+        });
+        setHandler("nexttrack", () => {
+            this._skipSentenceFromMediaControl(1).catch((error) => {
+                console.warn("[MediaSession] next failed", error);
+            });
+        });
+        setHandler("seekbackward", () => {
+            this._skipSentenceFromMediaControl(-1).catch((error) => {
+                console.warn("[MediaSession] seek backward failed", error);
+            });
+        });
+        setHandler("seekforward", () => {
+            this._skipSentenceFromMediaControl(1).catch((error) => {
+                console.warn("[MediaSession] seek forward failed", error);
+            });
+        });
+    }
+
+    async _skipSentenceFromMediaControl(delta) {
+        const { state } = this.app;
+        if (!state?.sentences?.length) return;
+
+        const wasPlaying = !!state.isPlaying || !!state.autoAdvanceActive;
+        const nextIndex = Math.min(Math.max((state.currentSentenceIndex || 0) + delta, 0), state.sentences.length - 1);
+        if (nextIndex === state.currentSentenceIndex) return;
+
+        await this.stopPlayback(true);
+        state.autoAdvanceActive = false;
+        const renderer = this.app.getActiveRenderer?.();
+        await renderer?.renderSentence?.(nextIndex);
+        if (wasPlaying) await this.playCurrentSentence();
+    }
+
+    async _activateMediaBridge(sentence) {
+        const audio = this._mediaBridgeAudio;
+        if (!audio || !sentence?.audioBuffer) return;
+
+        const blob = sentence.audioBlob || sentence.wavBlob || this._audioBufferToWavBlob(sentence.audioBuffer);
+        if (!blob) return;
+
+        this._setMediaSessionMetadata(sentence);
+        this._setMediaSessionPlaybackState("playing");
+
+        this._mediaBridgeSyncing = true;
+        try {
+            if (this._mediaBridgeObjectUrl) {
+                URL.revokeObjectURL(this._mediaBridgeObjectUrl);
+                this._mediaBridgeObjectUrl = null;
+            }
+
+            this._mediaBridgeObjectUrl = URL.createObjectURL(blob);
+            audio.src = this._mediaBridgeObjectUrl;
+            audio.currentTime = 0;
+            audio.volume = 0;
+            await audio.play().catch(() => {});
+        } finally {
+            this._mediaBridgeSyncing = false;
+        }
+    }
+
+    _pauseMediaBridge() {
+        const audio = this._mediaBridgeAudio;
+        if (!audio) return;
+
+        this._mediaBridgeSyncing = true;
+        try {
+            audio.pause();
+            audio.currentTime = 0;
+        } catch {
+            // ignore
+        } finally {
+            this._mediaBridgeSyncing = false;
+        }
+    }
+
+    _setMediaSessionMetadata(sentence) {
+        if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+        const { state } = this.app;
+        const sentenceNumber = Number.isFinite(state?.currentSentenceIndex) ? state.currentSentenceIndex + 1 : null;
+        const title = sentenceNumber ? `Sentence ${sentenceNumber}` : "Current sentence";
+        const artworkSrc =
+            typeof state?.bookCoverDataUrl === "string" && state.bookCoverDataUrl.startsWith("data:")
+                ? state.bookCoverDataUrl
+                : "./assets/icons/icon-512.png";
+
+        try {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: "PocketReader",
+                artist: "PocketReader",
+                album: "Document Reader",
+                artwork: [
+                    {
+                        src: artworkSrc,
+                        sizes: "512x512",
+                        type: artworkSrc.startsWith("data:") ? "image/*" : "image/png",
+                    },
+                ],
+            });
+        } catch {
+            // ignore
+        }
+    }
+
+    _setMediaSessionPlaybackState(value) {
+        if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+        try {
+            navigator.mediaSession.playbackState = value;
+        } catch {
+            // ignore
+        }
+    }
+
+    _audioBufferToWavBlob(audioBuffer) {
+        if (!audioBuffer) return null;
+
+        const numChannels = audioBuffer.numberOfChannels || 1;
+        const sampleRate = audioBuffer.sampleRate;
+        const length = audioBuffer.length;
+        const bytesPerSample = 2;
+        const blockAlign = numChannels * bytesPerSample;
+        const dataSize = length * blockAlign;
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+
+        const writeString = (offset, value) => {
+            for (let i = 0; i < value.length; i++) {
+                view.setUint8(offset + i, value.charCodeAt(i));
+            }
+        };
+
+        writeString(0, "RIFF");
+        view.setUint32(4, 36 + dataSize, true);
+        writeString(8, "WAVE");
+        writeString(12, "fmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * blockAlign, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bytesPerSample * 8, true);
+        writeString(36, "data");
+        view.setUint32(40, dataSize, true);
+
+        let offset = 44;
+        const channels = Array.from({ length: numChannels }, (_, index) => audioBuffer.getChannelData(index));
+        for (let i = 0; i < length; i++) {
+            for (let channel = 0; channel < numChannels; channel++) {
+                const sample = Math.max(-1, Math.min(1, channels[channel][i] || 0));
+                view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+                offset += bytesPerSample;
+            }
+        }
+
+        return new Blob([buffer], { type: "audio/wav" });
     }
 
     setupWordBoundaryTimers(s) {

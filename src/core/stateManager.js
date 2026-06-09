@@ -11,9 +11,6 @@ export class StateManager {
         this.playingSentenceIndex = -1;
         this.deviceScale = window.devicePixelRatio || 1;
 
-        // Network
-        this.isOffline = false;
-
         this.currentDocumentType = "pdf";
         this.epubSpine = null;
         this.epubNavigation = null;
@@ -26,8 +23,6 @@ export class StateManager {
         this.currentSource = null;
         this.currentGain = null;
         this.isPlaying = false;
-        this.playbackPending = false;
-        this.documentLoading = false;
         this.autoAdvanceActive = false;
         this.stopRequested = false;
         this.generationEnabled = false;
@@ -64,9 +59,6 @@ export class StateManager {
         // Translation
         this.autoTranslateEnabled = false;
         this.readTranslationEnabled = false;
-        this.translationFallbackPromptShown = false;
-        this.documentOriginalLanguage = null;
-        this.lastDetectedSourceLanguage = null;
 
         // Layout Detection Cache
         this.layoutDetectionCache = new Map(); // pageNumber → { detections, validWordIndices, timestamp }

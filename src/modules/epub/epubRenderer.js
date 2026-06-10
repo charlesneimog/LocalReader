@@ -540,6 +540,7 @@ export class EPUBRenderer {
 
         const panel = document.createElement("div");
         panel.className = "pdf-active-phrase-actions epub-active-phrase-actions";
+        panel.dataset.keepTranslatePopup = "true";
         panel.style.position = "fixed";
         panel.style.zIndex = "10000";
 

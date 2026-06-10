@@ -65,6 +65,19 @@ export class UIService {
         }
     }
 
+    _shouldKeepTranslatePopupForTarget(target) {
+        if (!target?.closest) return false;
+        return !!target.closest(
+            [
+                "[data-keep-translate-popup='true']",
+                ".epub-active-phrase-actions",
+                ".pdf-active-phrase-actions",
+                "#save-highlight",
+                ".highlight-color-option",
+            ].join(","),
+        );
+    }
+
     async showTranslationSetupPrompt({
         title = "Translation Setup",
         subtitle = "Choose how translations should work for this document",
@@ -413,6 +426,7 @@ export class UIService {
             "fixed z-50 bottom-20 left-1/2 -translate-x-1/2 w-[92vw] max-w-md rounded-lg " +
             "bg-background-light dark:bg-background-dark bg-opacity-100 " +
             "px-3 py-2 shadow-lg border border-slate-200 dark:border-slate-700";
+        wrap.dataset.keepTranslatePopup = "true";
         wrap.style.zIndex = "10000";
 
         const header = document.createElement("div");
@@ -887,6 +901,7 @@ export class UIService {
         const onDown = (e) => {
             if (!this._translatePopupEl) return;
             if (e.target === this._translatePopupEl || this._translatePopupEl.contains(e.target)) return;
+            if (this._shouldKeepTranslatePopupForTarget(e.target)) return;
             this._hideTranslatePopup();
         };
 

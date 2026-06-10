@@ -510,6 +510,52 @@ export class ControlsManager {
         this.controlsToolbar.classList.toggle("toolbar--collapsed");
     }
 
+    _isSmartphone() {
+        try {
+            const ua = navigator.userAgent || "";
+            const smartphoneUA = /iPhone|iPod|Android.*Mobile|Windows Phone|BlackBerry|IEMobile|Opera Mini|Mobi/i.test(
+                ua,
+            );
+            const narrowCoarsePointer =
+                window.matchMedia?.("(pointer: coarse)")?.matches &&
+                window.matchMedia?.("(max-width: 767px)")?.matches;
+            return smartphoneUA || narrowCoarsePointer;
+        } catch {
+            return false;
+        }
+    }
+
+    _getFullscreenElement(doc = document) {
+        return doc.fullscreenElement || doc.mozFullScreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement;
+    }
+
+    async requestSmartphoneReaderLock() {
+        if (!this._isSmartphone()) return;
+
+        const doc = document;
+        const docEl = doc.documentElement;
+        const requestFull =
+            docEl.requestFullscreen ||
+            docEl.mozRequestFullScreen ||
+            docEl.webkitRequestFullscreen ||
+            docEl.msRequestFullscreen;
+
+        if (!this._getFullscreenElement(doc) && requestFull) {
+            try {
+                await requestFull.call(docEl);
+                this.bntFullScreen?.classList.add("bg-primary/10", "text-primary");
+            } catch (err) {
+                console.warn("[requestSmartphoneReaderLock] Fullscreen request failed", err);
+            }
+        }
+
+        try {
+            await this.enableWakeLock();
+        } catch (err) {
+            console.warn("[requestSmartphoneReaderLock] Wake lock request failed", err);
+        }
+    }
+
     async toggleFullscreen() {
         this.toggleCollapsedState();
 
@@ -523,8 +569,7 @@ export class ControlsManager {
         const exitFull =
             doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
 
-        const isFull =
-            doc.fullscreenElement || doc.mozFullScreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement;
+        const isFull = this._getFullscreenElement(doc);
 
         try {
             if (!isFull) {

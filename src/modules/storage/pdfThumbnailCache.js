@@ -495,6 +495,8 @@ export class PDFThumbnailCache {
     addOpenHandler(cardElement, pdfBlob, pdfName, canvas, docType = "pdf", storageKey = null) {
         cardElement.addEventListener("click", async () => {
             try {
+                await this.app.controlsManager?.requestSmartphoneReaderLock?.();
+
                 let loadResult = null;
                 if (docType === "epub") {
                     const epubFile =

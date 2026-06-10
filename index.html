@@ -1014,8 +1014,12 @@
 
                 const openFileBtn = document.getElementById("open-file");
                 const initOpenBtn = document.getElementById("init-open-pdf");
-                if (openFileBtn && fileInput) openFileBtn.addEventListener("click", () => fileInput.click());
-                if (initOpenBtn && fileInput) initOpenBtn.addEventListener("click", () => fileInput.click());
+                const openFileFromButton = () => {
+                    app.controlsManager?.requestSmartphoneReaderLock?.();
+                    fileInput.click();
+                };
+                if (openFileBtn && fileInput) openFileBtn.addEventListener("click", openFileFromButton);
+                if (initOpenBtn && fileInput) initOpenBtn.addEventListener("click", openFileFromButton);
 
                 if (authButton) {
                     authButton.addEventListener("click", async () => {

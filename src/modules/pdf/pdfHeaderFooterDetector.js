@@ -372,6 +372,61 @@ export class PDFHeaderFooterDetector {
         return;
     }
 
+    _shouldMergeReadableBoxes(a, b) {
+        if (!a || !b) return false;
+        const textLike = new Set(["text", "list-item", "section-header"]);
+        if (!textLike.has(a.label) || !textLike.has(b.label)) return false;
+        if (a.label !== b.label) return false;
+
+        const widthA = Math.max(1, a.x2 - a.x1);
+        const widthB = Math.max(1, b.x2 - b.x1);
+        const heightA = Math.max(1, a.y2 - a.y1);
+        const heightB = Math.max(1, b.y2 - b.y1);
+        const avgHeight = (heightA + heightB) / 2;
+
+        const horizontalOverlap = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+        const horizontalOverlapRatio = horizontalOverlap / Math.min(widthA, widthB);
+        const centersClose = Math.abs((a.x1 + a.x2) / 2 - (b.x1 + b.x2) / 2) <= Math.max(widthA, widthB) * 0.35;
+        const sameColumn = horizontalOverlapRatio >= 0.35 || centersClose;
+        if (!sameColumn) return false;
+
+        const verticalGap = Math.max(0, Math.max(a.y1, b.y1) - Math.min(a.y2, b.y2));
+        return verticalGap <= avgHeight * 0.9;
+    }
+
+    _mergeReadableBoxes(readableBoxes) {
+        if (!Array.isArray(readableBoxes) || readableBoxes.length < 2) return readableBoxes || [];
+
+        const boxes = readableBoxes
+            .map((box, index) => ({ ...box, _order: index }))
+            .sort((a, b) => a.y1 - b.y1 || a.x1 - b.x1);
+
+        let changed = true;
+        while (changed) {
+            changed = false;
+            outer: for (let i = 0; i < boxes.length; i++) {
+                for (let j = i + 1; j < boxes.length; j++) {
+                    if (!this._shouldMergeReadableBoxes(boxes[i], boxes[j])) continue;
+                    boxes[i] = {
+                        ...boxes[i],
+                        x1: Math.min(boxes[i].x1, boxes[j].x1),
+                        y1: Math.min(boxes[i].y1, boxes[j].y1),
+                        x2: Math.max(boxes[i].x2, boxes[j].x2),
+                        y2: Math.max(boxes[i].y2, boxes[j].y2),
+                        label: boxes[i].label,
+                    };
+                    boxes.splice(j, 1);
+                    changed = true;
+                    break outer;
+                }
+            }
+        }
+
+        return boxes
+            .sort((a, b) => a._order - b._order)
+            .map(({ _order, ...box }) => box);
+    }
+
     _buildRegionsFromDetections(detections, viewportDisplay) {
         const readableBoxes = [];
         const ignoreBoxes = [];
@@ -395,7 +450,7 @@ export class PDFHeaderFooterDetector {
             }
         }
 
-        return { readableBoxes, ignoreBoxes };
+        return { readableBoxes: this._mergeReadableBoxes(readableBoxes), ignoreBoxes };
     }
 
     // Public helper: returns readable/ignored layout boxes in viewport coordinates.

@@ -27,10 +27,10 @@ export const CONFIG = {
     PDF_AUDIO_LAYOUT_BLOCK_PAUSE_SEC: 0.18,
     BREAK_ON_LINE: false,
     SPLIT_ON_LINE_GAP: false,
+    SPLIT_ON_WORD_GAP: false,
     LINE_GAP_THRESHOLD: 2,
-    // Multiplier applied to the current line height (in PDF unscaled units) to detect large horizontal gaps
-    // (e.g. multi-column layouts). Using a relative threshold keeps sentence splitting consistent across
-    // devices, zoom levels, and different BASE_WIDTH_CSS scales.
+    // Optional fallback for splitting on unusually large word gaps. Keep disabled by default:
+    // layout block phrase splitting is handled later by the PDF audio renderer.
     WORD_GAP_THRESHOLD_EM: 2.5,
     SENTENCE_END: [".", ":", "?", "!", ".\"", ":\""],
 

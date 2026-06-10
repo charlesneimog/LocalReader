@@ -70,9 +70,29 @@ export class SentenceParser {
             return { x, y, width, height };
         };
 
-        function isSentenceEnd(wordStr, nextWordStr) {
+        function isSentenceEnd(wordStr, nextWordStr, currentBufferLength = 0) {
             const token = String(wordStr || "").trim();
             const w = token.replace(sentenceEndRegex, "");
+            const bare = String(w)
+                .replace(/[.!?…:;]+$/g, "")
+                .trim();
+
+            // Avoid splitting structural prefixes such as "1.", "1.2.", or "A." from
+            // the first text that follows them on a block/header line.
+            if (
+                currentBufferLength <= 2 &&
+                nextWordStr &&
+                (/^\(?\d+(?:\.\d+)*\)?$/u.test(bare) || /^[A-Z]$/u.test(bare))
+            ) {
+                return false;
+            }
+
+            // Short lead-in labels at the beginning of a block ("Abstract:", "Note:")
+            // should stay attached to the phrase that follows.
+            if (currentBufferLength <= 3 && nextWordStr && /[:;]["'”’»›\)\]\}]*$/u.test(token)) {
+                return false;
+            }
+
             if (
                 abbreviationSet.has(
                     String(w)
@@ -154,7 +174,7 @@ export class SentenceParser {
             }
 
             // Check horizontal gap
-            if (!gapBreak && buffer.length > 0) {
+            if (config.SPLIT_ON_WORD_GAP && !gapBreak && buffer.length > 0) {
                 const lastWord = buffer[buffer.length - 1];
                 const { x: lastX, width: lastWidth, height: lastH } = getCanonicalGeom(lastWord);
                 const horizontalGap = canonX - (lastX + lastWidth);
@@ -174,7 +194,7 @@ export class SentenceParser {
             buffer.push(w);
 
             const nextWord = wordsToProcess[i + 1]?.str || "";
-            if (isSentenceEnd(w.str, nextWord) || (config.BREAK_ON_LINE && w.lineBreak)) {
+            if (isSentenceEnd(w.str, nextWord, buffer.length) || (config.BREAK_ON_LINE && w.lineBreak)) {
                 flush();
             }
 

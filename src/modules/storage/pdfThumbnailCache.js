@@ -446,47 +446,140 @@ export class PDFThumbnailCache {
 
         closeBtn.addEventListener("click", async (e) => {
             e.stopPropagation();
-
-            // Confirm deletion
-            if (confirm(`Delete "${pdfName}" from history?`)) {
-                if (docType === "epub") {
-                    await this.app.progressManager.clearEpubProgress(pdfKey);
-                    await this.app.progressManager.removeEpubFromIndexedDB(pdfKey);
-                } else {
-                    await this.app.progressManager.clearPdfProgress(pdfKey);
-                    this.app.highlightsStorage?.clearPdfHighlights?.(pdfKey);
-                    await this.app.progressManager.removePdfFromIndexedDB(pdfKey);
-                }
-
-                // Best-effort server deletion (creates a tombstone so other instances purge too).
-                if (this.app.serverSync?.isEnabled?.()) {
-                    const ok = await this.app.serverSync.deleteFileOnServer(pdfKey);
-                    if (!ok) {
-                        console.warn("[PDFThumbnailCache] Failed to delete file on server", { key: pdfKey });
-                        this.app.ui?.showInfo?.("Failed to delete file on server");
-                    }
-                }
-
-                // Animate removal
-                cardElement.style.transition = "opacity 200ms, transform 200ms";
-                cardElement.style.opacity = "0";
-                cardElement.style.transform = "scale(0.95)";
-
-                setTimeout(() => {
-                    cardElement.remove();
-
-                    // Return canvas to pool
-                    if (canvas && this.app.pdfRenderer?.releaseCanvas) {
-                        this.app.pdfRenderer.releaseCanvas(canvas);
-                    }
-
-                    // Check if no PDFs left
-                    this.checkIfEmpty();
-                }, 200);
-            }
+            await this.deleteCardDocument(cardElement, pdfKey, pdfName, canvas, docType);
         });
 
         cardElement.appendChild(closeBtn);
+        this.addSmartphoneLongPressDelete(cardElement, pdfKey, pdfName, canvas, docType);
+    }
+
+    async deleteCardDocument(cardElement, pdfKey, pdfName, canvas, docType = "pdf") {
+        if (cardElement?.dataset?.deleting === "true") return;
+
+        // Confirm deletion
+        if (!confirm(`Delete "${pdfName}" from history?`)) return;
+
+        if (cardElement?.dataset) cardElement.dataset.deleting = "true";
+
+        if (docType === "epub") {
+            await this.app.progressManager.clearEpubProgress(pdfKey);
+            await this.app.progressManager.removeEpubFromIndexedDB(pdfKey);
+        } else {
+            await this.app.progressManager.clearPdfProgress(pdfKey);
+            this.app.highlightsStorage?.clearPdfHighlights?.(pdfKey);
+            await this.app.progressManager.removePdfFromIndexedDB(pdfKey);
+        }
+
+        // Best-effort server deletion (creates a tombstone so other instances purge too).
+        if (this.app.serverSync?.isEnabled?.()) {
+            const ok = await this.app.serverSync.deleteFileOnServer(pdfKey);
+            if (!ok) {
+                console.warn("[PDFThumbnailCache] Failed to delete file on server", { key: pdfKey });
+                this.app.ui?.showInfo?.("Failed to delete file on server");
+            }
+        }
+
+        // Animate removal
+        cardElement.style.transition = "opacity 200ms, transform 200ms";
+        cardElement.style.opacity = "0";
+        cardElement.style.transform = "scale(0.95)";
+
+        setTimeout(() => {
+            cardElement.remove();
+
+            // Return canvas to pool
+            if (canvas && this.app.pdfRenderer?.releaseCanvas) {
+                this.app.pdfRenderer.releaseCanvas(canvas);
+            }
+
+            // Check if no PDFs left
+            this.checkIfEmpty();
+        }, 200);
+    }
+
+    isSmartphoneDevice() {
+        const ua = navigator.userAgent || "";
+        const phoneUserAgent = /Mobi|Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+        const narrowTouch =
+            window.matchMedia?.("(pointer: coarse)")?.matches &&
+            window.matchMedia?.("(max-width: 767px)")?.matches;
+        return phoneUserAgent || narrowTouch;
+    }
+
+    addSmartphoneLongPressDelete(cardElement, pdfKey, pdfName, canvas, docType = "pdf") {
+        if (!cardElement || cardElement.dataset.longPressDeleteReady === "true" || !this.isSmartphoneDevice()) return;
+        cardElement.dataset.longPressDeleteReady = "true";
+
+        const LONG_PRESS_MS = 650;
+        const MOVE_CANCEL_PX = 12;
+        let timer = null;
+        let startX = 0;
+        let startY = 0;
+        let longPressTriggered = false;
+
+        const clearTimer = () => {
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+        };
+
+        const skipOnlyImmediateClick = () => {
+            cardElement.dataset.skipNextOpen = "true";
+            setTimeout(() => {
+                if (cardElement.dataset.skipNextOpen === "true") {
+                    delete cardElement.dataset.skipNextOpen;
+                }
+            }, 1000);
+        };
+
+        const resetPressStyle = () => {
+            cardElement.style.outline = "";
+            cardElement.style.outlineOffset = "";
+        };
+
+        const cancel = () => {
+            clearTimer();
+            resetPressStyle();
+        };
+
+        cardElement.addEventListener("pointerdown", (e) => {
+            if (e.pointerType !== "touch" || e.target?.closest?.("button")) return;
+
+            startX = e.clientX;
+            startY = e.clientY;
+            longPressTriggered = false;
+            cardElement.style.outline = "2px solid rgba(248, 113, 113, 0.9)";
+            cardElement.style.outlineOffset = "2px";
+
+            clearTimer();
+            timer = setTimeout(async () => {
+                timer = null;
+                longPressTriggered = true;
+                skipOnlyImmediateClick();
+                resetPressStyle();
+                await this.deleteCardDocument(cardElement, pdfKey, pdfName, canvas, docType);
+            }, LONG_PRESS_MS);
+        });
+
+        cardElement.addEventListener("pointermove", (e) => {
+            if (!timer) return;
+            const dx = Math.abs(e.clientX - startX);
+            const dy = Math.abs(e.clientY - startY);
+            if (dx > MOVE_CANCEL_PX || dy > MOVE_CANCEL_PX) cancel();
+        });
+
+        cardElement.addEventListener("pointerup", () => {
+            cancel();
+            if (longPressTriggered) skipOnlyImmediateClick();
+        });
+
+        cardElement.addEventListener("pointercancel", cancel);
+        cardElement.addEventListener("pointerleave", cancel);
+        cardElement.addEventListener("contextmenu", (e) => {
+            if (!this.isSmartphoneDevice()) return;
+            e.preventDefault();
+        });
     }
 
     /**
@@ -494,6 +587,11 @@ export class PDFThumbnailCache {
      */
     addOpenHandler(cardElement, pdfBlob, pdfName, canvas, docType = "pdf", storageKey = null) {
         cardElement.addEventListener("click", async () => {
+            if (cardElement.dataset.skipNextOpen === "true") {
+                delete cardElement.dataset.skipNextOpen;
+                return;
+            }
+
             try {
                 await this.app.controlsManager?.requestSmartphoneReaderLock?.();
 

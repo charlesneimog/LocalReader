@@ -54,6 +54,106 @@
     }
 }
 
+html.amoled-mode,
+body.amoled-mode {
+    color-scheme: dark;
+    --bg: #000000;
+    --bg-dark: #000000;
+    --color-background-dark: #000000;
+    --panel-bg: rgba(0, 0, 0, 0.82);
+    --panel-border: rgba(255, 255, 255, 0.1);
+    --btn-bg: #050505;
+    --btn-bg-hover: #111111;
+    --btn-bg-active: #171717;
+}
+
+html.amoled-mode,
+html.amoled-mode body,
+html.amoled-mode #pdf-doc-container,
+html.amoled-mode #epub-doc-container,
+html.amoled-mode #viewer-wrapper,
+html.amoled-mode #pdf-canvas,
+html.amoled-mode foliate-view {
+    background: #000000 !important;
+    background-color: #000000 !important;
+}
+
+html.amoled-mode canvas,
+html.amoled-mode #pdf-canvas,
+html.amoled-mode .page-canvas {
+    filter: none !important;
+}
+
+html.amoled-mode .dark\:bg-background-dark,
+html.amoled-mode .dark\:bg-gray-800,
+html.amoled-mode .dark\:bg-gray-900,
+html.amoled-mode .dark\:bg-background-dark\/50,
+html.amoled-mode .dark\:bg-background-dark\/60,
+html.amoled-mode .dark\:bg-background-dark\/80,
+html.amoled-mode .dark\:bg-background-dark\/90,
+html.amoled-mode .dark\:bg-background-dark\/95 {
+    background-color: #000000 !important;
+}
+
+html.amoled-mode .bg-background-light,
+html.amoled-mode .bg-white,
+html.amoled-mode .bg-gray-100 {
+    background-color: #000000 !important;
+}
+
+html.amoled-mode .bg-background-light\/80,
+html.amoled-mode .bg-background-light\/90,
+html.amoled-mode .bg-white\/50,
+html.amoled-mode .bg-white\/60,
+html.amoled-mode .bg-white\/70,
+html.amoled-mode .bg-white\/80,
+html.amoled-mode .bg-white\/95 {
+    background-color: rgba(0, 0, 0, 0.82) !important;
+}
+
+html.amoled-mode #config-menu,
+html.amoled-mode #highlight-menu,
+html.amoled-mode #login-menu,
+html.amoled-mode #controls,
+html.amoled-mode #info-box {
+    background: rgba(0, 0, 0, 0.88) !important;
+    background-color: rgba(0, 0, 0, 0.88) !important;
+}
+
+html.amoled-mode .pdf-page-wrapper {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.04),
+        0 10px 28px rgba(255, 255, 255, 0.08);
+}
+
+html.amoled-mode .pdf-page-wrapper:hover {
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.08),
+        0 12px 32px rgba(255, 255, 255, 0.12);
+}
+
+html.amoled-mode .text-slate-800,
+html.amoled-mode .text-slate-700,
+html.amoled-mode .text-gray-900,
+html.amoled-mode .text-gray-800,
+html.amoled-mode .text-gray-700 {
+    color: #e5e7eb !important;
+}
+
+html.amoled-mode .text-slate-600,
+html.amoled-mode .text-slate-500,
+html.amoled-mode .text-gray-600,
+html.amoled-mode .text-gray-500 {
+    color: #cbd5e1 !important;
+}
+
+html.amoled-mode .border-gray-300,
+html.amoled-mode .border-slate-300,
+html.amoled-mode .border-slate-200 {
+    border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
 html,
 body {
     font-family:

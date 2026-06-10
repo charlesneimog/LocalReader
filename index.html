@@ -30,6 +30,14 @@
         <meta name="description" content="Listen to your podcasts with local IA" />
 
         <!-- Font -->
+        <script>
+            try {
+                const amoledEnabled = localStorage.getItem("config.amoledMode") === "1";
+                document.documentElement.classList.toggle("amoled-mode", amoledEnabled);
+            } catch (error) {
+                console.debug("[theme] Unable to load AMOLED preference", error);
+            }
+        </script>
         <link href="./thirdparty/fonts/Inter.css" rel="stylesheet" />
         <link href="./thirdparty/fonts/Material-symbols-outlined.css" rel="stylesheet" />
         <link rel="stylesheet" href="./src/css/style.css" />
@@ -538,6 +546,20 @@
                     </button>
 
                     <button
+                        id="toggle-amoled-mode"
+                        title="Toggle AMOLED black mode"
+                        aria-label="Toggle AMOLED black mode"
+                        aria-pressed="false"
+                        class="flex items-center justify-center rounded p-2"
+                    >
+                        <span
+                            class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-primary"
+                        >
+                            contrast
+                        </span>
+                    </button>
+
+                    <button
                         id="lock-screen"
                         title="Lock screen orientation"
                         class="flex items-center justify-center rounded p-2"
@@ -839,6 +861,7 @@
                 const settingsBtn = document.getElementById("settings-button");
                 const settingsMenu = document.getElementById("config-menu");
                 const configMenuClose = document.getElementById("config-menu-close");
+                const amoledModeBtn = document.getElementById("toggle-amoled-mode");
 
                 const highlightBtn = document.getElementById("highlight-button");
                 const highlightMenu = document.getElementById("highlight-menu");
@@ -871,6 +894,38 @@
                 };
 
                 const getServerUrl = () => app.serverSync?.getServerUrl?.() || getDefaultServerUrl();
+
+                const isAmoledModeEnabled = () => localStorage.getItem("config.amoledMode") === "1";
+
+                const reflectAmoledModeToggle = (enabled = isAmoledModeEnabled()) => {
+                    const active = !!enabled;
+                    document.documentElement.classList.toggle("amoled-mode", active);
+                    document.body?.classList.toggle("amoled-mode", active);
+                    if (!amoledModeBtn) return;
+
+                    amoledModeBtn.setAttribute("aria-pressed", active ? "true" : "false");
+                    amoledModeBtn.title = active ? "Disable AMOLED black mode" : "Enable AMOLED black mode";
+                    amoledModeBtn.setAttribute(
+                        "aria-label",
+                        active ? "Disable AMOLED black mode" : "Enable AMOLED black mode",
+                    );
+                    amoledModeBtn.classList.toggle("bg-primary/10", active);
+                    amoledModeBtn.classList.toggle("text-primary", active);
+                    const icon = amoledModeBtn.querySelector(".material-symbols-outlined");
+                    if (icon) {
+                        icon.textContent = active ? "brightness_2" : "contrast";
+                        icon.classList.toggle("text-primary", active);
+                    }
+                };
+
+                reflectAmoledModeToggle();
+
+                amoledModeBtn?.addEventListener("click", () => {
+                    const next = !isAmoledModeEnabled();
+                    localStorage.setItem("config.amoledMode", next ? "1" : "0");
+                    reflectAmoledModeToggle(next);
+                    window.dispatchEvent(new CustomEvent("amoled-mode-change", { detail: { enabled: next } }));
+                });
 
                 const setAuthError = (msg) => {
                     if (!msg) {

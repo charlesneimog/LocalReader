@@ -85,7 +85,7 @@ export class EPUBLoader {
 
             const source = this._resolveSource(input);
             const view = await this.renderer.open(source);
-            this.applyCSS(view.renderer, "src/css/epub.css");
+            await this.renderer.applyContentCSS("src/css/epub.css");
             document.getElementById("previous-pdf-header")?.classList.add("hidden");
 
             if (state) {

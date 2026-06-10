@@ -9,6 +9,58 @@ export class PDFRenderer {
         this.app = app;
         this.pageCoordinateSystems = new Map();
         this._activePhraseActionsEl = null;
+        this._boundAmoledModeChange = () => {
+            this.refreshAmoledRendering().catch((error) => {
+                console.debug("[PDFRenderer] Failed to refresh AMOLED rendering", error);
+            });
+        };
+        window.addEventListener("amoled-mode-change", this._boundAmoledModeChange, { passive: true });
+    }
+
+    _isAmoledModeEnabled() {
+        try {
+            return (
+                document.documentElement.classList.contains("amoled-mode") ||
+                localStorage.getItem("config.amoledMode") === "1"
+            );
+        } catch {
+            return document.documentElement.classList.contains("amoled-mode");
+        }
+    }
+
+    _getRenderOptions() {
+        if (!this._isAmoledModeEnabled()) return {};
+        return {
+            pageColors: {
+                background: "#000000",
+                foreground: "#f5f5f5",
+            },
+        };
+    }
+
+    async refreshAmoledRendering() {
+        const { state } = this.app;
+        if (!state?.pdf || state.currentDocumentType !== "pdf") return;
+
+        state.fullPageRenderCache?.clear?.();
+
+        const container = document.getElementById("pdf-doc-container");
+        if (container) {
+            container.querySelectorAll("canvas.page-canvas").forEach((canvas) => canvas.remove());
+        }
+
+        const currentPage = state.currentSentence?.pageNumber;
+        if (Number.isFinite(currentPage)) {
+            await this.ensurePageCanvasMounted(currentPage);
+            this.updateHighlightFullDoc(state.currentSentence);
+            return;
+        }
+
+        const firstVisiblePage = container?.querySelector?.(".pdf-page-wrapper[data-page-number]")?.dataset?.pageNumber;
+        const pageNumber = Number.parseInt(firstVisiblePage, 10);
+        if (Number.isFinite(pageNumber)) {
+            await this.ensurePageCanvasMounted(pageNumber);
+        }
     }
 
     async ensureViewportDisplay(pageNumber) {
@@ -296,7 +348,7 @@ export class PDFRenderer {
         off.width = fullW;
         off.height = fullH;
         const offCtx = off.getContext("2d");
-        await page.render({ canvasContext: offCtx, viewport: viewportRender }).promise;
+        await page.render({ canvasContext: offCtx, viewport: viewportRender, ...this._getRenderOptions() }).promise;
         state.fullPageRenderCache.set(pageNumber, off);
         return off;
     }

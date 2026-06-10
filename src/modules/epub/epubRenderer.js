@@ -14,11 +14,13 @@ export class EPUBRenderer {
         this._viewWrapper = null;
 
         this._boundResize = this._resizeContainer.bind(this);
+        this._boundAmoledModeChange = () => this._applyContentStyles();
         this._boundRelocate = null;
         this._boundHighlight = null;
         this._boundLoad = null;
         this._boundDrawAnnotation = null;
         this._highlightRefreshTimer = null;
+        this._contentCSS = "";
 
         this._activeDocs = new Set();
         this._docListeners = [];
@@ -48,6 +50,7 @@ export class EPUBRenderer {
         this._persistentAnnotationValues = new Set();
 
         window.addEventListener("resize", this._boundResize, { passive: true });
+        window.addEventListener("amoled-mode-change", this._boundAmoledModeChange, { passive: true });
     }
 
     /**
@@ -248,8 +251,50 @@ export class EPUBRenderer {
 
     destroy() {
         window.removeEventListener("resize", this._boundResize);
+        window.removeEventListener("amoled-mode-change", this._boundAmoledModeChange);
         this.reset();
         this._container = null;
+    }
+
+    async applyContentCSS(url) {
+        const response = await fetch(url);
+        this._contentCSS = await response.text();
+        this._applyContentStyles();
+    }
+
+    _isAmoledModeEnabled() {
+        try {
+            return (
+                document.documentElement.classList.contains("amoled-mode") ||
+                localStorage.getItem("config.amoledMode") === "1"
+            );
+        } catch {
+            return document.documentElement.classList.contains("amoled-mode");
+        }
+    }
+
+    _buildContentStyles() {
+        const amoledCSS = this._isAmoledModeEnabled()
+            ? `
+:root {
+    --bg: #000000 !important;
+    --bg-dark: #000000 !important;
+    --fg: #f5f5f5 !important;
+}
+html,
+body {
+    background: #000000 !important;
+    background-color: #000000 !important;
+    color: #f5f5f5 !important;
+}
+`
+            : "";
+        return `${this._contentCSS || ""}\n${amoledCSS}`;
+    }
+
+    _applyContentStyles() {
+        if (!this.view?.renderer || typeof this.view.renderer.setStyles !== "function") return;
+        this.view.renderer.setStyles(this._buildContentStyles());
     }
 
     setupInteractionListeners() {

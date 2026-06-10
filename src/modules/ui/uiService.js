@@ -874,6 +874,8 @@ export class UIService {
         tText.textContent = translatedText || "(empty)";
         body.appendChild(tText);
 
+        header.appendChild(document.createElement("div"));
+        header.appendChild(actions);
         wrap.appendChild(header);
         wrap.appendChild(body);
         document.body.appendChild(wrap);

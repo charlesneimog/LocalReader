@@ -56,6 +56,9 @@ export class ControlsManager {
         // Read translation (use translated sentence for TTS)
         this.toggleReadTranslationBtn = document.getElementById("toggle-read-translation");
 
+        // Original-language subtitles
+        this.toggleOriginalSubtitlesBtn = document.getElementById("toggle-original-subtitles");
+
         // Default highlight color
         this.app.highlightManager?.setSelectedHighlightColor("#ffda76");
         const icon = this.saveHighlightBtn?.querySelector(".material-symbols-outlined");
@@ -260,6 +263,19 @@ export class ControlsManager {
             });
         }
 
+        // Original-language subtitles toggle
+        if (this.toggleOriginalSubtitlesBtn) {
+            const raw = localStorage.getItem("config.originalSubtitles");
+            const enabled = raw === "1" || raw === "true";
+            this.reflectOriginalSubtitlesToggle(enabled);
+
+            on(this.toggleOriginalSubtitlesBtn, "click", () => {
+                const next = !app.isOriginalSubtitlesEnabled?.();
+                app.setOriginalSubtitlesEnabled?.(next);
+                this.showInfo(next ? "Original subtitles: ON" : "Original subtitles: OFF", 1500);
+            });
+        }
+
         if (this.highlightColorButtons?.length) {
             this.highlightColorButtons.forEach((btn) => {
                 btn.setAttribute("aria-pressed", "false");
@@ -442,6 +458,24 @@ export class ControlsManager {
         this.toggleReadTranslationBtn.setAttribute("aria-pressed", active ? "true" : "false");
         this.toggleReadTranslationBtn.classList.toggle("bg-primary/10", active);
         this.toggleReadTranslationBtn.classList.toggle("text-primary", active);
+    }
+
+    reflectOriginalSubtitlesToggle(enabled) {
+        if (!this.toggleOriginalSubtitlesBtn) return;
+        const active = !!enabled;
+        this.toggleOriginalSubtitlesBtn.setAttribute("aria-pressed", active ? "true" : "false");
+        this.toggleOriginalSubtitlesBtn.title = active
+            ? "Hide original-language subtitles"
+            : "Show original-language subtitles";
+        this.toggleOriginalSubtitlesBtn.setAttribute(
+            "aria-label",
+            active ? "Hide original-language subtitles" : "Show original-language subtitles",
+        );
+        this.toggleOriginalSubtitlesBtn.classList.toggle("bg-primary/10", active);
+        this.toggleOriginalSubtitlesBtn.classList.toggle("text-primary", active);
+
+        const icon = this.toggleOriginalSubtitlesBtn.querySelector(".material-symbols-outlined");
+        if (icon) icon.textContent = active ? "subtitles" : "subtitles_off";
     }
 
     showHelpOverlay() {

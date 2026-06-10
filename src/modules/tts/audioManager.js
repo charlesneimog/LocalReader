@@ -810,6 +810,10 @@ export class AudioManager {
             const setCurrentPhrase = (blockKey) => {
                 state.playingPhraseBlockKey = blockKey || null;
                 this.app.pdfRenderer?.updateHighlightFullDoc?.();
+                this.app.eventBus?.emit?.(EVENTS.AUDIO_PHRASE_CHANGE, {
+                    index: s.index ?? state.currentSentenceIndex,
+                    blockKey: state.playingPhraseBlockKey,
+                });
             };
 
             setCurrentPhrase(phraseTimings[0]?.blockKey || null);

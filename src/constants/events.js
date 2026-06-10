@@ -9,6 +9,7 @@ export const EVENTS = {
     TTS_SYNTHESIS_ERROR: 'tts:synthesis:error',
 
     AUDIO_PLAYBACK_START: 'audio:playback:start',
+    AUDIO_PHRASE_CHANGE: 'audio:phrase:change',
     AUDIO_PLAYBACK_END: 'audio:playback:end',
     AUDIO_PLAYBACK_PAUSE: 'audio:playback:pause',
 

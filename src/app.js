@@ -84,6 +84,7 @@ export class PDFTTSApp {
 
         this._setupAutoTranslate();
         this._setupReadTranslation();
+        this._setupOriginalSubtitles();
         this.showSavedPDFs();
 
         // app version
@@ -178,6 +179,11 @@ export class PDFTTSApp {
         const readTranslationEnabled = rawReadTranslation === "1" || rawReadTranslation === "true";
         this.state.readTranslationEnabled = readTranslationEnabled;
         this.controlsManager?.reflectReadTranslationToggle?.(readTranslationEnabled);
+
+        const rawOriginalSubtitles = localStorage.getItem("config.originalSubtitles");
+        const originalSubtitlesEnabled = rawOriginalSubtitles === "1" || rawOriginalSubtitles === "true";
+        this.state.originalSubtitlesEnabled = originalSubtitlesEnabled;
+        this.controlsManager?.reflectOriginalSubtitlesToggle?.(originalSubtitlesEnabled);
     }
 
     _normalizeTranslationTarget(target) {
@@ -432,6 +438,29 @@ export class PDFTTSApp {
         return !!this.state.readTranslationEnabled;
     }
 
+    setOriginalSubtitlesEnabled(enabled) {
+        const value = !!enabled;
+        this.state.originalSubtitlesEnabled = value;
+        localStorage.setItem("config.originalSubtitles", value ? "1" : "0");
+        this.controlsManager?.reflectOriginalSubtitlesToggle?.(value);
+        if (!value) this.ui?._hideTranslatePopup?.();
+        if (value && !this.isReadTranslationEnabled() && !this.isAutoTranslateEnabled()) {
+            const index =
+                typeof this.state.playingSentenceIndex === "number" && this.state.playingSentenceIndex >= 0
+                    ? this.state.playingSentenceIndex
+                    : this.state.currentSentenceIndex;
+            if (Number.isFinite(index) && index >= 0) {
+                this._showOriginalSubtitleForPlayback(index).catch((err) => {
+                    console.warn("[subtitles] failed to show current original-language subtitle", err);
+                });
+            }
+        }
+    }
+
+    isOriginalSubtitlesEnabled() {
+        return !!this.state.originalSubtitlesEnabled;
+    }
+
     _setupAutoTranslate() {
         const resetOnDocChange = () => {
             this._resetAutoTranslateCache();
@@ -469,6 +498,61 @@ export class PDFTTSApp {
             this._showReadTranslationPopupForPlayback(index).catch((err) => {
                 console.warn("[translation] failed to show read-translation popup", err);
             });
+        });
+    }
+
+    _setupOriginalSubtitles() {
+        this.eventBus.on(EVENTS.AUDIO_PLAYBACK_START, ({ index } = {}) => {
+            if (!this.isOriginalSubtitlesEnabled()) return;
+            if (this.isReadTranslationEnabled() || this.isAutoTranslateEnabled()) return;
+            if (!Number.isFinite(index) || index < 0) return;
+            this._showOriginalSubtitleForPlayback(index).catch((err) => {
+                console.warn("[subtitles] failed to show original-language subtitle", err);
+            });
+        });
+
+        this.eventBus.on(EVENTS.AUDIO_PHRASE_CHANGE, ({ index } = {}) => {
+            if (!this.isOriginalSubtitlesEnabled()) return;
+            if (this.isReadTranslationEnabled() || this.isAutoTranslateEnabled()) return;
+            if (!Number.isFinite(index) || index < 0) return;
+            this._showOriginalSubtitleForPlayback(index).catch((err) => {
+                console.warn("[subtitles] failed to update original-language subtitle", err);
+            });
+        });
+
+        const hideOriginalSubtitle = () => {
+            if (!this.isOriginalSubtitlesEnabled()) return;
+            if (this.isReadTranslationEnabled() || this.isAutoTranslateEnabled()) return;
+            this.ui?._hideTranslatePopup?.();
+        };
+        this.eventBus.on(EVENTS.AUDIO_PLAYBACK_PAUSE, hideOriginalSubtitle);
+        this.eventBus.on(EVENTS.AUDIO_PLAYBACK_END, hideOriginalSubtitle);
+    }
+
+    async _showOriginalSubtitleForPlayback(index) {
+        const sentence = this.state?.sentences?.[index];
+        if (!sentence) return;
+
+        const text =
+            this.interactionHandler?.getCurrentPhraseTextForCopy?.({ fallbackToSelection: false }) ||
+            sentence.originalText ||
+            sentence.readableText ||
+            sentence.text ||
+            "";
+        const originalText = String(text || "").trim();
+        if (!originalText) return;
+        if (!this.isOriginalSubtitlesEnabled()) return;
+        if (this.isReadTranslationEnabled() || this.isAutoTranslateEnabled()) return;
+
+        const stillCurrent =
+            this.state.playingSentenceIndex === index || this.state.currentSentenceIndex === index;
+        if (!stillCurrent) return;
+
+        await this.ui?.showTranslatePopup?.({
+            originalText,
+            translatedText: originalText,
+            target: "",
+            detectedSource: "",
         });
     }
 

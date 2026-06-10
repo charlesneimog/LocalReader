@@ -44,8 +44,7 @@ export class PiperWorkerClient {
                 this._pending.delete(id);
                 const wavBuffer = e.data.wavBuffer;
                 const sampleRate = e.data.sampleRate;
-                const blob = new Blob([wavBuffer], { type: "audio/wav" });
-                pending.resolve({ blob, sampleRate, wavBuffer });
+                pending.resolve({ sampleRate, wavBuffer });
                 return;
             }
 
@@ -86,6 +85,7 @@ export class PiperWorkerClient {
         phonemizerDataUrl,
         logLevel = "error",
         transferModel = true,
+        maxThreads = 2,
     }) {
         if (!(modelBuffer instanceof ArrayBuffer)) {
             throw new Error("modelBuffer must be an ArrayBuffer");
@@ -105,6 +105,7 @@ export class PiperWorkerClient {
                 voiceConfig,
                 espeakVoice,
                 logLevel,
+                maxThreads,
             },
             transfers,
         );
@@ -120,9 +121,14 @@ export class PiperWorkerClient {
         return this._call("change-voice", { modelBuffer, voiceConfig }, transfers);
     }
 
-    async synthesize(text, speed = 1.0, espeakVoice) {
+    async synthesize(text, speed = 1.0, espeakVoice, { createBlob = true } = {}) {
         if (!text || !text.trim()) throw new Error("text is required");
-        return this._call("synthesize", { text, speed, espeakVoice });
+        const result = await this._call("synthesize", { text, speed, espeakVoice });
+        if (!result.wavBuffer) throw new Error("Worker did not return audio data");
+        if (createBlob) {
+            result.blob = new Blob([result.wavBuffer], { type: "audio/wav" });
+        }
+        return result;
     }
 
     async speak(text, speed = 1.0, espeakVoice) {

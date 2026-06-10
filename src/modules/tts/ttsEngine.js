@@ -206,6 +206,7 @@ export class TTSEngine {
             const phonemizerJsUrl = `${baseUrl}thirdparty/piper/piper-o91UDS6e.js`;
             const phonemizerWasmUrl = `${baseUrl}thirdparty/piper/piper_phonemize.wasm`;
             const phonemizerDataUrl = `${baseUrl}thirdparty/piper/piper_phonemize.data`;
+            const maxThreads = Math.max(1, Number(this.app.config.PIPER_MAX_THREADS) || 1);
 
             if (!this.initialized) {
                 await this.client.init({
@@ -218,6 +219,7 @@ export class TTSEngine {
                     phonemizerDataUrl,
                     logLevel: "error",
                     transferModel: true,
+                    maxThreads,
                 });
             } else if (this.voiceId !== targetVoiceId) {
                 await this.client.changeVoice({
@@ -478,7 +480,10 @@ export class TTSEngine {
                     const cleaned = formatTextToSpeech(phrase);
                     const activeClient = this.app.state.piperInstance || client;
                     if (!activeClient) throw new Error("Piper worker unavailable");
-                    const result = await activeClient.synthesize(cleaned, state.CURRENT_SPEED);
+                    const createBlob = !config.STORE_DECODED_ONLY || config.MAKE_WAV_COPY;
+                    const result = await activeClient.synthesize(cleaned, state.CURRENT_SPEED, undefined, {
+                        createBlob,
+                    });
                     return result;
                 } catch (e) {
                     await this.ensurePiper(activeVoice);

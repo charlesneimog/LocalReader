@@ -124,15 +124,18 @@ export class SentenceParser {
             const layoutActive = state.generationEnabled;
             const initialReadableWords = layoutActive ? [] : allWords;
             const fallbackWords = initialReadableWords.length ? initialReadableWords : allWords;
+            const originalText = this.joinWords(allWords);
+            const readableText = initialReadableWords.length ? originalText : "";
+            const text = fallbackWords === allWords ? originalText : this.joinWords(fallbackWords);
             const sentence = {
                 index: sentenceIndex++,
                 pageNumber: pageNumber,
                 words: allWords,
                 originalWords: allWords,
-                originalText: this.joinWords(allWords),
+                originalText,
                 readableWords: [...initialReadableWords],
-                readableText: this.joinWords(initialReadableWords),
-                text: this.joinWords(fallbackWords),
+                readableText,
+                text,
                 bbox,
                 audioBlob: null,
                 wavBlob: null,
@@ -227,14 +230,16 @@ export class SentenceParser {
 
     combinedBBox(words) {
         if (!words.length) return null;
-        const xs = words.map((w) => w.x);
-        const ysTop = words.map((w) => w.y - w.height);
-        const ysBottom = words.map((w) => w.y);
-        const ws = words.map((w) => w.x + w.width);
-        const x1 = Math.min(...xs);
-        const y1 = Math.min(...ysTop);
-        const x2 = Math.max(...ws);
-        const y2 = Math.max(...ysBottom);
+        let x1 = Infinity;
+        let y1 = Infinity;
+        let x2 = -Infinity;
+        let y2 = -Infinity;
+        for (const w of words) {
+            x1 = Math.min(x1, w.x);
+            y1 = Math.min(y1, w.y - w.height);
+            x2 = Math.max(x2, w.x + w.width);
+            y2 = Math.max(y2, w.y);
+        }
         return {
             x: x1,
             y: y1,

@@ -2,7 +2,7 @@
 export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 34,
-    VERSION_PATCH: 1,
+    VERSION_PATCH: 3,
     VERSION_BUILD: 0,
 
     // Rendering
@@ -37,6 +37,7 @@ export const CONFIG = {
     // TTS
     PREFETCH_AHEAD: 10,
     MAX_CONCURRENT_SYNTH: navigator.hardwareConcurrency - 1 || 1,
+    PIPER_MAX_THREADS: 2,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,
     PIPER_VOICES: [

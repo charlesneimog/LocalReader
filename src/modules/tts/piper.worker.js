@@ -44,7 +44,7 @@ function normalizeAssetUrl(url) {
     }
 }
 
-async function loadOrt(ortJsUrl, wasmRoot, logLevel = "error") {
+async function loadOrt(ortJsUrl, wasmRoot, logLevel = "error", maxThreads = 2) {
     if (ortLoaded) return;
 
     ortJsUrl = normalizeAssetUrl(ortJsUrl);
@@ -57,7 +57,8 @@ async function loadOrt(ortJsUrl, wasmRoot, logLevel = "error") {
     const threadsDefault =
         self.navigator && self.navigator.hardwareConcurrency ? self.navigator.hardwareConcurrency : 1;
     const canUseThreads = self.crossOriginIsolated === true; // needed for SharedArrayBuffer
-    const threads = canUseThreads ? threadsDefault : 1;
+    const threadCap = Math.max(1, Number(maxThreads) || 1);
+    const threads = canUseThreads ? Math.min(threadsDefault, threadCap) : 1;
 
     self.ort.env.wasm.wasmPaths = wasmRoot;
     self.ort.env.wasm.simd = true;
@@ -268,9 +269,10 @@ self.onmessage = async (event) => {
                 modelBuffer,
                 voiceConfig: cfg,
                 logLevel,
+                maxThreads,
             } = payload;
 
-            await loadOrt(ortJsUrl, ortWasmRoot, logLevel || "error");
+            await loadOrt(ortJsUrl, ortWasmRoot, logLevel || "error", maxThreads);
             await loadPhonemizerJS(phonemizerJsUrl);
             await ensurePhonemizer(phonemizerWasmUrl, phonemizerDataUrl);
 

@@ -46,6 +46,7 @@ export class PDFThumbnailCache {
         this._idleHandle = null;
 
         this._serverPresenceRefreshInFlight = null;
+        this._isSmartphoneDevice = null;
     }
 
     _extractActualFilename(key) {
@@ -498,12 +499,14 @@ export class PDFThumbnailCache {
     }
 
     isSmartphoneDevice() {
+        if (this._isSmartphoneDevice !== null) return this._isSmartphoneDevice;
         const ua = navigator.userAgent || "";
         const phoneUserAgent = /Mobi|Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
         const narrowTouch =
             window.matchMedia?.("(pointer: coarse)")?.matches &&
             window.matchMedia?.("(max-width: 767px)")?.matches;
-        return phoneUserAgent || narrowTouch;
+        this._isSmartphoneDevice = phoneUserAgent || narrowTouch;
+        return this._isSmartphoneDevice;
     }
 
     addSmartphoneLongPressDelete(cardElement, pdfKey, pdfName, canvas, docType = "pdf") {
@@ -533,14 +536,8 @@ export class PDFThumbnailCache {
             }, 1000);
         };
 
-        const resetPressStyle = () => {
-            cardElement.style.outline = "";
-            cardElement.style.outlineOffset = "";
-        };
-
         const cancel = () => {
             clearTimer();
-            resetPressStyle();
         };
 
         cardElement.addEventListener("pointerdown", (e) => {
@@ -549,15 +546,12 @@ export class PDFThumbnailCache {
             startX = e.clientX;
             startY = e.clientY;
             longPressTriggered = false;
-            cardElement.style.outline = "2px solid rgba(248, 113, 113, 0.9)";
-            cardElement.style.outlineOffset = "2px";
 
             clearTimer();
             timer = setTimeout(async () => {
                 timer = null;
                 longPressTriggered = true;
                 skipOnlyImmediateClick();
-                resetPressStyle();
                 await this.deleteCardDocument(cardElement, pdfKey, pdfName, canvas, docType);
             }, LONG_PRESS_MS);
         });

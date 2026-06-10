@@ -78,6 +78,7 @@ export class EPUBLoader {
                 state.pageSentencesIndex?.clear?.();
                 state.hoveredSentenceIndex = -1;
                 state.currentSentenceIndex = -1;
+                state.savedHighlights = new Map();
             }
 
             this.reset();
@@ -227,13 +228,23 @@ export class EPUBLoader {
                     await this._applySavedVoice(resumeVoiceId);
                 }
 
+                if (state.currentEpubKey && (!state.savedHighlights || state.savedHighlights.size === 0)) {
+                    state.savedHighlights = this.app.highlightsStorage.loadSavedHighlights(state.currentEpubKey);
+                }
+                if (state.savedHighlights?.size) {
+                    const lastSaved = Array.from(state.savedHighlights.values()).pop();
+                    if (lastSaved?.color) state.selectedHighlightColor = lastSaved.color;
+                }
+
                 await this.renderer.renderSentence(startIndex, { suppressScroll: true });
+                await this.renderer.updateHighlightDisplay();
             } else {
                 this.app.ui.showInfo("No readable text detected in EPUB.");
             }
 
             this.renderer.setupInteractionListeners();
             this.app.interactionHandler.setupInteractionListeners();
+            this.app.controlsManager.reflectSelectedHighlightColor();
 
             this.app.ui.updatePlayButton(state.playerState.DONE);
             this.app.ui.showInfo("EPUB loaded successfully.");

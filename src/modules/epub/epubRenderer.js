@@ -18,6 +18,7 @@ export class EPUBRenderer {
         this._boundHighlight = null;
         this._boundLoad = null;
         this._boundDrawAnnotation = null;
+        this._highlightRefreshTimer = null;
 
         this._activeDocs = new Set();
         this._docListeners = [];
@@ -95,7 +96,8 @@ export class EPUBRenderer {
         // Re-apply hover/active highlights
         try {
             // Prefer to update active sentence highlight first
-            const active = state.currentSentence ?? null;
+            const activeIdx = state.playingSentenceIndex >= 0 ? state.playingSentenceIndex : state.currentSentenceIndex;
+            const active = activeIdx >= 0 ? state.sentences?.[activeIdx] : null;
             if (active && active.cfi) await this.updateHighlightFullDoc(active);
         } catch (e) {
             // non-fatal
@@ -237,6 +239,10 @@ export class EPUBRenderer {
             this._container.innerHTML = "";
             this._container.style.display = "none";
             this._container.style.height = "";
+        }
+        if (this._highlightRefreshTimer) {
+            clearTimeout(this._highlightRefreshTimer);
+            this._highlightRefreshTimer = null;
         }
     }
 
@@ -443,6 +449,7 @@ export class EPUBRenderer {
         doc.addEventListener("keydown", this._onKeydown, { passive: false });
         this._activeDocs.add(doc);
         this.setupInteractionListeners();
+        this._scheduleHighlightDisplayRefresh();
     }
 
     _handleDrawAnnotation(event) {
@@ -768,20 +775,56 @@ export class EPUBRenderer {
     async _applySentenceHighlight(cfi) {
         if (!this.view || !cfi) return;
         if (this._activeAnnotationValue) {
+            const previous = this._activeAnnotationValue;
             try {
-                await this.view.deleteAnnotation({ value: this._activeAnnotationValue });
+                await this.view.deleteAnnotation({ value: previous });
             } catch (error) {
                 console.debug("[EPUBRenderer] Unable to delete previous annotation", error);
+            }
+            if (previous !== cfi) {
+                await this._restorePersistentHighlight(previous);
             }
         }
 
         try {
-            await this.view.addAnnotation({ value: cfi, color: this._activeHighlightColor });
+            const savedColor = this._getSavedHighlightColorForCfi(cfi);
+            await this.view.addAnnotation({ value: cfi, color: savedColor || this._activeHighlightColor });
             this._activeAnnotationValue = cfi;
             this._clearTextSelections();
         } catch (error) {
             console.warn("[EPUBRenderer] Failed to apply highlight", error);
             this._activeAnnotationValue = null;
+        }
+    }
+
+    _scheduleHighlightDisplayRefresh() {
+        if (this._highlightRefreshTimer) clearTimeout(this._highlightRefreshTimer);
+        this._highlightRefreshTimer = setTimeout(() => {
+            this._highlightRefreshTimer = null;
+            this.updateHighlightDisplay().catch((error) => {
+                console.debug("[EPUBRenderer] Failed to refresh EPUB highlights", error);
+            });
+        }, 0);
+    }
+
+    _getSavedHighlightColorForCfi(cfi) {
+        if (!cfi) return null;
+        const { state } = this.app;
+        if (!state?.savedHighlights?.size || !state?.sentences?.length) return null;
+        for (const [sentenceIndex, highlightData] of state.savedHighlights.entries()) {
+            const sentence = state.sentences?.[sentenceIndex];
+            if (sentence?.cfi === cfi) return highlightData?.color || null;
+        }
+        return null;
+    }
+
+    async _restorePersistentHighlight(cfi) {
+        const color = this._getSavedHighlightColorForCfi(cfi);
+        if (!color || !this._persistentAnnotationValues?.has(cfi)) return;
+        try {
+            await this.view.addAnnotation({ value: cfi, color });
+        } catch (error) {
+            console.debug("[EPUBRenderer] Unable to restore saved highlight", error);
         }
     }
 

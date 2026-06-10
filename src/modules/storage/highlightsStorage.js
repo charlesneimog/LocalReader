@@ -29,9 +29,13 @@ export class HighlightsStorage {
         }
         return highlightsMap;
     }
+    _getCurrentDocumentKey() {
+        const { state } = this.app;
+        return state.currentDocumentType === "epub" ? state.currentEpubKey : state.currentPdfKey;
+    }
     saveHighlightsForPdf({ allowEmpty = false } = {}) {
         const { state } = this.app;
-        const key = state.currentPdfKey;
+        const key = this._getCurrentDocumentKey();
         if (!key) return;
 
         const all = this.getHighlightsMap();
@@ -42,7 +46,11 @@ export class HighlightsStorage {
             for (const [sentenceIndex, data] of Object.entries(existing)) {
                 state.savedHighlights.set(parseInt(sentenceIndex, 10), data);
             }
-            this.app.pdfRenderer?.updateHighlightDisplay?.();
+            if (state.currentDocumentType === "epub") {
+                this.app.epubRenderer?.updateHighlightDisplay?.();
+            } else {
+                this.app.pdfRenderer?.updateHighlightDisplay?.();
+            }
             return;
         }
 
@@ -107,9 +115,13 @@ export class HighlightsStorage {
         if (map[key]) {
             delete map[key];
             this.setHighlightsMap(map);
-            if (key === this.app.state.currentPdfKey) {
+            if (key === this._getCurrentDocumentKey()) {
                 this.app.state.savedHighlights.clear();
-                this.app.pdfRenderer.updateHighlightDisplay();
+                if (this.app.state.currentDocumentType === "epub") {
+                    this.app.epubRenderer?.updateHighlightDisplay?.();
+                } else {
+                    this.app.pdfRenderer?.updateHighlightDisplay?.();
+                }
             }
         }
     }

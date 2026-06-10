@@ -1,3 +1,5 @@
+import { hitTestSentence } from "../utils/coordinates.js";
+
 export class PDFHeaderFooterDetector {
     constructor(app) {
         this.app = app;
@@ -85,7 +87,12 @@ export class PDFHeaderFooterDetector {
             if (!det) return det;
             const label = String(det.label || "").toLowerCase();
             const score = Number(det.score);
-            if (label === "text" && Number.isFinite(score) && score < this.TEXT_CONFIDENCE_THRESHOLD) {
+            if (
+                label === "text" &&
+                !det.manualLabel &&
+                Number.isFinite(score) &&
+                score < this.TEXT_CONFIDENCE_THRESHOLD
+            ) {
                 return {
                     ...det,
                     originalLabel: det.originalLabel || det.label,
@@ -251,6 +258,8 @@ export class PDFHeaderFooterDetector {
                 cached.readabilityVersion = null;
                 cached.readableWordCount = null;
             }
+            const canvas = state.fullPageRenderCache.get(pageNumber) || null;
+            this._drawNotSureTextControls(pageNumber, cached.detections, canvas);
             return Promise.resolve(cached.detections);
         }
 
@@ -348,6 +357,7 @@ export class PDFHeaderFooterDetector {
 
                 state.layoutDetectionCache.set(pageNumber, cacheEntry);
                 this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
+                this._drawNotSureTextControls(pageNumber, detections, canvas);
 
                 if (this.debug) {
                     this._drawDetectedLayoutOverlay(pageNumber, detections, canvas);
@@ -501,6 +511,146 @@ export class PDFHeaderFooterDetector {
         const overlapX = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
         const overlapY = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
         return overlapX > 0 && overlapY > 0;
+    }
+
+    _getDetectionDisplayBox(det, viewportDisplay, baseCanvas = null) {
+        if (!det || !viewportDisplay) return null;
+
+        if (det.normalized) {
+            const x1 = det.normalized.left * viewportDisplay.width;
+            const y1 = det.normalized.top * viewportDisplay.height;
+            const x2 = det.normalized.right * viewportDisplay.width;
+            const y2 = det.normalized.bottom * viewportDisplay.height;
+            if (x2 <= x1 || y2 <= y1) return null;
+            return { x1, y1, x2, y2, width: x2 - x1, height: y2 - y1 };
+        }
+
+        const canvasWidth = baseCanvas?.width || viewportDisplay.width;
+        const canvasHeight = baseCanvas?.height || viewportDisplay.height;
+        const scaleX = viewportDisplay.width / canvasWidth;
+        const scaleY = viewportDisplay.height / canvasHeight;
+        const x1 = det.x1 * scaleX;
+        const y1 = det.y1 * scaleY;
+        const width = (det.width || det.x2 - det.x1) * scaleX;
+        const height = (det.height || det.y2 - det.y1) * scaleY;
+        if (width <= 0 || height <= 0) return null;
+        return { x1, y1, x2: x1 + width, y2: y1 + height, width, height };
+    }
+
+    _drawNotSureTextControls(pageNumber, detections, baseCanvas = null) {
+        const { state } = this.app;
+        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+        const container = document.querySelector(`[data-page-number="${pageNumber}"]`);
+        if (!container || !viewportDisplay) return;
+
+        container.querySelector(".not-sure-layout-controls")?.remove();
+        const uncertain = (detections || [])
+            .map((det, index) => ({ det, index }))
+            .filter(({ det }) => String(det?.label || "").toLowerCase() === "not-sure-text");
+        if (!uncertain.length) return;
+
+        const overlay = document.createElement("div");
+        overlay.className = "not-sure-layout-controls";
+
+        for (const { det, index } of uncertain) {
+            const box = this._getDetectionDisplayBox(det, viewportDisplay, baseCanvas);
+            if (!box) continue;
+
+            const region = document.createElement("button");
+            region.type = "button";
+            region.className = "not-sure-layout-region";
+            region.style.left = `${box.x1}px`;
+            region.style.top = `${box.y1}px`;
+            region.style.width = `${box.width}px`;
+            region.style.height = `${box.height}px`;
+            region.title = "Read this uncertain text";
+            region.setAttribute("aria-label", "Read this uncertain text");
+            region.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this._readNotSureTextRegion(pageNumber, index, event).catch((error) => {
+                    console.warn("[Layout] Failed to read uncertain text region", error);
+                });
+            });
+
+            for (const side of ["left", "right"]) {
+                const addBtn = document.createElement("button");
+                addBtn.type = "button";
+                addBtn.className = `not-sure-layout-add not-sure-layout-add-${side}`;
+                addBtn.title = "Add as text";
+                addBtn.setAttribute("aria-label", "Add as text");
+                addBtn.innerHTML = `<span class="material-symbols-outlined">add</span>`;
+                addBtn.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.setDetectionLabel(pageNumber, index, "text").catch((error) => {
+                        console.warn("[Layout] Failed to add uncertain region as text", error);
+                    });
+                });
+                region.appendChild(addBtn);
+            }
+
+            overlay.appendChild(region);
+        }
+
+        container.appendChild(overlay);
+    }
+
+    async setDetectionLabel(pageNumber, detectionIndex, label) {
+        const { state } = this.app;
+        const cacheEntry = state.layoutDetectionCache.get(pageNumber);
+        const detections = cacheEntry?.detections;
+        const det = detections?.[detectionIndex];
+        if (!det) return false;
+
+        det.originalLabel = det.originalLabel || det.label;
+        det.label = label;
+        det.manualLabel = true;
+        cacheEntry.readabilityVersion = null;
+        cacheEntry.readableWordCount = null;
+
+        await this.ensureReadabilityForPage(pageNumber, { force: true });
+        this._refreshPageLayoutUi(pageNumber);
+        this.app.ui?.showInfo?.(`Layout label: ${label}`);
+        return true;
+    }
+
+    async _readNotSureTextRegion(pageNumber, detectionIndex, event) {
+        const { state } = this.app;
+        const wrapper = event.target?.closest?.(".pdf-page-wrapper");
+        const canvas = wrapper?.querySelector?.("canvas.page-canvas");
+        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+        if (!wrapper || !canvas || !viewportDisplay) return;
+
+        const canvasRect = canvas.getBoundingClientRect();
+        const scale = parseFloat(wrapper.dataset.scale) || 1;
+        const xDisplay = (event.clientX - canvasRect.left) / scale;
+        const yDisplay = (event.clientY - canvasRect.top) / scale;
+
+        await this.setDetectionLabel(pageNumber, detectionIndex, "text");
+
+        const idx = hitTestSentence(state, pageNumber, xDisplay, yDisplay);
+        if (idx < 0) return;
+
+        await this.app.audioManager?.stopPlayback?.(true);
+        state.autoAdvanceActive = false;
+        await this.app.pdfRenderer?.renderSentence?.(idx, { skipTTS: true });
+        this.app.cache?.clearAudioFrom?.(idx);
+        this.app.ttsQueue?.add?.(idx, true);
+        this.app.ttsQueue?.run?.();
+        await this.app.audioManager?.playCurrentSentence?.();
+    }
+
+    _refreshPageLayoutUi(pageNumber) {
+        const { state } = this.app;
+        const cacheEntry = state.layoutDetectionCache.get(pageNumber);
+        const detections = cacheEntry?.detections || [];
+        const canvas = state.fullPageRenderCache.get(pageNumber) || null;
+
+        this._drawIgnoredDetectionsOverlay(pageNumber, detections, canvas);
+        this._drawNotSureTextControls(pageNumber, detections, canvas);
+        if (this.debug) this._drawDetectedLayoutOverlay(pageNumber, detections, canvas);
+        this.app.pdfRenderer?.updatePhraseHighlightsAndListeners?.({ forceFullRescale: true });
     }
 
     _nextRequestId() {

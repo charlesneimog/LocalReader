@@ -648,6 +648,62 @@ html {
     white-space: nowrap;
 }
 
+.not-sure-layout-controls {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 32;
+}
+
+.not-sure-layout-region {
+    position: absolute;
+    display: block;
+    padding: 0;
+    border: 1.5px dashed rgba(245, 158, 11, 0.95);
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.1);
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.not-sure-layout-region:hover {
+    background: rgba(245, 158, 11, 0.18);
+}
+
+.not-sure-layout-add {
+    position: absolute;
+    top: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(245, 158, 11, 0.96);
+    color: white;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.28);
+    cursor: pointer;
+    transform: translateY(-50%);
+}
+
+.not-sure-layout-add:hover {
+    background: rgba(217, 119, 6, 1);
+}
+
+.not-sure-layout-add .material-symbols-outlined {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.not-sure-layout-add-left {
+    left: -12px;
+}
+
+.not-sure-layout-add-right {
+    right: -12px;
+}
+
 /*
  *╭─────────────────────────────────────╮
  *│             Need Review             │

@@ -129,6 +129,10 @@ html.amoled-mode #config-menu {
         0 18px 48px rgba(0, 0, 0, 0.95);
 }
 
+#config-menu {
+    z-index: 10050;
+}
+
 html.amoled-mode .pdf-page-wrapper {
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow:

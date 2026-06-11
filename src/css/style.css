@@ -138,7 +138,8 @@ html.amoled-mode .translate-popup {
     color: var(--amoled-reader-fg) !important;
 }
 
-html.amoled-mode .translate-popup .translate-popup-text {
+html.amoled-mode .translate-popup,
+html.amoled-mode .translate-popup * {
     color: var(--amoled-reader-fg) !important;
 }
 

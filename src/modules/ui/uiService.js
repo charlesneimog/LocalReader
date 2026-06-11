@@ -70,7 +70,7 @@ export class UIService {
         } else {
             this._translatePopupEl.style.removeProperty("color");
         }
-        this._translatePopupEl.querySelectorAll(".translate-popup-text").forEach((el) => {
+        this._translatePopupEl.querySelectorAll("*").forEach((el) => {
             if (color) {
                 el.style.setProperty("color", color, "important");
             } else {

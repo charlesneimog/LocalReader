@@ -120,6 +120,15 @@ html.amoled-mode #info-box {
     background-color: rgba(0, 0, 0, 0.88) !important;
 }
 
+html.amoled-mode #config-menu {
+    background: #000000 !important;
+    background-color: #000000 !important;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.04),
+        0 18px 48px rgba(0, 0, 0, 0.95);
+}
+
 html.amoled-mode .pdf-page-wrapper {
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow:

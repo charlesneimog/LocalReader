@@ -3,6 +3,18 @@ import { getPageDisplayScale } from "../utils/responsive.js";
 import { EVENTS } from "../../constants/events.js";
 
 const ACTIVE_SENTENCE_HIGHLIGHT_RGBA = "rgba(12, 163, 223, 0.3)";
+const AMOLED_TEXT_COLORS = [
+    "#f5f5f5",
+    "#dddddd",
+    "#c6c6c6",
+    "#adadad",
+    "#949494",
+    "#7c7c7c",
+    "#646464",
+    "#4d4d4d",
+    "#383838",
+    "#282828",
+];
 
 export class PDFRenderer {
     constructor(app) {
@@ -33,9 +45,21 @@ export class PDFRenderer {
         return {
             pageColors: {
                 background: "#000000",
-                foreground: "#f5f5f5",
+                foreground: this._getAmoledTextColor(),
             },
         };
+    }
+
+    _getAmoledTextColor() {
+        try {
+            const level = Number.parseInt(localStorage.getItem("config.amoledTextLevel") || "0", 10);
+            if (Number.isFinite(level) && level >= 0 && level < AMOLED_TEXT_COLORS.length) {
+                return AMOLED_TEXT_COLORS[level];
+            }
+        } catch {
+            // fall through to default
+        }
+        return AMOLED_TEXT_COLORS[0];
     }
 
     async refreshAmoledRendering() {

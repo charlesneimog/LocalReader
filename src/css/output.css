@@ -587,6 +587,9 @@
   .h-2 {
     height: calc(var(--spacing) * 2);
   }
+  .h-5 {
+    height: calc(var(--spacing) * 5);
+  }
   .h-6 {
     height: calc(var(--spacing) * 6);
   }
@@ -622,6 +625,9 @@
   }
   .w-0 {
     width: calc(var(--spacing) * 0);
+  }
+  .w-5 {
+    width: calc(var(--spacing) * 5);
   }
   .w-6 {
     width: calc(var(--spacing) * 6);
@@ -899,6 +905,9 @@
   }
   .border-slate-300 {
     border-color: var(--color-slate-300);
+  }
+  .border-slate-400 {
+    border-color: var(--color-slate-400);
   }
   .border-white\/20 {
     border-color: color-mix(in srgb, #fff 20%, transparent);

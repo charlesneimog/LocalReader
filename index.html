@@ -560,6 +560,19 @@
                     </button>
 
                     <button
+                        id="amoled-text-color"
+                        title="Cycle AMOLED reader text brightness"
+                        aria-label="Cycle AMOLED reader text brightness"
+                        class="flex items-center justify-center rounded p-2"
+                        type="button"
+                    >
+                        <span
+                            id="amoled-text-color-swatch"
+                            class="block h-5 w-5 rounded-full border border-slate-400 dark:border-slate-600"
+                        ></span>
+                    </button>
+
+                    <button
                         id="lock-screen"
                         title="Lock screen orientation"
                         class="flex items-center justify-center rounded p-2"
@@ -862,6 +875,8 @@
                 const settingsMenu = document.getElementById("config-menu");
                 const configMenuClose = document.getElementById("config-menu-close");
                 const amoledModeBtn = document.getElementById("toggle-amoled-mode");
+                const amoledTextColorBtn = document.getElementById("amoled-text-color");
+                const amoledTextColorSwatch = document.getElementById("amoled-text-color-swatch");
 
                 const highlightBtn = document.getElementById("highlight-button");
                 const highlightMenu = document.getElementById("highlight-menu");
@@ -896,6 +911,40 @@
                 const getServerUrl = () => app.serverSync?.getServerUrl?.() || getDefaultServerUrl();
 
                 const isAmoledModeEnabled = () => localStorage.getItem("config.amoledMode") === "1";
+                const AMOLED_TEXT_COLORS = [
+                    "#f5f5f5",
+                    "#dddddd",
+                    "#c6c6c6",
+                    "#adadad",
+                    "#949494",
+                    "#7c7c7c",
+                    "#646464",
+                    "#4d4d4d",
+                    "#383838",
+                    "#282828",
+                ];
+
+                const getAmoledTextLevel = () => {
+                    const parsed = Number.parseInt(localStorage.getItem("config.amoledTextLevel") || "0", 10);
+                    if (!Number.isFinite(parsed)) return 0;
+                    return Math.min(AMOLED_TEXT_COLORS.length - 1, Math.max(0, parsed));
+                };
+
+                const getAmoledTextColor = (level = getAmoledTextLevel()) =>
+                    AMOLED_TEXT_COLORS[level] || AMOLED_TEXT_COLORS[0];
+
+                const reflectAmoledTextColor = (level = getAmoledTextLevel()) => {
+                    const normalized = Math.min(AMOLED_TEXT_COLORS.length - 1, Math.max(0, Number(level) || 0));
+                    const color = getAmoledTextColor(normalized);
+                    document.documentElement.style.setProperty("--amoled-reader-fg", color);
+                    if (!amoledTextColorBtn || !amoledTextColorSwatch) return;
+
+                    const label = `AMOLED reader text level ${normalized + 1} of ${AMOLED_TEXT_COLORS.length}`;
+                    amoledTextColorBtn.title = `${label}: ${color}`;
+                    amoledTextColorBtn.setAttribute("aria-label", `${label}: ${color}`);
+                    amoledTextColorSwatch.style.backgroundColor = color;
+                    amoledTextColorSwatch.style.boxShadow = `0 0 0 2px rgba(255, 255, 255, 0.08), 0 0 14px ${color}55`;
+                };
 
                 const reflectAmoledModeToggle = (enabled = isAmoledModeEnabled()) => {
                     const active = !!enabled;
@@ -919,12 +968,25 @@
                 };
 
                 reflectAmoledModeToggle();
+                reflectAmoledTextColor();
 
                 amoledModeBtn?.addEventListener("click", () => {
                     const next = !isAmoledModeEnabled();
                     localStorage.setItem("config.amoledMode", next ? "1" : "0");
                     reflectAmoledModeToggle(next);
                     window.dispatchEvent(new CustomEvent("amoled-mode-change", { detail: { enabled: next } }));
+                });
+
+                amoledTextColorBtn?.addEventListener("click", () => {
+                    const nextLevel = (getAmoledTextLevel() + 1) % AMOLED_TEXT_COLORS.length;
+                    localStorage.setItem("config.amoledTextLevel", String(nextLevel));
+                    const color = getAmoledTextColor(nextLevel);
+                    reflectAmoledTextColor(nextLevel);
+                    window.dispatchEvent(
+                        new CustomEvent("amoled-mode-change", {
+                            detail: { enabled: isAmoledModeEnabled(), textColor: color, textLevel: nextLevel },
+                        }),
+                    );
                 });
 
                 const setAuthError = (msg) => {

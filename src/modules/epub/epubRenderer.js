@@ -3,6 +3,18 @@ import { Overlayer } from "./../../../thirdparty/foliate-js/overlayer.js";
 
 const ACTIVE_SENTENCE_COLOR = "rgb(120, 190, 255)";
 const HOVER_SENTENCE_COLOR = "rgb(148, 206, 255)";
+const AMOLED_TEXT_COLORS = [
+    "#f5f5f5",
+    "#dddddd",
+    "#c6c6c6",
+    "#adadad",
+    "#949494",
+    "#7c7c7c",
+    "#646464",
+    "#4d4d4d",
+    "#383838",
+    "#282828",
+];
 
 export class EPUBRenderer {
     constructor(app, loader) {
@@ -273,19 +285,32 @@ export class EPUBRenderer {
         }
     }
 
+    _getAmoledTextColor() {
+        try {
+            const level = Number.parseInt(localStorage.getItem("config.amoledTextLevel") || "0", 10);
+            if (Number.isFinite(level) && level >= 0 && level < AMOLED_TEXT_COLORS.length) {
+                return AMOLED_TEXT_COLORS[level];
+            }
+        } catch {
+            // fall through to default
+        }
+        return AMOLED_TEXT_COLORS[0];
+    }
+
     _buildContentStyles() {
+        const amoledTextColor = this._getAmoledTextColor();
         const amoledCSS = this._isAmoledModeEnabled()
             ? `
 :root {
     --bg: #000000 !important;
     --bg-dark: #000000 !important;
-    --fg: #f5f5f5 !important;
+    --fg: ${amoledTextColor} !important;
 }
 html,
 body {
     background: #000000 !important;
     background-color: #000000 !important;
-    color: #f5f5f5 !important;
+    color: ${amoledTextColor} !important;
 }
 `
             : "";

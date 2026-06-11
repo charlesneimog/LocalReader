@@ -137,16 +137,16 @@ html.amoled-mode #config-menu {
 html.amoled-mode .playbar,
 html.amoled-mode .playbar button,
 html.amoled-mode .playbar .material-symbols-outlined {
-    color: var(--amoled-reader-fg) !important;
+    color: color-mix(in srgb, var(--amoled-reader-fg) 72%, #000000) !important;
 }
 
 html.amoled-mode .playbar [id="play-toggle"] {
-    background-color: color-mix(in srgb, var(--amoled-reader-fg) 18%, #000000) !important;
+    background-color: color-mix(in srgb, var(--amoled-reader-fg) 12%, #000000) !important;
 }
 
 html.amoled-mode .playbar .bg-slate-300,
 html.amoled-mode .playbar .dark\:bg-slate-700 {
-    background-color: color-mix(in srgb, var(--amoled-reader-fg) 25%, #000000) !important;
+    background-color: color-mix(in srgb, var(--amoled-reader-fg) 16%, #000000) !important;
 }
 
 html.amoled-mode .translate-popup {

@@ -157,7 +157,7 @@ export class UIService {
 
             const panel = document.createElement("div");
             panel.className =
-                "w-[94vw] max-w-xl rounded-xl border border-slate-200 dark:border-slate-700 " +
+                "translation-setup-prompt w-[94vw] max-w-xl rounded-xl border border-slate-200 dark:border-slate-700 " +
                 "bg-background-light dark:bg-background-dark shadow-2xl";
 
             const header = document.createElement("div");

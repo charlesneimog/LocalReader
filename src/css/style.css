@@ -143,6 +143,29 @@ html.amoled-mode .translate-popup * {
     color: var(--amoled-reader-fg) !important;
 }
 
+html.amoled-mode .translation-setup-prompt {
+    background: #000000 !important;
+    background-color: #000000 !important;
+    border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+html.amoled-mode .translation-setup-prompt,
+html.amoled-mode .translation-setup-prompt * {
+    color: #e5e7eb !important;
+}
+
+html.amoled-mode .translation-setup-prompt select,
+html.amoled-mode .translation-setup-prompt input,
+html.amoled-mode .translation-setup-prompt button {
+    background-color: #000000 !important;
+    border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+html.amoled-mode .translation-setup-prompt option {
+    background-color: #000000 !important;
+    color: #e5e7eb !important;
+}
+
 html.amoled-mode .pdf-page-wrapper {
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow:

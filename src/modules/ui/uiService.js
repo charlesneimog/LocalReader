@@ -1,4 +1,17 @@
 // Helper UI functions (info/status) separated for reuse
+const AMOLED_TEXT_COLORS = [
+    "#f5f5f5",
+    "#dddddd",
+    "#c6c6c6",
+    "#adadad",
+    "#949494",
+    "#7c7c7c",
+    "#646464",
+    "#4d4d4d",
+    "#383838",
+    "#282828",
+];
+
 export class UIService {
     constructor(app) {
         this.app = app;
@@ -19,6 +32,51 @@ export class UIService {
 
         this._translationSetupPromptEl = null;
         this._translationSetupPromptCleanup = null;
+
+        window.addEventListener("amoled-mode-change", () => this._applyTranslatePopupAmoledColor(), {
+            passive: true,
+        });
+    }
+
+    _isAmoledModeEnabled() {
+        try {
+            return (
+                document.documentElement.classList.contains("amoled-mode") ||
+                localStorage.getItem("config.amoledMode") === "1"
+            );
+        } catch {
+            return document.documentElement.classList.contains("amoled-mode");
+        }
+    }
+
+    _getAmoledTextColor() {
+        try {
+            const level = Number.parseInt(localStorage.getItem("config.amoledTextLevel") || "0", 10);
+            if (Number.isFinite(level) && level >= 0 && level < AMOLED_TEXT_COLORS.length) {
+                return AMOLED_TEXT_COLORS[level];
+            }
+        } catch {
+            // fall through to default
+        }
+        return AMOLED_TEXT_COLORS[0];
+    }
+
+    _applyTranslatePopupAmoledColor() {
+        if (!this._translatePopupEl) return;
+        const color = this._isAmoledModeEnabled() ? this._getAmoledTextColor() : "";
+        if (color) {
+            document.documentElement.style.setProperty("--amoled-reader-fg", color);
+            this._translatePopupEl.style.setProperty("color", color, "important");
+        } else {
+            this._translatePopupEl.style.removeProperty("color");
+        }
+        this._translatePopupEl.querySelectorAll(".translate-popup-text").forEach((el) => {
+            if (color) {
+                el.style.setProperty("color", color, "important");
+            } else {
+                el.style.removeProperty("color");
+            }
+        });
     }
 
     _hideTranslatePopup() {
@@ -836,7 +894,7 @@ export class UIService {
 
         const wrap = document.createElement("div");
         wrap.className =
-            "fixed z-40 bottom-24 left-1/2 -translate-x-1/2 w-[92vw] max-w-2xl rounded-lg " +
+            "translate-popup fixed z-40 bottom-24 left-1/2 -translate-x-1/2 w-[92vw] max-w-2xl rounded-lg " +
             "bg-background-light dark:bg-background-dark bg-opacity-100 " +
             "px-4 py-3 shadow-lg border border-slate-200 dark:border-slate-700";
 
@@ -883,7 +941,7 @@ export class UIService {
         //body.appendChild(tLabel);
 
         const tText = document.createElement("div");
-        tText.className = "text-lg font-medium text-slate-900 dark:text-white";
+        tText.className = "translate-popup-text text-lg font-medium text-slate-900 dark:text-white";
 
         tText.textContent = translatedText || "(empty)";
         body.appendChild(tText);
@@ -894,6 +952,7 @@ export class UIService {
         wrap.appendChild(body);
         document.body.appendChild(wrap);
         this._translatePopupEl = wrap;
+        this._applyTranslatePopupAmoledColor();
 
         const onKey = (e) => {
             if (e.key === "Escape") this._hideTranslatePopup();

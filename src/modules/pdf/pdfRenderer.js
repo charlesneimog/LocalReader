@@ -2,7 +2,6 @@ import { isMobile, clamp, hexToRgb } from "../utils/helpers.js";
 import { getPageDisplayScale } from "../utils/responsive.js";
 import { EVENTS } from "../../constants/events.js";
 
-const ACTIVE_SENTENCE_HIGHLIGHT_RGBA = "rgba(12, 163, 223, 0.3)";
 const AMOLED_TEXT_COLORS = [
     "#f5f5f5",
     "#dddddd",
@@ -52,14 +51,35 @@ export class PDFRenderer {
 
     _getAmoledTextColor() {
         try {
-            const level = Number.parseInt(localStorage.getItem("config.amoledTextLevel") || "0", 10);
-            if (Number.isFinite(level) && level >= 0 && level < AMOLED_TEXT_COLORS.length) {
-                return AMOLED_TEXT_COLORS[level];
-            }
+            return AMOLED_TEXT_COLORS[this._getAmoledTextLevel()];
         } catch {
             // fall through to default
         }
         return AMOLED_TEXT_COLORS[0];
+    }
+
+    _getAmoledTextLevel() {
+        try {
+            const level = Number.parseInt(localStorage.getItem("config.amoledTextLevel") || "0", 10);
+            if (Number.isFinite(level)) {
+                return Math.min(AMOLED_TEXT_COLORS.length - 1, Math.max(0, level));
+            }
+        } catch {
+            // fall through to default
+        }
+        return 0;
+    }
+
+    _scaleHighlightOpacity(baseOpacity, minOpacity) {
+        if (!this._isAmoledModeEnabled()) return baseOpacity;
+        const maxLevel = Math.max(1, AMOLED_TEXT_COLORS.length - 1);
+        const progress = this._getAmoledTextLevel() / maxLevel;
+        return minOpacity + (baseOpacity - minOpacity) * (1 - progress);
+    }
+
+    _getActiveHighlightColor() {
+        const opacity = this._scaleHighlightOpacity(0.3, 0.06);
+        return `rgba(12, 163, 223, ${opacity.toFixed(3)})`;
     }
 
     async refreshAmoledRendering() {
@@ -72,6 +92,7 @@ export class PDFRenderer {
         if (container) {
             container.querySelectorAll("canvas.page-canvas").forEach((canvas) => canvas.remove());
         }
+        this.clearFullDocHighlights?.();
 
         const currentPage = state.currentSentence?.pageNumber;
         if (Number.isFinite(currentPage)) {
@@ -967,11 +988,13 @@ export class PDFRenderer {
                 div.style.width = Math.max(1, rect.width * scaleX) + "px";
                 div.style.height = Math.max(1, rect.height * scaleY) + "px";
                 const rgb = hexToRgb(highlightData.color);
+                const savedOpacity = this._scaleHighlightOpacity(0.8, 0.14);
+                const fallbackOpacity = this._scaleHighlightOpacity(0.3, 0.08);
                 if (rgb) {
-                    div.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8)`;
+                    div.style.backgroundColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${savedOpacity.toFixed(3)})`;
                     div.style.mixBlendMode = "multiply";
                 } else {
-                    div.style.backgroundColor = "rgba(255, 235, 59, 0.3)";
+                    div.style.backgroundColor = `rgba(255, 235, 59, ${fallbackOpacity.toFixed(3)})`;
                     div.style.mixBlendMode = "multiply";
                 }
                 div.style.zIndex = "10";
@@ -1092,6 +1115,9 @@ export class PDFRenderer {
             div.style.width = Math.max(1, rect.width * scaleX) + "px";
             div.style.height = Math.max(1, rect.height * scaleY) + "px";
             div.style.zIndex = "30";
+            if (this._isAmoledModeEnabled()) {
+                div.style.background = `rgba(0, 150, 255, ${this._scaleHighlightOpacity(0.28, 0.05).toFixed(3)})`;
+            }
             wrapper.appendChild(div);
         }
     }
@@ -1269,7 +1295,7 @@ export class PDFRenderer {
                 const div = document.createElement("div");
                 div.className = "pdf-word-highlight";
                 div.style.position = "absolute";
-                div.style.backgroundColor = ACTIVE_SENTENCE_HIGHLIGHT_RGBA;
+                div.style.backgroundColor = this._getActiveHighlightColor();
                 div.style.left = offsetLeft + rect.x * scaleX + "px";
                 div.style.top = offsetTop + rect.y * scaleY + "px";
                 div.style.width = Math.max(1, rect.width * scaleX) + "px";
@@ -1277,7 +1303,11 @@ export class PDFRenderer {
                 div.style.pointerEvents = "none";
                 if (savedHighlightData) {
                     div.classList.add("saved-highlight");
-                    div.style.outline = `2px solid ${savedOutlineColor}`;
+                    const outlineRgb = hexToRgb(savedOutlineColor);
+                    const outlineOpacity = this._scaleHighlightOpacity(1, 0.3);
+                    div.style.outline = outlineRgb
+                        ? `2px solid rgba(${outlineRgb.r}, ${outlineRgb.g}, ${outlineRgb.b}, ${outlineOpacity.toFixed(3)})`
+                        : `2px solid ${savedOutlineColor}`;
                     div.style.outlineOffset = "1px";
                     div.style.zIndex = "25";
                 } else {

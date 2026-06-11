@@ -26,7 +26,12 @@ export class EPUBRenderer {
         this._viewWrapper = null;
 
         this._boundResize = this._resizeContainer.bind(this);
-        this._boundAmoledModeChange = () => this._applyContentStyles();
+        this._boundAmoledModeChange = () => {
+            this._applyContentStyles();
+            this.updateHighlightDisplay().catch((error) => {
+                console.debug("[EPUBRenderer] Failed to refresh AMOLED highlights", error);
+            });
+        };
         this._boundRelocate = null;
         this._boundHighlight = null;
         this._boundLoad = null;
@@ -287,14 +292,30 @@ export class EPUBRenderer {
 
     _getAmoledTextColor() {
         try {
-            const level = Number.parseInt(localStorage.getItem("config.amoledTextLevel") || "0", 10);
-            if (Number.isFinite(level) && level >= 0 && level < AMOLED_TEXT_COLORS.length) {
-                return AMOLED_TEXT_COLORS[level];
-            }
+            return AMOLED_TEXT_COLORS[this._getAmoledTextLevel()];
         } catch {
             // fall through to default
         }
         return AMOLED_TEXT_COLORS[0];
+    }
+
+    _getAmoledTextLevel() {
+        try {
+            const level = Number.parseInt(localStorage.getItem("config.amoledTextLevel") || "0", 10);
+            if (Number.isFinite(level)) {
+                return Math.min(AMOLED_TEXT_COLORS.length - 1, Math.max(0, level));
+            }
+        } catch {
+            // fall through to default
+        }
+        return 0;
+    }
+
+    _scaleHighlightOpacity(baseOpacity, minOpacity) {
+        if (!this._isAmoledModeEnabled()) return baseOpacity;
+        const maxLevel = Math.max(1, AMOLED_TEXT_COLORS.length - 1);
+        const progress = this._getAmoledTextLevel() / maxLevel;
+        return minOpacity + (baseOpacity - minOpacity) * (1 - progress);
     }
 
     _buildContentStyles() {
@@ -529,9 +550,11 @@ body {
         const color = annotationColor || this._activeHighlightColor;
         let opacity = null;
         if (annotationColor === this._activeHighlightColor) {
-            opacity = "0.18";
+            opacity = this._scaleHighlightOpacity(0.18, 0.045).toFixed(3);
         } else if (annotationColor === this._hoverHighlightColor) {
-            opacity = "0.12";
+            opacity = this._scaleHighlightOpacity(0.12, 0.03).toFixed(3);
+        } else if (annotationColor && this._isAmoledModeEnabled()) {
+            opacity = this._scaleHighlightOpacity(0.22, 0.055).toFixed(3);
         }
         const drawHighlight = (rects, options = {}) => {
             const el = Overlayer.highlight(rects, options);

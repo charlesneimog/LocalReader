@@ -227,6 +227,35 @@ html.amoled-mode .border-slate-200 {
     border-color: rgba(255, 255, 255, 0.16) !important;
 }
 
+html.amoled-mode #previous-pdf-container .lr-document-thumbnail {
+    background: #000000 !important;
+    background-color: #000000 !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+html.amoled-mode #previous-pdf-container .lr-document-thumbnail .material-symbols-outlined {
+    color: #a3a3a3 !important;
+}
+
+html.amoled-mode #previous-pdf-container .lr-pdf-thumbnail-canvas {
+    background: #ffffff !important;
+    filter: invert(1) hue-rotate(180deg) contrast(0.92) brightness(0.86) !important;
+}
+
+html.amoled-mode #previous-pdf-container .lr-epub-thumbnail img {
+    background: #000000 !important;
+    background-color: #000000 !important;
+    filter: invert(1) hue-rotate(180deg) contrast(0.92) brightness(0.86) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    html:not(.amoled-mode) #previous-pdf-container .lr-epub-thumbnail img {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        filter: invert(1) hue-rotate(180deg) contrast(0.78) brightness(0.9) !important;
+    }
+}
+
 html,
 body {
     font-family:

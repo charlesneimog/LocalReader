@@ -252,7 +252,7 @@ export class PDFThumbnailCache {
 
         // Thumbnail placeholder with loading animation
         const thumbDiv = document.createElement("div");
-        thumbDiv.className = "w-full rounded-md flex items-center justify-center bg-slate-100 dark:bg-slate-700";
+        thumbDiv.className = `lr-document-thumbnail lr-${docType}-thumbnail w-full rounded-md flex items-center justify-center bg-slate-100 dark:bg-slate-700`;
         thumbDiv.style.width = "100%";
         thumbDiv.style.aspectRatio = `${this.width} / ${this.height}`;
         const iconName = docType === "epub" ? "menu_book" : "description";
@@ -303,7 +303,7 @@ export class PDFThumbnailCache {
         const canvas = this.app.pdfRenderer?.acquireCanvas?.() || document.createElement("canvas");
         canvas.width = Math.round(viewport.width);
         canvas.height = Math.round(viewport.height);
-        canvas.className = "rounded-md";
+        canvas.className = "lr-pdf-thumbnail-canvas rounded-md";
 
         // Set display size (CSS) smaller than render size for crisp rendering
         canvas.style.width = "100%";
@@ -315,6 +315,11 @@ export class PDFThumbnailCache {
             alpha: false, // Opaque rendering is faster
             desynchronized: true,
         });
+
+        context.save();
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.restore();
 
         await page.render({ canvasContext: context, viewport }).promise;
 
@@ -331,7 +336,8 @@ export class PDFThumbnailCache {
 
         // Replace placeholder thumbnail with actual canvas
         const thumbDiv = cardElement.querySelector("div");
-        thumbDiv.className = "w-full rounded-md flex justify-center overflow-hidden bg-slate-50 dark:bg-slate-900";
+        thumbDiv.className =
+            "lr-document-thumbnail lr-pdf-thumbnail w-full rounded-md flex justify-center overflow-hidden bg-slate-50 dark:bg-slate-900";
         thumbDiv.style.width = "100%";
         thumbDiv.style.aspectRatio = `${this.width} / ${this.height}`;
         thumbDiv.innerHTML = "";
@@ -381,7 +387,7 @@ export class PDFThumbnailCache {
 
         const thumbDiv = cardElement.querySelector("div");
         thumbDiv.className =
-            "w-full rounded-md flex items-center justify-center overflow-hidden bg-slate-100 dark:bg-slate-900";
+            "lr-document-thumbnail lr-epub-thumbnail w-full rounded-md flex items-center justify-center overflow-hidden bg-slate-100 dark:bg-slate-900";
         thumbDiv.style.width = "100%";
         thumbDiv.style.aspectRatio = `${this.width} / ${this.height}`;
 

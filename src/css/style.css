@@ -125,13 +125,23 @@ html.amoled-mode #config-menu {
     background: #000000 !important;
     background-color: #000000 !important;
     border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.04),
-        0 18px 48px rgba(0, 0, 0, 0.95);
 }
 
 #config-menu {
     z-index: 10050;
+}
+
+html.amoled-mode #config-menu button.bg-primary\/10 {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.32),
+        0 0 12px rgba(255, 255, 255, 0.18);
+}
+
+html.amoled-mode #config-menu button.text-primary,
+html.amoled-mode #config-menu button.text-primary .material-symbols-outlined,
+html.amoled-mode #config-menu button .text-primary {
+    color: var(--amoled-reader-fg) !important;
 }
 
 html.amoled-mode .playbar,
@@ -142,6 +152,8 @@ html.amoled-mode .playbar .material-symbols-outlined {
 
 html.amoled-mode .playbar [id="play-toggle"] {
     background-color: color-mix(in srgb, var(--amoled-reader-fg) 12%, #000000) !important;
+    --tw-shadow-color: rgba(255, 255, 255, 0.3);
+    --tw-ring-color: rgba(255, 255, 255, 0.35);
 }
 
 html.amoled-mode .playbar .bg-slate-300,

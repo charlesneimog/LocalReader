@@ -8,7 +8,7 @@ export class ControlsManager {
         this.isLocked = false;
 
         // stopwatch
-        this.autoStopDuration = 30 * 60; // default 30 min in seconds
+        this.autoStopDuration = 15 * 60; // default 15 min in seconds
         this.timeLeft = this.autoStopDuration;
         this.timerInterval = null;
 

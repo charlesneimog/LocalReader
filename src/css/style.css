@@ -407,6 +407,23 @@ input[type="color"]:hover:not(:disabled) {
     min-height: calc(var(--vh, 1vh) * 100);
 }
 
+html.reader-scrollbars-hidden,
+html.reader-scrollbars-hidden body,
+html.reader-scrollbars-hidden #pdf-doc-container,
+html.reader-scrollbars-hidden #viewer-wrapper {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+html.reader-scrollbars-hidden::-webkit-scrollbar,
+html.reader-scrollbars-hidden body::-webkit-scrollbar,
+html.reader-scrollbars-hidden #pdf-doc-container::-webkit-scrollbar,
+html.reader-scrollbars-hidden #viewer-wrapper::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+}
+
 #epub-doc-container {
     flex: 1 1 auto;
     position: relative;

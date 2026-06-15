@@ -811,6 +811,7 @@ export class PDFTTSApp {
             nopdf.style.display = "none";
         }
         const result = await this.pdfLoader.loadPDF(file, options);
+        this._setReaderScrollbarsHidden(this.state.currentDocumentType === "pdf" && !!this.state.pdf);
         if (setup.setup?.docKey) {
             await this._persistTranslationSettingsForDocument(setup.setup.docKey, "pdf", setup.setup);
         }
@@ -831,6 +832,7 @@ export class PDFTTSApp {
             if (overlay) overlay.style.display = "none";
         }
         const result = await this.epubLoader.loadEPUB(file, options);
+        this._setReaderScrollbarsHidden(this.state.currentDocumentType === "epub" && !!this.state.epub);
         if (setup.setup?.docKey) {
             await this._persistTranslationSettingsForDocument(setup.setup.docKey, "epub", setup.setup);
         }
@@ -926,6 +928,7 @@ export class PDFTTSApp {
      */
     async closeCurrentDocument() {
         const { state } = this;
+        this._setReaderScrollbarsHidden(false);
 
         try {
             // Stop server sync
@@ -1055,7 +1058,13 @@ export class PDFTTSApp {
      * Show saved PDFs - delegated to PDFThumbnailCache
      */
     async showSavedPDFs() {
+        this._setReaderScrollbarsHidden(false);
         return this.pdfThumbnailCache.showSavedPDFs();
+    }
+
+    _setReaderScrollbarsHidden(hidden) {
+        document.documentElement?.classList.toggle("reader-scrollbars-hidden", hidden);
+        document.body?.classList.toggle("reader-scrollbars-hidden", hidden);
     }
 }
 

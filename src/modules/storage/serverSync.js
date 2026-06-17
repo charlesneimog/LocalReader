@@ -590,14 +590,15 @@ export class ServerSync {
         if (!payloadText) return null;
         const effectiveTarget = this._resolveTranslationTarget(target);
 
-        const serverUrl = this.getServerUrl();
-        if (!serverUrl) {
-            try {
-                return await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
-            } catch {
-                return null;
-            }
+        try {
+            const googleResult = await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
+            if (googleResult?.translatedText) return googleResult;
+        } catch {
+            // Fall back to the configured Python server below.
         }
+
+        const serverUrl = this.getServerUrl();
+        if (!serverUrl) return null;
 
         try {
             const response = await this._fetch(`${serverUrl}/api/translate`, {

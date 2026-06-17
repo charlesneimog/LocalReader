@@ -1,4 +1,4 @@
-const APP_VERSION = "0.35.8+2";
+const APP_VERSION = "0.36.3+0";
 const IDB_VERSION = 1;
 const cacheName = `PocketReader-v${APP_VERSION}`;
 const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;
@@ -46,6 +46,7 @@ const staticFiles = [
 
     // CSS
     "/src/css/style.css",
+    "/src/css/epub.css",
     "/src/css/input.css",
     "/src/css/output.css",
 
@@ -65,6 +66,10 @@ const staticFiles = [
     "/src/modules/pdf/pdfHeaderFooterDetector.js",
     "/src/modules/pdf/sentenceParser.js",
     "/src/modules/pdf/ts.js",
+    "/src/modules/epub/epubLoader.js",
+    "/src/modules/epub/epubRenderer.js",
+    "/src/modules/storage/pdfThumbnailCache.js",
+    "/src/modules/storage/serverSync.js",
     "/src/modules/storage/exportManager.js",
     "/src/modules/storage/highlightsStorage.js",
     "/src/modules/storage/progressManager.js",
@@ -98,6 +103,24 @@ const staticFiles = [
     "/thirdparty/piper/piper_phonemize.wasm",
     "/thirdparty/transformers/transformers.js",
 
+    // Foliate EPUB reader dependencies
+    "/thirdparty/foliate-js/comic-book.js",
+    "/thirdparty/foliate-js/epub.js",
+    "/thirdparty/foliate-js/epubcfi.js",
+    "/thirdparty/foliate-js/fb2.js",
+    "/thirdparty/foliate-js/fixed-layout.js",
+    "/thirdparty/foliate-js/mobi.js",
+    "/thirdparty/foliate-js/overlayer.js",
+    "/thirdparty/foliate-js/paginator.js",
+    "/thirdparty/foliate-js/pdf.js",
+    "/thirdparty/foliate-js/progress.js",
+    "/thirdparty/foliate-js/search.js",
+    "/thirdparty/foliate-js/text-walker.js",
+    "/thirdparty/foliate-js/tts.js",
+    "/thirdparty/foliate-js/view.js",
+    "/thirdparty/foliate-js/vendor/fflate.js",
+    "/thirdparty/foliate-js/vendor/zip.js",
+
     // Fonts
     "/thirdparty/fonts/Inter.css",
     "/thirdparty/fonts/Material-symbols-outlined.css",
@@ -115,6 +138,7 @@ const staticFiles = [
 const externalResources = [
     // Kinde Auth (optional - will fail gracefully if offline)
     "https://cdn.jsdelivr.net/npm/@kinde-oss/kinde-auth-pkce-js@4.3.0/dist/kinde-auth-pkce-js.esm.js",
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json",
 ];
 
 // Patterns for runtime caching
@@ -549,16 +573,16 @@ const fetchHandler = async (e) => {
                 }
             } catch (err) {
                 console.error("[SW] Fetch error:", err);
-                // Final fallback
-                const fallback = await caches.match(resolvePath("/index.html"));
-                return (
-                    applyCoepHeaders(fallback) ||
-                    new Response("Application Offline", {
-                        status: 503,
-                        statusText: "Service Unavailable",
-                        headers: { "Content-Type": "text/plain" },
-                    })
-                );
+                if (request.mode === "navigate") {
+                    const fallback = await caches.match(resolvePath("/index.html"));
+                    if (fallback) return applyCoepHeaders(fallback) || fallback;
+                }
+
+                return new Response("Application Offline", {
+                    status: 503,
+                    statusText: "Service Unavailable",
+                    headers: { "Content-Type": "text/plain" },
+                });
             }
         })(),
     );

@@ -142,10 +142,12 @@ export class UIService {
         languageLabel = "Document language / translation target",
         initialTarget = "pt",
         initialSpeed = 1,
+        translationAvailable = true,
     } = {}) {
         this._hideTranslationSetupPrompt();
 
         return await new Promise((resolve) => {
+            const canTranslate = translationAvailable !== false;
             const closeWith = (result = null) => {
                 this._hideTranslationSetupPrompt();
                 resolve(result);
@@ -204,6 +206,12 @@ export class UIService {
             langLabel.className = "text-xs font-medium text-slate-700 dark:text-slate-200";
             langLabel.textContent = languageLabel;
 
+            const langHelper = document.createElement("div");
+            langHelper.className = "text-xs text-slate-500 dark:text-slate-400";
+            langHelper.textContent = canTranslate
+                ? "Used as the translation target when translation is enabled."
+                : "Offline mode: choose the language of the original document for reading.";
+
             const langSelect = document.createElement("select");
             langSelect.className =
                 "w-full rounded-md border border-slate-200 dark:border-slate-700 " +
@@ -239,6 +247,7 @@ export class UIService {
             langSelect.value = normalizedTarget || "pt";
 
             langWrap.appendChild(langLabel);
+            langWrap.appendChild(langHelper);
             langWrap.appendChild(langSelect);
 
             const speedWrap = document.createElement("label");
@@ -324,13 +333,27 @@ export class UIService {
             speedWrap.appendChild(speedRow);
             speedWrap.appendChild(speedValue);
 
+            const offlineNotice = document.createElement("div");
+            offlineNotice.className =
+                "rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 " +
+                "px-3 py-2 text-sm text-amber-900 dark:text-amber-100";
+            offlineNotice.textContent =
+                "Offline Mode: translation is unavailable. Choose the original document language and read the original text.";
+
             const optionsWrap = document.createElement("div");
             optionsWrap.className = "grid grid-cols-1 sm:grid-cols-3 gap-2";
 
-            const buildModeBtn = ({ mode, label, helper, className = "" }) => {
+            const buildModeBtn = ({ mode, label, helper, className = "", disabled = false }) => {
                 const btn = document.createElement("button");
                 btn.type = "button";
-                btn.className = "rounded-lg border px-3 py-3 text-left transition-colors " + className;
+                btn.disabled = disabled;
+                btn.className =
+                    "rounded-lg border px-3 py-3 text-left transition-colors " +
+                    className +
+                    (disabled ? " opacity-45 cursor-not-allowed" : "");
+                if (disabled) {
+                    btn.setAttribute("aria-disabled", "true");
+                }
 
                 const labelEl = document.createElement("div");
                 labelEl.className = "text-sm font-medium";
@@ -346,6 +369,7 @@ export class UIService {
                 btn.addEventListener("click", (e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    if (disabled) return;
                     closeWith({
                         mode,
                         action: "mode",
@@ -359,25 +383,29 @@ export class UIService {
             const readBtn = buildModeBtn({
                 mode: "read",
                 label: "Read translation",
-                helper: "Read document in translated language",
+                helper: canTranslate ? "Read document in translated language" : "Unavailable while offline",
                 className:
                     "border-primary/40 text-slate-900 dark:text-slate-100 hover:bg-primary/10 dark:hover:bg-primary/20",
+                disabled: !canTranslate,
             });
 
             const showBtn = buildModeBtn({
                 mode: "show",
                 label: "Show translation",
-                helper: "Read original + show translated phrases",
+                helper: canTranslate ? "Read original + show translated phrases" : "Unavailable while offline",
                 className:
                     "border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-white/5",
+                disabled: !canTranslate,
             });
 
             const offBtn = buildModeBtn({
                 mode: "off",
                 label: "Read original",
-                helper: "Read original language only",
+                helper: canTranslate ? "Read original language only" : "Offline mode uses original document text only",
                 className:
-                    "border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5",
+                    (canTranslate
+                        ? "border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
+                        : "border-primary/60 text-slate-900 dark:text-slate-100 bg-primary/10 dark:bg-primary/20"),
             });
 
             optionsWrap.appendChild(readBtn);
@@ -389,13 +417,19 @@ export class UIService {
 
             const keepCurrentBtn = document.createElement("button");
             keepCurrentBtn.type = "button";
+            keepCurrentBtn.disabled = !canTranslate;
             keepCurrentBtn.className =
                 "rounded-md px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 " +
-                "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5";
+                "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5" +
+                (canTranslate ? "" : " opacity-45 cursor-not-allowed");
+            if (!canTranslate) {
+                keepCurrentBtn.setAttribute("aria-disabled", "true");
+            }
             keepCurrentBtn.textContent = "Keep current";
             keepCurrentBtn.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                if (!canTranslate) return;
                 closeWith({
                     action: "keep",
                     target: String(langSelect.value || "pt").trim() || "pt",
@@ -407,6 +441,9 @@ export class UIService {
 
             body.appendChild(langWrap);
             body.appendChild(speedWrap);
+            if (!canTranslate) {
+                body.appendChild(offlineNotice);
+            }
             body.appendChild(optionsWrap);
             panel.appendChild(header);
             panel.appendChild(body);

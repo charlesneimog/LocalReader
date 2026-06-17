@@ -88,10 +88,11 @@ export class PDFTTSApp {
         this.showSavedPDFs();
 
         // app version
-        document.getElementById("appversion").textContent =
-            `v${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
-        document.getElementById("appversion-p").textContent =
-            `v${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
+        const appVersion =
+            this.config.VERSION_LABEL ||
+            `${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
+        document.getElementById("appversion").textContent = `v${appVersion}`;
+        document.getElementById("appversion-p").textContent = `v${appVersion}`;
     }
 
     _createRendererProxy() {
@@ -222,6 +223,42 @@ export class PDFTTSApp {
         return normalized;
     }
 
+    async _canReachTranslationService(target = "en") {
+        const now = Date.now();
+        if (
+            this._translationAvailabilityCache &&
+            now - this._translationAvailabilityCache.checkedAt < 15000
+        ) {
+            return this._translationAvailabilityCache.available;
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const targetLang = this._normalizeTranslationTarget(target || "en");
+        const url =
+            "https://translate.googleapis.com/translate_a/single" +
+            `?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=ok`;
+
+        let available = false;
+        try {
+            const response = await fetch(url, {
+                cache: "no-store",
+                signal: controller.signal,
+            });
+            available = response.ok;
+        } catch {
+            available = false;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+
+        this._translationAvailabilityCache = {
+            available,
+            checkedAt: Date.now(),
+        };
+        return available;
+    }
+
     _normalizeTranslationMode(mode) {
         const value = String(mode || "")
             .trim()
@@ -347,12 +384,18 @@ export class PDFTTSApp {
             : `Choose how translations should work for this ${label}`;
         const savedPrefs = this._getSavedTranslationSettingsForDocument(docKey, type);
         const hasOpenedBefore = !!this.progressManager?.loadSavedPosition?.(docKey, type);
+        const initialTarget = savedPrefs?.target || this._getTranslationTargetLanguage();
+        const translationAvailable = await this._canReachTranslationService(initialTarget);
+        const promptSubtitle = translationAvailable
+            ? subtitle
+            : `Offline mode for "${bookTitle || label}": choose the original reading language`;
 
         const response = await this.ui?.showTranslationSetupPrompt?.({
-            subtitle,
-            languageLabel: `${label} language / translation target`,
-            initialTarget: savedPrefs?.target || this._getTranslationTargetLanguage(),
+            subtitle: promptSubtitle,
+            languageLabel: translationAvailable ? `${label} language / translation target` : `${label} original language`,
+            initialTarget,
             initialSpeed: this._getCurrentSpeedControlValue(),
+            translationAvailable,
         });
 
         if (!response) return { proceed: false, shouldPlay: false, setup: null };
@@ -362,6 +405,16 @@ export class PDFTTSApp {
         }
 
         const mode = this._normalizeTranslationMode(response.mode);
+        if (!translationAvailable) {
+            this._applyReadingSpeedFromPopup(response.speed);
+            this._applyTranslationMode("off", "");
+            return {
+                proceed: true,
+                shouldPlay: hasOpenedBefore,
+                setup: null,
+            };
+        }
+
         const target = this._setTranslationTargetLanguage(response.target);
         this._applyReadingSpeedFromPopup(response.speed);
         await this._persistTranslationSettingsForDocument(docKey, type, { target, mode });

@@ -20,6 +20,7 @@ const PERSONALIZED_PIPER_MODEL_URL = "https://huggingface.co/csukuangfj/vits-pip
 const PERSONALIZED_PIPER_CONFIG_URL = "https://huggingface.co/csukuangfj/vits-piper-pt_BR-miro-high/resolve/main/pt_BR-miro-high.onnx.json";
 const PERSONALIZED_PIPER_VOICE_ID = "personalized_piper_voice2";
 const PERSONALIZED_PIPER_VOICE_NAME = "Personalized Piper Model2";
+const TTS_OFFLINE_UNAVAILABLE = "TTS_OFFLINE_UNAVAILABLE";
 
 export class TTSEngine {
     constructor(app) {
@@ -59,7 +60,42 @@ export class TTSEngine {
             if (cached) {
                 return await cached.json();
             }
-            throw new Error("Failed to fetch voices.json and no cache available");
+            const cachedFromAnyAppCache = await caches.match(url);
+            if (cachedFromAnyAppCache) {
+                const response = cachedFromAnyAppCache.clone();
+                await cache.put(url, response.clone()).catch(() => {});
+                return await response.json();
+            }
+            const error = new Error("Failed to fetch voices.json and no cache available");
+            error.code = TTS_OFFLINE_UNAVAILABLE;
+            throw error;
+        }
+    }
+
+    _isOfflineTtsUnavailableError(error) {
+        const message = String(error?.message || "");
+        return (
+            error?.code === TTS_OFFLINE_UNAVAILABLE ||
+            message.includes("voices.json and no cache available") ||
+            message === "Failed to fetch"
+        );
+    }
+
+    _handleOfflineTtsUnavailable(sentence, error) {
+        const { state } = this.app;
+        if (sentence) {
+            sentence.audioError = error;
+            sentence.audioInProgress = false;
+            sentence.prefetchQueued = false;
+        }
+        state.generationEnabled = false;
+        state.isPlaying = false;
+        state.stopRequested = true;
+        this.app.ttsQueue?.reset?.();
+        this.app.ui.updatePlayButton(state.playerState.DONE);
+        if (!this._offlineTtsNoticeShown) {
+            this._offlineTtsNoticeShown = true;
+            this.app.ui.showInfo("Offline Mode: this voice is not cached yet. Connect once and load Natural Voices before using it offline.");
         }
     }
 
@@ -651,6 +687,11 @@ export class TTSEngine {
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
         } catch (err) {
             s.audioError = err;
+            if (this._isOfflineTtsUnavailableError(err)) {
+                this._handleOfflineTtsUnavailable(s, err);
+                this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_ERROR, { index: idx, error: err });
+                throw err;
+            }
             const retryCount = (Number.isFinite(s._restartRetryCount) ? s._restartRetryCount : 0) + 1;
             s._restartRetryCount = retryCount;
             const reason = err?.message || "unknown synthesis error";
@@ -678,6 +719,7 @@ export class TTSEngine {
             } catch (resetErr) {
                 console.error("Failed to reset TTS engine:", resetErr);
             }
+            throw err;
         } finally {
             s.audioInProgress = false;
         }

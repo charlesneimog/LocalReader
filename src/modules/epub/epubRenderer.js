@@ -274,8 +274,12 @@ export class EPUBRenderer {
     }
 
     async applyContentCSS(url) {
-        const response = await fetch(url);
-        this._contentCSS = await response.text();
+        try {
+            const response = await fetch(url);
+            this._contentCSS = response.ok ? await response.text() : "";
+        } catch {
+            this._contentCSS = "";
+        }
         this._applyContentStyles();
     }
 
@@ -327,13 +331,30 @@ export class EPUBRenderer {
     --bg-dark: #000000 !important;
     --fg: ${amoledTextColor} !important;
 }
-html,
-body {
-    background: #000000 !important;
-    background-color: #000000 !important;
-    color: ${amoledTextColor} !important;
-}
-`
+	html,
+	body,
+	body *,
+	section,
+	article,
+	main,
+	div,
+	p,
+	span,
+	li,
+	blockquote {
+	    background: #000000 !important;
+	    background-color: #000000 !important;
+	    color: ${amoledTextColor} !important;
+	}
+	a,
+	a *,
+	em,
+	strong,
+	i,
+	b {
+	    color: ${amoledTextColor} !important;
+	}
+	`
             : "";
         return `${this._contentCSS || ""}\n${amoledCSS}`;
     }

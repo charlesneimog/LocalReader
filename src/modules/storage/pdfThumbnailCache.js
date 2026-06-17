@@ -94,6 +94,11 @@ export class PDFThumbnailCache {
             try {
                 const data = await serverSync.apiFetch("/api/files", { method: "GET", withAuth: true });
                 const serverFiles = Array.isArray(data?.files) ? data.files : [];
+                const purgedCount = await serverSync._purgeServerTombstones?.(serverFiles, { showMessages: true });
+                if (purgedCount > 0) {
+                    await this.showSavedPDFs();
+                    return;
+                }
 
                 const actualOnServer = new Set();
                 for (const f of serverFiles) {
@@ -144,6 +149,15 @@ export class PDFThumbnailCache {
         if (this.header) this.header.classList.remove("hidden");
 
         if (this.container) this.container.innerHTML = ""; // Clear previous content
+
+        try {
+            const serverSync = this.app?.serverSync;
+            if (serverSync?.isEnabled?.()) {
+                await serverSync.pullServerStateUpdates?.();
+            }
+        } catch {
+            // Library rendering should still work offline or when auth expires.
+        }
 
         const [savedPDFs, savedEPUBs] = await Promise.all([
             this.app.progressManager.listSavedPDFs(),

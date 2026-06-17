@@ -1,10 +1,10 @@
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
-    VERSION_LABEL: "0.36.4+0",
+    VERSION_LABEL: "0.36.5+1",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 36,
     VERSION_PATCH: 5,
-    VERSION_BUILD: 0,
+    VERSION_BUILD: 1,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,

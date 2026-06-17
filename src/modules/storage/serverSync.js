@@ -214,10 +214,11 @@ export class ServerSync {
     }
 
     async _purgeLocalByActualFilename(actualFilename, docTypeHint) {
-        const actual = (actualFilename || "").toString();
-        if (!actual) return;
+        const actual = this._normalizeActualFilename((actualFilename || "").toString());
+        if (!actual) return 0;
 
         const docType = docTypeHint === "epub" ? "epub" : "pdf";
+        let removed = 0;
 
         try {
             const keys =
@@ -229,16 +230,41 @@ export class ServerSync {
             for (const k of matching) {
                 if (docType === "epub") {
                     this.app.progressManager.clearEpubProgress(k);
+                    this.app.highlightsStorage?.clearPdfHighlights?.(k);
                     await this.app.progressManager.removeEpubFromIndexedDB(k);
                 } else {
                     this.app.progressManager.clearPdfProgress(k);
                     this.app.highlightsStorage?.clearPdfHighlights?.(k);
                     await this.app.progressManager.removePdfFromIndexedDB(k);
                 }
+                removed++;
             }
         } catch (e) {
             console.warn("[ServerSync] Failed to purge local copies by actual filename:", e);
         }
+
+        return removed;
+    }
+
+    async _purgeServerTombstones(serverFiles, { showMessages = false } = {}) {
+        if (!Array.isArray(serverFiles) || serverFiles.length === 0) return 0;
+
+        let removed = 0;
+        const tombstones = serverFiles.filter((f) => f && f.deleted);
+        for (const t of tombstones) {
+            const actualName = this._extractActualFilename(t.filename);
+            if (!actualName) continue;
+
+            const docType = t.format === "epub" ? "epub" : "pdf";
+            const count = await this._purgeLocalByActualFilename(actualName, docType);
+            removed += count;
+
+            if (showMessages && count > 0) {
+                this.app.ui?.showInfo?.(`Removed deleted file: ${actualName}`);
+            }
+        }
+
+        return removed;
     }
 
     async _maybePullServerStateUpdates() {
@@ -315,12 +341,7 @@ export class ServerSync {
             const serverFiles = data.files || [];
 
             // Server tombstones (deleted/excluded) should purge local copies, not be downloaded.
-            const tombstones = serverFiles.filter((f) => f && f.deleted);
-            for (const t of tombstones) {
-                const actualName = this._extractActualFilename(t.filename);
-                const docType = t.format === "epub" ? "epub" : "pdf";
-                await this._purgeLocalByActualFilename(actualName, docType);
-            }
+            await this._purgeServerTombstones(serverFiles, { showMessages: true });
 
             const [localPdfKeys, localEpubKeys] = await Promise.all([
                 this.app.progressManager.listSavedPDFs(),
@@ -337,26 +358,10 @@ export class ServerSync {
 
             const progressMap = this.app.progressManager.getProgressMap();
 
-            const deleteLocalDoc = async (docType, localKey, actualNameForMessage) => {
-                try {
-                    if (docType === "epub") {
-                        this.app.progressManager.clearEpubProgress(localKey);
-                        await this.app.progressManager.removeEpubFromIndexedDB(localKey);
-                    } else {
-                        this.app.progressManager.clearPdfProgress(localKey);
-                        this.app.highlightsStorage?.clearPdfHighlights?.(localKey);
-                        await this.app.progressManager.removePdfFromIndexedDB(localKey);
-                    }
-                    if (actualNameForMessage) {
-                        this.app.ui?.showInfo?.(`Removed deleted file: ${actualNameForMessage}`);
-                    }
-                } catch (e) {
-                    console.warn("[ServerSync] Failed to delete local document:", e);
-                }
-            };
-
             let updatedCount = 0;
             for (const fileInfo of serverFiles) {
+                if (fileInfo && fileInfo.deleted) continue;
+
                 const serverKey = fileInfo.filename;
                 const actualName = this._extractActualFilename(serverKey);
 
@@ -365,13 +370,6 @@ export class ServerSync {
                 if (!localKey) continue;
 
                 const docType = fileInfo.format === "epub" ? "epub" : "pdf";
-
-                // Server tombstone: remove local copies and skip state pulls.
-                if (fileInfo && fileInfo.deleted) {
-                    await deleteLocalDoc(docType, localKey, actualName);
-                    updatedCount++;
-                    continue;
-                }
 
                 const compoundKey = `${docType}::${localKey}`;
                 const localEntry = progressMap[compoundKey] || {};
@@ -1303,6 +1301,7 @@ export class ServerSync {
 
             const data = await response.json();
             const serverFiles = data.files || [];
+            const purgedCount = await this._purgeServerTombstones(serverFiles, { showMessages: true });
 
             // Get local files
             const localPdfKeys = await this.app.progressManager.listSavedPDFs();
@@ -1339,6 +1338,22 @@ export class ServerSync {
             if (missingFiles.length === 0) {
                 // console.log("[ServerSync] All server files are already cached locally");
                 //this.app.ui?.showInfo?.("Already synced with server");
+                if (purgedCount > 0) {
+                    setTimeout(() => {
+                        try {
+                            if (typeof this.app.showSavedPDFs === "function") {
+                                this.app.showSavedPDFs();
+                            } else if (
+                                this.app.pdfThumbnailCache &&
+                                typeof this.app.pdfThumbnailCache.showSavedPDFs === "function"
+                            ) {
+                                this.app.pdfThumbnailCache.showSavedPDFs();
+                            }
+                        } catch (error) {
+                            console.error("[ServerSync] Failed to refresh library view:", error);
+                        }
+                    }, 100);
+                }
                 return;
             }
 
@@ -1359,8 +1374,10 @@ export class ServerSync {
                 }
             }
 
-            if (downloaded > 0) {
-                this.app.ui?.showInfo?.(`Downloaded ${downloaded} files from server`);
+            if (downloaded > 0 || purgedCount > 0) {
+                if (downloaded > 0) {
+                    this.app.ui?.showInfo?.(`Downloaded ${downloaded} files from server`);
+                }
                 // console.log(`[ServerSync] Download complete: ${downloaded}/${missingFiles.length} files`);
 
                 // Refresh the saved PDFs view to show new downloads

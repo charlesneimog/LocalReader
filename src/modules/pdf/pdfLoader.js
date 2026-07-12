@@ -229,6 +229,7 @@ export class PDFLoader {
             state.layoutCacheVersion += 1;
             state.layoutFilteringReady = false;
             state.layoutFilteringPromise = null;
+            state.initialLayoutWarmupPromise = null;
             state.generationEnabled = false;
             state.sentences = [];
             state.currentSentenceIndex = -1;
@@ -249,6 +250,12 @@ export class PDFLoader {
             state.pdf = await loadingTask.promise;
             state.currentDocumentType = "pdf";
             if (!state.pdf.numPages) throw new Error("PDF has no pages.");
+
+            // Model initialization is independent of PDF text extraction. Start it
+            // now so opening the document and preparing layout overlap.
+            app.getPdfHeaderFooterDetector().prepare().catch((error) => {
+                console.warn("[PDFLoader] Layout model warmup failed", error);
+            });
 
             await this._preprocessPages(state.pdf.numPages);
 
@@ -344,6 +351,7 @@ export class PDFLoader {
 
             app.eventBus.emit(EVENTS.PDF_LOADED, { pages: state.pdf.numPages, sentences: state.sentences.length });
             app.eventBus.emit(EVENTS.SENTENCES_PARSED, state.sentences);
+            this._warmInitialPageForPlayback();
             const header = document.getElementById("previous-pdf-header");
             header.classList.add("hidden");
         } catch (e) {
@@ -355,7 +363,7 @@ export class PDFLoader {
         }
     }
 
-    async ensureLayoutFilteringReady({ forceRebuild = false } = {}) {
+    async ensureLayoutFilteringReady({ forceRebuild = false, skipAudio = false } = {}) {
         const { app } = this;
         const { state } = app;
 
@@ -372,7 +380,7 @@ export class PDFLoader {
             return state.layoutFilteringPromise;
         }
 
-        const promise = this._prepareLayoutFiltering({ forceRebuild });
+        const promise = this._prepareLayoutFiltering({ forceRebuild, skipAudio });
         state.layoutFilteringPromise = promise;
         try {
             await promise;
@@ -381,7 +389,7 @@ export class PDFLoader {
         }
     }
 
-    async _prepareLayoutFiltering({ forceRebuild = false } = {}) {
+    async _prepareLayoutFiltering({ forceRebuild = false, skipAudio = false } = {}) {
         const { app } = this;
         const { state } = app;
 
@@ -464,7 +472,7 @@ export class PDFLoader {
         }
 
         if (resolvedIndex >= 0) {
-            await app.pdfRenderer.renderSentence(resolvedIndex);
+            await app.pdfRenderer.renderSentence(resolvedIndex, { skipTTS: skipAudio });
             state.layoutFilteringReady = true;
             app.ui.showInfo(
                 `Layout analysis ready. Starting from sentence ${state.currentSentenceIndex + 1}/${state.sentences.length}.`,
@@ -476,6 +484,20 @@ export class PDFLoader {
             app.ui.showInfo("No readable sentences found after layout filtering.");
         }
         // app.ui.updatePlayButton(state.playerState.DONE);
+    }
+
+    _warmInitialPageForPlayback() {
+        const { state } = this.app;
+        if (!state.pdf || state.currentDocumentType !== "pdf" || state.layoutFilteringReady) return;
+        if (state.initialLayoutWarmupPromise) return;
+
+        state.initialLayoutWarmupPromise = this.ensureLayoutFilteringReady({ skipAudio: true })
+            .catch((error) => {
+                console.warn("[PDFLoader] Initial page preparation failed", error);
+            })
+            .finally(() => {
+                state.initialLayoutWarmupPromise = null;
+            });
     }
 
     async _applySavedVoice(voiceId) {

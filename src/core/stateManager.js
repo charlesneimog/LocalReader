@@ -71,6 +71,7 @@ export class StateManager {
         this.layoutDetectionInProgress = new Map(); // pageNumber → Promise
         this.layoutFilteringReady = false;
         this.layoutFilteringPromise = null;
+        this.initialLayoutWarmupPromise = null;
 
         // Prefetch tracking
         this.prefetchedPages = new Set();

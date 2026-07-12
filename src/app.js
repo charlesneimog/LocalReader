@@ -88,11 +88,9 @@ export class PDFTTSApp {
         this.showSavedPDFs();
 
         // app version
-        const appVersion =
-            this.config.VERSION_LABEL ||
-            `${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
-        document.getElementById("appversion").textContent = `v${appVersion}`;
+        const appVersion = `${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
         document.getElementById("appversion-p").textContent = `v${appVersion}`;
+        console.log(appVersion);
     }
 
     _createRendererProxy() {
@@ -225,10 +223,7 @@ export class PDFTTSApp {
 
     async _canReachTranslationService(target = "en") {
         const now = Date.now();
-        if (
-            this._translationAvailabilityCache &&
-            now - this._translationAvailabilityCache.checkedAt < 15000
-        ) {
+        if (this._translationAvailabilityCache && now - this._translationAvailabilityCache.checkedAt < 15000) {
             return this._translationAvailabilityCache.available;
         }
 
@@ -338,11 +333,9 @@ export class PDFTTSApp {
         });
 
         if (this.serverSync?.isEnabled?.()) {
-            this.serverSync
-                .syncTranslationSettings(docKey, { target: targetNorm, mode: modeNorm })
-                .catch((err) => {
-                    console.warn("[translationPrompt] failed to sync translation settings", err);
-                });
+            this.serverSync.syncTranslationSettings(docKey, { target: targetNorm, mode: modeNorm }).catch((err) => {
+                console.warn("[translationPrompt] failed to sync translation settings", err);
+            });
         }
     }
 
@@ -392,7 +385,9 @@ export class PDFTTSApp {
 
         const response = await this.ui?.showTranslationSetupPrompt?.({
             subtitle: promptSubtitle,
-            languageLabel: translationAvailable ? `${label} language / translation target` : `${label} original language`,
+            languageLabel: translationAvailable
+                ? `${label} language / translation target`
+                : `${label} original language`,
             initialTarget,
             initialSpeed: this._getCurrentSpeedControlValue(),
             translationAvailable,
@@ -454,9 +449,9 @@ export class PDFTTSApp {
     }
 
     async _ensureVoiceForTranslationSetup(setup) {
-        if (!setup || !this.state?.sentences?.length) return;
+        if (!this.state?.sentences?.length) return;
 
-        if (setup.mode === "read") {
+        if (setup?.mode === "read") {
             await this.ensureReadTranslationVoiceReady?.();
             return;
         }
@@ -597,8 +592,7 @@ export class PDFTTSApp {
         if (!this.isOriginalSubtitlesEnabled()) return;
         if (this.isReadTranslationEnabled() || this.isAutoTranslateEnabled()) return;
 
-        const stillCurrent =
-            this.state.playingSentenceIndex === index || this.state.currentSentenceIndex === index;
+        const stillCurrent = this.state.playingSentenceIndex === index || this.state.currentSentenceIndex === index;
         if (!stillCurrent) return;
 
         await this.ui?.showTranslatePopup?.({
@@ -670,8 +664,7 @@ export class PDFTTSApp {
         const translatedText = (await this.getSentenceSpeechText(index, originalText)) || "";
         if (!this.isReadTranslationEnabled()) return;
 
-        const stillCurrent =
-            this.state.playingSentenceIndex === index || this.state.currentSentenceIndex === index;
+        const stillCurrent = this.state.playingSentenceIndex === index || this.state.currentSentenceIndex === index;
         if (!stillCurrent) return;
 
         await this.ui?.showTranslatePopup?.({
@@ -1089,6 +1082,8 @@ export class PDFTTSApp {
                 state.bookCover = null;
                 state.bookCoverDataUrl = null;
                 state.layoutFilteringReady = false;
+                state.layoutFilteringPromise = null;
+                state.initialLayoutWarmupPromise = null;
                 state.generationEnabled = false;
             } catch (e) {
                 console.debug("closeCurrentDocument: clearing state failed", e);

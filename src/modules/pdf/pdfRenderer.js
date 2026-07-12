@@ -19,6 +19,8 @@ export class PDFRenderer {
     constructor(app) {
         this.app = app;
         this.pageCoordinateSystems = new Map();
+        this._pageRenderPromises = new Map();
+        this._fullDocumentObserver = null;
         this._activePhraseActionsEl = null;
         this._boundAmoledModeChange = () => {
             this.refreshAmoledRendering().catch((error) => {
@@ -383,19 +385,33 @@ export class PDFRenderer {
     async ensureFullPageRendered(pageNumber) {
         const { state } = this.app;
         if (state.fullPageRenderCache.has(pageNumber)) return state.fullPageRenderCache.get(pageNumber);
-        const page = state.pagesCache.get(pageNumber) || (await state.pdf.getPage(pageNumber));
-        const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
-        const fullW = Math.round(viewportDisplay.width * state.deviceScale);
-        const fullH = Math.round(viewportDisplay.height * state.deviceScale);
-        const scale = (viewportDisplay.width / page.getViewport({ scale: 1 }).width) * state.deviceScale;
-        const viewportRender = page.getViewport({ scale });
-        const off = document.createElement("canvas");
-        off.width = fullW;
-        off.height = fullH;
-        const offCtx = off.getContext("2d");
-        await page.render({ canvasContext: offCtx, viewport: viewportRender, ...this._getRenderOptions() }).promise;
-        state.fullPageRenderCache.set(pageNumber, off);
-        return off;
+        if (this._pageRenderPromises.has(pageNumber)) return this._pageRenderPromises.get(pageNumber);
+
+        const renderPromise = (async () => {
+            const page = state.pagesCache.get(pageNumber) || (await state.pdf.getPage(pageNumber));
+            const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
+            if (!viewportDisplay) throw new Error(`Missing viewport for PDF page ${pageNumber}`);
+            const fullW = Math.round(viewportDisplay.width * state.deviceScale);
+            const fullH = Math.round(viewportDisplay.height * state.deviceScale);
+            const scale = (viewportDisplay.width / page.getViewport({ scale: 1 }).width) * state.deviceScale;
+            const viewportRender = page.getViewport({ scale });
+            const off = document.createElement("canvas");
+            off.width = fullW;
+            off.height = fullH;
+            const offCtx = off.getContext("2d");
+            await page.render({ canvasContext: offCtx, viewport: viewportRender, ...this._getRenderOptions() }).promise;
+            state.fullPageRenderCache.set(pageNumber, off);
+            return off;
+        })();
+
+        this._pageRenderPromises.set(pageNumber, renderPromise);
+        try {
+            return await renderPromise;
+        } finally {
+            if (this._pageRenderPromises.get(pageNumber) === renderPromise) {
+                this._pageRenderPromises.delete(pageNumber);
+            }
+        }
     }
 
     async renderFullDocumentIfNeeded() {
@@ -404,6 +420,7 @@ export class PDFRenderer {
 
         const container = document.getElementById("pdf-doc-container");
         if (!container) return;
+        this._fullDocumentObserver?.disconnect();
         container.innerHTML = "";
         const MAX_RENDERED_PAGES = 5;
 
@@ -418,12 +435,14 @@ export class PDFRenderer {
                     const scale = getPageDisplayScale(viewportDisplay, config);
 
                     if (entry.isIntersecting) {
+                        wrapper._isNearViewport = true;
                         if (wrapper._focusTimer) clearTimeout(wrapper._focusTimer);
                         wrapper._focusTimer = setTimeout(async () => {
                             if (!wrapper.isConnected) return;
                             const cExisting = wrapper.querySelector("canvas.page-canvas");
                             if (!cExisting) {
                                 const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
+                                if (!wrapper.isConnected || !wrapper._isNearViewport) return;
                                 const c = document.createElement("canvas");
                                 c.className = "page-canvas";
                                 c.width = Math.round(fullPageCanvas.width);
@@ -459,6 +478,7 @@ export class PDFRenderer {
                             }
                         }, this.app.config.MS_ON_FOCUS_TO_RENDER);
                     } else {
+                        wrapper._isNearViewport = false;
                         if (wrapper._focusTimer) {
                             clearTimeout(wrapper._focusTimer);
                             wrapper._focusTimer = null;
@@ -485,6 +505,7 @@ export class PDFRenderer {
                 threshold: 0.1,
             },
         );
+        this._fullDocumentObserver = observer;
 
         // Cria wrappers para todas as páginas
         for (let p = 1; p <= state.pdf.numPages; p++) {
@@ -1440,7 +1461,9 @@ export class PDFRenderer {
             this.app.ttsQueue.run();
         }
 
-        this.app.ttsEngine.schedulePrefetch();
+        if (!skipTTS) {
+            this.app.ttsEngine.schedulePrefetch();
+        }
         this.app.progressManager.saveProgress();
         this.app.eventBus.emit(EVENTS.SENTENCE_CHANGED, { index: idx, sentence });
     }

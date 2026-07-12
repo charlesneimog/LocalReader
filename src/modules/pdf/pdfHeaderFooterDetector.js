@@ -16,8 +16,10 @@ export class PDFHeaderFooterDetector {
         this._pendingDetectionsByPage = new Map();
         this._requestIdCounter = 0;
 
-        const threads = Math.floor(navigator.hardwareConcurrency / 2);
-        const webgpu = "gpu" in navigator;
+        const hardwareThreads = Number(navigator.hardwareConcurrency) || 2;
+        const configuredMaxThreads = Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 2;
+        const threads = Math.max(1, Math.min(configuredMaxThreads, Math.floor(hardwareThreads / 4) || 1));
+        const webgpu = !!navigator.gpu;
 
         this.workerReadyPromise = new Promise((resolve) => {
             this._resolveWorkerReady = resolve;
@@ -128,6 +130,10 @@ export class PDFHeaderFooterDetector {
             this._modelReady = this._initModels();
         }
         return this._modelReady;
+    }
+
+    prepare() {
+        return this._ensureModelReady();
     }
 
     _drawDetectedLayoutOverlay(pageNumber, detections, baseCanvas) {

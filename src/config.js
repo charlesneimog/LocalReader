@@ -3,8 +3,8 @@ export const CONFIG = {
     VERSION_LABEL: "0.36.5+1",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 36,
-    VERSION_PATCH: 6,
-    VERSION_BUILD: 0,
+    VERSION_PATCH: 7,
+    VERSION_BUILD: 2,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -40,6 +40,9 @@ export const CONFIG = {
     // Keep PDF layout work on the active page. Three phrases ahead plus the
     // current phrase is enough to maintain playback without analyzing page two.
     PDF_PREFETCH_PHRASES: 3,
+    // Layout inference shares the same CPU with Piper. A small pool avoids
+    // starving audio generation and the browser compositor on 8-core devices.
+    PDF_LAYOUT_MAX_THREADS: 2,
     MAX_CONCURRENT_SYNTH: navigator.hardwareConcurrency - 1 || 1,
     PIPER_MAX_THREADS: 2,
     WORD_BOUNDARY_CHUNK_SIZE: 40,

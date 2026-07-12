@@ -3,8 +3,8 @@ export const CONFIG = {
     VERSION_LABEL: "0.36.5+1",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 36,
-    VERSION_PATCH: 5,
-    VERSION_BUILD: 1,
+    VERSION_PATCH: 6,
+    VERSION_BUILD: 0,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -37,6 +37,9 @@ export const CONFIG = {
 
     // TTS
     PREFETCH_AHEAD: 10,
+    // Keep PDF layout work on the active page. Three phrases ahead plus the
+    // current phrase is enough to maintain playback without analyzing page two.
+    PDF_PREFETCH_PHRASES: 3,
     MAX_CONCURRENT_SYNTH: navigator.hardwareConcurrency - 1 || 1,
     PIPER_MAX_THREADS: 2,
     WORD_BOUNDARY_CHUNK_SIZE: 40,

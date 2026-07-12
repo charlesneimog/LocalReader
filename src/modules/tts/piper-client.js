@@ -175,8 +175,14 @@ function saveModel(key, buffer) {
             const tx = db.transaction("models", "readwrite");
             const store = tx.objectStore("models");
             store.put(buffer, key);
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error);
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
+            };
+            tx.onerror = () => {
+                db.close();
+                reject(tx.error);
+            };
         });
     });
 }
@@ -186,8 +192,14 @@ function loadModel(key) {
             const tx = db.transaction("models", "readonly");
             const store = tx.objectStore("models");
             const request = store.get(key);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                db.close();
+                resolve(request.result);
+            };
+            request.onerror = () => {
+                db.close();
+                reject(request.error);
+            };
         });
     });
 }
@@ -269,8 +281,15 @@ function saveJSON(key, obj) {
 }
 
 async function loadJSON(key) {
-    const jsonString = await loadModel(key);
-    return jsonString ? JSON.parse(jsonString) : null;
+    const cached = await loadModel(key);
+    if (!cached) return null;
+    if (typeof cached === "object") return cached;
+    try {
+        return JSON.parse(cached);
+    } catch (error) {
+        console.warn(`Ignoring invalid cached voice config: ${key}`, error);
+        return null;
+    }
 }
 
 export async function getCachedJSON(key, url) {

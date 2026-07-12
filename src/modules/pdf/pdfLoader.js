@@ -123,6 +123,21 @@ export class PDFLoader {
         page.pageWords = pageWords;
     }
 
+    async _preprocessPages(pageCount) {
+        // PDF.js can extract independent pages concurrently. Keep the pool small so
+        // large documents load faster without creating a large memory/CPU spike.
+        const workerCount = Math.min(4, pageCount);
+        let nextPage = 1;
+        const worker = async () => {
+            while (nextPage <= pageCount) {
+                const pageNumber = nextPage++;
+                await this.preprocessPage(pageNumber);
+                await cooperativeYield();
+            }
+        };
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    }
+
     async loadPDF(file = null, { resume = true, existingKey = null } = {}) {
         const { app } = this;
         const { state } = app;
@@ -235,9 +250,7 @@ export class PDFLoader {
             state.currentDocumentType = "pdf";
             if (!state.pdf.numPages) throw new Error("PDF has no pages.");
 
-            for (let p = 1; p <= state.pdf.numPages; p++) {
-                await this.preprocessPage(p);
-            }
+            await this._preprocessPages(state.pdf.numPages);
 
             // Build sentences (now with layout filtering)
             await app.sentenceParser.buildSentences(1);
@@ -487,8 +500,10 @@ export class PDFLoader {
             voiceSelect.value = trimmedVoiceId;
         }
 
-        app.ttsEngine.voiceId = trimmedVoiceId;
-        app.state.currentPiperVoice = trimmedVoiceId;
+        // Do not overwrite voiceId/currentPiperVoice here: those describe the model
+        // actually loaded in the worker. ensurePiper will now see any model mismatch
+        // and perform a real voice change before synthesis.
+        app.ttsEngine.preferredVoiceId = trimmedVoiceId;
     }
 
     _resolveResumeIndex(prevSentence, prevIndex) {

@@ -13,7 +13,9 @@ export class CacheManager {
     }
     clearAllAudioCache() {
         this.state.audioCache.clear();
-        for (let i = index; i < this.state.sentences.length; i++) {
+        for (let i = 0; i < this.state.sentences.length; i++) {
+            const s = this.state.sentences[i];
+            if (!s) continue;
             s.audioBlob = null;
             s.wavBlob = null;
             s.audioBuffer = null;

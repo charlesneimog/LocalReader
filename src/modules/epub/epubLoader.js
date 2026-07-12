@@ -277,8 +277,9 @@ export class EPUBLoader {
             voiceSelect.value = trimmedVoiceId;
         }
 
-        app.ttsEngine.voiceId = trimmedVoiceId;
-        app.state.currentPiperVoice = trimmedVoiceId;
+        // Keep the worker's actual voice identity intact until ensurePiper performs
+        // the model change.
+        app.ttsEngine.preferredVoiceId = trimmedVoiceId;
     }
 
     reset() {

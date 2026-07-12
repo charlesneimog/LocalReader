@@ -1415,42 +1415,19 @@ export class PDFRenderer {
         this.updateHighlightFullDoc(sentence);
         this.scrollSentenceIntoView(sentence);
 
-        // Prefetch da próxima frase
+        // Prefetch only within the active page. Cross-page prefetch caused layout
+        // detection to run on two pages as soon as playback started.
         if (state.generationEnabled) {
-            let nextReadableIdx = -1;
-            try {
-                nextReadableIdx = await this.findNextReadableSentenceForward(idx, new Set([idx]));
-            } catch (err) {
-                console.warn("[renderSentence] Failed to resolve next readable sentence", err);
-            }
-
-            if (nextReadableIdx >= 0) {
-                const readableSentence = state.sentences[nextReadableIdx];
-                if (readableSentence && readableSentence.pageNumber !== pageNumber) {
-                    const targetPage = readableSentence.pageNumber;
-                    if (!state.prefetchedPages.has(targetPage)) {
-                        state.prefetchedPages.add(targetPage);
-
-                        const queueSentence = () => {
-                            const candidate = state.sentences[nextReadableIdx];
-                            if (!candidate) return;
-                            if (!candidate.layoutProcessed || !candidate.isTextToRead) return;
-                            if (!candidate.audioReady && !candidate.audioInProgress) {
-                                this.app.ttsQueue.add(nextReadableIdx, true);
-                                this.app.ttsQueue.run();
-                            }
-                        };
-
-                        try {
-                            await this.ensureFullPageRendered(targetPage);
-                            await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(targetPage);
-                            queueSentence();
-                        } catch (err) {
-                            console.warn("[renderSentence] Prefetch workflow failed for page", targetPage, err);
-                            state.prefetchedPages.delete(targetPage);
-                        }
-                    }
-                }
+            const nextSentence = state.sentences[idx + 1];
+            if (
+                nextSentence?.pageNumber === pageNumber &&
+                nextSentence.layoutProcessed &&
+                nextSentence.isTextToRead &&
+                !nextSentence.audioReady &&
+                !nextSentence.audioInProgress
+            ) {
+                this.app.ttsQueue.add(idx + 1);
+                this.app.ttsQueue.run();
             }
         }
 

@@ -30,6 +30,7 @@ export class TTSEngine {
         this.piperInstance = null;
         this.voices = null;
         this.pendingVoiceId = null;
+        this.preferredVoiceId = null;
         this.initializingPromise = null;
         this._renderAheadPages = new Set();
         this._restartAttemptedCount = 0;
@@ -623,7 +624,9 @@ export class TTSEngine {
         }
 
         const voiceSelect = document.getElementById("voice-select");
-        const voice = this._getActiveVoiceId(voiceSelect?.value || config.DEFAULT_PIPER_VOICE);
+        const voice = this._getActiveVoiceId(
+            voiceSelect?.value || this.preferredVoiceId || config.DEFAULT_PIPER_VOICE,
+        );
 
         if (!hasUsableSpeechText(sourceText)) {
             this._markSentenceAsSilent(s);
@@ -729,12 +732,21 @@ export class TTSEngine {
         const { state, config } = this.app;
         if (!state.generationEnabled) return;
         const indices = [];
+        const isPdf = state.currentDocumentType === "pdf";
+        const currentPage = isPdf ? state.sentences[state.currentSentenceIndex]?.pageNumber : null;
+        const prefetchLimit = isPdf
+            ? Math.max(0, Number(config.PDF_PREFETCH_PHRASES) || 3)
+            : Math.max(0, Number(config.PREFETCH_AHEAD) || 0);
         if (state.currentSentenceIndex >= 0) {
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             indices.push(state.currentSentenceIndex);
         }
         const base = state.currentSentenceIndex;
-        for (let i = base + 1; i <= base + config.PREFETCH_AHEAD && i < state.sentences.length; i++) {
+        for (let i = base + 1; i <= base + prefetchLimit && i < state.sentences.length; i++) {
+            // Crossing a PDF page boundary here starts layout analysis for both
+            // pages. Leave the next page for auto-advance; a short final remainder
+            // on the current page is still queued by this loop.
+            if (isPdf && state.sentences[i]?.pageNumber !== currentPage) break;
             this.app.ttsQueue.add(i);
             this.app.prefetchSentenceTranslationForTTS?.(i);
         }
@@ -804,12 +816,13 @@ export class TTSEngine {
             if (!firstAvailableVoice) firstAvailableVoice = v;
         });
 
-        const requestedVoiceId = this.voiceId || config.DEFAULT_PIPER_VOICE;
+        const requestedVoiceId = this.preferredVoiceId || this.voiceId || config.DEFAULT_PIPER_VOICE;
         const hasRequestedOption = Array.from(voiceSelect.options).some((opt) => opt.value === requestedVoiceId);
         const selectedVoiceId = hasRequestedOption
             ? requestedVoiceId
             : firstAvailableVoice || voiceSelect.options[0]?.value || config.DEFAULT_PIPER_VOICE;
         voiceSelect.value = selectedVoiceId;
+        this.preferredVoiceId = null;
         const micIcon = document.getElementById("mic-icon");
         if (micIcon) {
             micIcon.classList.remove("fa-spinner", "fa-spin");

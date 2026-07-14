@@ -19,15 +19,15 @@ export class PDFHeaderFooterDetector {
         const hardwareThreads = Number(navigator.hardwareConcurrency) || 2;
         const configuredMaxThreads = Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 2;
         const threads = Math.max(1, Math.min(configuredMaxThreads, Math.floor(hardwareThreads / 4) || 1));
-        const webgpu = !!navigator.gpu;
-
-        this.workerReadyPromise = new Promise((resolve) => {
+        this.workerReadyPromise = new Promise((resolve, reject) => {
             this._resolveWorkerReady = resolve;
+            this._rejectWorkerReady = reject;
         });
 
         this.worker.onmessage = (event) => {
             const { status, requestId } = event.data || {};
             if (status === "ready") {
+                console.info(`[Layout] Model ready; backend=${event.data.backend || "wasm"}`);
                 if (typeof this._resolveWorkerReady === "function") this._resolveWorkerReady();
                 return;
             }
@@ -50,17 +50,26 @@ export class PDFHeaderFooterDetector {
                         this.app.ui.showFatalError("Layout worker exit with fatal error, please report!");
                     }
                     pending.reject(error);
+                } else if (typeof this._rejectWorkerReady === "function") {
+                    this._rejectWorkerReady(event.data.error || new Error("Layout worker initialization failed"));
                 }
             }
         };
 
         this.worker.onerror = (e) => {
             console.error("Layout worker crashed", e);
+            if (typeof this._rejectWorkerReady === "function") this._rejectWorkerReady(e);
             this._pendingWorkerRequests.forEach((pending) => pending.reject(e));
             this._pendingWorkerRequests.clear();
         };
 
-        this.worker.postMessage({ action: "init", threads, webgpu });
+        this.app
+            .getWebGpuAccess()
+            .catch(() => false)
+            .then((webgpu) => {
+                console.info(`[Layout] Initializing model; requested backend=${webgpu ? "webgpu" : "wasm"}`);
+                this.worker?.postMessage({ action: "init", threads, webgpu });
+            });
 
         // Detection configuration
         this.DETECTION_THRESHOLD = 0.35;
@@ -119,6 +128,8 @@ export class PDFHeaderFooterDetector {
         this.worker = null;
         this._modelReady = null;
         this.workerReadyPromise = null;
+        this._resolveWorkerReady = null;
+        this._rejectWorkerReady = null;
     }
 
     _initModels() {

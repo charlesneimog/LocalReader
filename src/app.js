@@ -45,6 +45,11 @@ export class PDFTTSApp {
         this.eventBus = new EventBus();
         this.cache = new CacheManager(this.state);
 
+        // Resolve real WebGPU availability once and share the result with model
+        // workers. navigator.gpu alone is not enough: requestAdapter() may still
+        // return null because of browser, driver, or policy restrictions.
+        this.webGpuCapabilityPromise = this._detectAndReportWebGpuAccess();
+
         // Runtime settings
         this._autoTranslateCache = new Map();
         this._autoTranslateInFlight = new Set();
@@ -90,7 +95,7 @@ export class PDFTTSApp {
         // app version
         const appVersion = `${this.config.VERSION_MAJOR}.${this.config.VERSION_MINOR}.${this.config.VERSION_PATCH}+${this.config.VERSION_BUILD}`;
         document.getElementById("appversion-p").textContent = `v${appVersion}`;
-        console.log(appVersion);
+        document.getElementById("appversion").textContent = `v${appVersion}`;
     }
 
     _createRendererProxy() {
@@ -125,6 +130,33 @@ export class PDFTTSApp {
 
     getActiveRenderer() {
         return this.state.currentDocumentType === "epub" ? this.epubRenderer : this._pdfRenderer;
+    }
+
+    async _detectAndReportWebGpuAccess() {
+        console.info(`[Runtime] crossOriginIsolated: ${window.crossOriginIsolated === true}`);
+        const hasApi = typeof navigator !== "undefined" && !!navigator.gpu;
+        if (!hasApi) {
+            console.info("[WebGPU] Available: false (navigator.gpu is not exposed by this browser/context)");
+            return false;
+        }
+
+        try {
+            const adapter = await navigator.gpu.requestAdapter();
+            const available = !!adapter;
+            console.info(
+                available
+                    ? "[WebGPU] Available: true (GPU adapter acquired)"
+                    : "[WebGPU] Available: false (requestAdapter returned null)",
+            );
+            return available;
+        } catch (error) {
+            console.warn("[WebGPU] Available: false (adapter request failed)", error);
+            return false;
+        }
+    }
+
+    getWebGpuAccess() {
+        return this.webGpuCapabilityPromise || Promise.resolve(false);
     }
 
     getPdfHeaderFooterDetector() {
@@ -459,6 +491,32 @@ export class PDFTTSApp {
         const voiceSelect = document.getElementById("voice-select");
         const voice = voiceSelect?.value || this.state.currentPiperVoice || this.config.DEFAULT_PIPER_VOICE;
         await this.ttsEngine.ensurePiper(voice);
+    }
+
+    _resolveVoiceForDocumentWarmup(file, options = {}, setup = null) {
+        if (setup?.mode === "read") {
+            return this._pickVoiceForLanguage(setup.target) || this.config.DEFAULT_PIPER_VOICE;
+        }
+
+        const docKey = setup?.docKey || this._getDocumentKeyBeforeLoad(file, "pdf", options);
+        const saved = docKey ? this.progressManager?.loadSavedPosition?.(docKey, "pdf") : null;
+        if (typeof saved?.voice === "string" && saved.voice.trim()) {
+            return saved.voice.trim();
+        }
+
+        const voiceSelect = document.getElementById("voice-select");
+        return (
+            voiceSelect?.value ||
+            this.ttsEngine.preferredVoiceId ||
+            this.state.currentPiperVoice ||
+            this.config.DEFAULT_PIPER_VOICE
+        );
+    }
+
+    _warmVoiceForPdf(file, options = {}, setup = null) {
+        const voice = this._resolveVoiceForDocumentWarmup(file, options, setup);
+        console.info(`[TTS] Starting PDF voice warm-up: ${voice}`);
+        return this.ttsEngine.ensurePiper(voice);
     }
 
     setAutoTranslateEnabled(enabled) {
@@ -856,11 +914,26 @@ export class PDFTTSApp {
             const nopdf = document.getElementById("no-pdf-overlay");
             nopdf.style.display = "none";
         }
+
+        // Voice initialization is independent of PDF parsing and layout-model
+        // loading. Starting it here overlaps model download/cache lookup and
+        // ONNX session creation with the document pipeline.
+        const voiceWarmupPromise =
+            file instanceof File
+                ? this._warmVoiceForPdf(file, options, setup.setup).catch((error) => {
+                      console.warn("[TTS] Early PDF voice warm-up failed; the normal initialization will retry", error);
+                      return null;
+                  })
+                : Promise.resolve(null);
+
         const result = await this.pdfLoader.loadPDF(file, options);
         this._setReaderScrollbarsHidden(this.state.currentDocumentType === "pdf" && !!this.state.pdf);
         if (setup.setup?.docKey) {
             await this._persistTranslationSettingsForDocument(setup.setup.docKey, "pdf", setup.setup);
         }
+        await voiceWarmupPromise;
+        // Re-check after loading because server/local resume data may have
+        // selected a different voice while the early warm-up was running.
         await this._ensureVoiceForTranslationSetup(setup.setup);
         this.serverSync?.startAutoSync();
         if (setup.shouldPlay) await this._startPlaybackAfterDocumentLoad();

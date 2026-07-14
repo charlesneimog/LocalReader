@@ -43,7 +43,9 @@ export const CONFIG = {
     // Layout inference shares the same CPU with Piper. A small pool avoids
     // starving audio generation and the browser compositor on 8-core devices.
     PDF_LAYOUT_MAX_THREADS: 2,
-    MAX_CONCURRENT_SYNTH: navigator.hardwareConcurrency - 1 || 1,
+    // A single Piper worker owns one ONNX session. Keep first-sentence and
+    // prefetch synthesis serialized so queued work cannot delay initial audio.
+    MAX_CONCURRENT_SYNTH: 1,
     PIPER_MAX_THREADS: 2,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,

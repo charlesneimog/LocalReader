@@ -8,6 +8,7 @@ import {
 let model;
 let processor;
 let initPromise = null;
+let activeBackend = "wasm";
 const MODEL_VERSION = "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis";
 
 const serializeError = (error) => ({
@@ -21,16 +22,34 @@ function ensureInitialized(config) {
         initPromise = (async () => {
             env.backends.onnx.wasm.numThreads = config.threads;
             env.backends.onnx.wasm.simd = true;
-            env.backends.onnx.backend = config.webgpu ? "webgpu" : "wasm";
             env.backends.onnx.logLevel = "error";
             env.allowLocalModels = false;
-            model = await AutoModel.from_pretrained("Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis", {
-                dtype: "fp32",
-            });
-            processor = await AutoProcessor.from_pretrained("Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis");
+
+            const loadModel = async () => {
+                if (config.webgpu) {
+                    try {
+                        const webgpuModel = await AutoModel.from_pretrained(MODEL_VERSION, {
+                            dtype: "fp32",
+                            device: "webgpu",
+                        });
+                        activeBackend = "webgpu";
+                        return webgpuModel;
+                    } catch (error) {
+                        console.warn("[Layout] WebGPU model initialization failed; falling back to WASM", error);
+                    }
+                }
+
+                activeBackend = "wasm";
+                return AutoModel.from_pretrained(MODEL_VERSION, { dtype: "fp32" });
+            };
+
+            [model, processor] = await Promise.all([
+                loadModel(),
+                AutoProcessor.from_pretrained(MODEL_VERSION),
+            ]);
         })()
             .then(() => {
-                self.postMessage({ status: "ready" });
+                self.postMessage({ status: "ready", backend: activeBackend });
             })
             .catch((error) => {
                 self.postMessage({ status: "error", error: serializeError(error) });

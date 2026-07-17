@@ -48,7 +48,8 @@ if (typeof window === "undefined") {
                     if (!coepCredentialless) {
                         newHeaders.set("Cross-Origin-Resource-Policy", "cross-origin");
                     }
-                    newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
+                    // Keep OAuth/sign-in popups connected to the opener.
+                    newHeaders.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
 
                     return new Response(response.body, {
                         status: response.status,

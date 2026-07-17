@@ -76,8 +76,8 @@ export class PDFThumbnailCache {
         // Use inline positioning to avoid relying on Tailwind utilities being present in output.css.
         badge.style.top = "6px";
         badge.style.left = "6px";
-        badge.title = "On server";
-        badge.setAttribute("aria-label", "On server");
+        badge.title = "Synced remotely";
+        badge.setAttribute("aria-label", "Synced remotely");
         badge.textContent = "cloud";
 
         cardElement.appendChild(badge);
@@ -92,13 +92,7 @@ export class PDFThumbnailCache {
         if (this._serverPresenceRefreshInFlight) return;
         this._serverPresenceRefreshInFlight = (async () => {
             try {
-                const data = await serverSync.apiFetch("/api/files", { method: "GET", withAuth: true });
-                const serverFiles = Array.isArray(data?.files) ? data.files : [];
-                const purgedCount = await serverSync._purgeServerTombstones?.(serverFiles, { showMessages: true });
-                if (purgedCount > 0) {
-                    await this.showSavedPDFs();
-                    return;
-                }
+                const serverFiles = await serverSync.listRemoteFiles();
 
                 const actualOnServer = new Set();
                 for (const f of serverFiles) {
@@ -477,10 +471,37 @@ export class PDFThumbnailCache {
     async deleteCardDocument(cardElement, pdfKey, pdfName, canvas, docType = "pdf") {
         if (cardElement?.dataset?.deleting === "true") return;
 
+        const syncManager = this.app.serverSync;
+        const googleDriveSelected = syncManager?.getBackend?.() === "google-drive";
+
         // Confirm deletion
-        if (!confirm(`Delete "${pdfName}" from history?`)) return;
+        const location = googleDriveSelected ? " from this device and Google Drive" : " from history";
+        if (!confirm(`Delete "${pdfName}"${location}?`)) return;
 
         if (cardElement?.dataset) cardElement.dataset.deleting = "true";
+
+        // With Drive selected, delete remotely first. Keeping the local copy when
+        // Drive is unavailable prevents another device from restoring the file.
+        if (googleDriveSelected) {
+            if (!syncManager?.isEnabled?.()) {
+                this.app.ui?.showInfo?.("Reconnect Google Drive before deleting this file");
+                if (cardElement?.dataset) delete cardElement.dataset.deleting;
+                return;
+            }
+
+            this.app.ui?.showInfo?.(`Deleting from Google Drive: ${pdfName}`);
+            let deletedRemotely = false;
+            try {
+                deletedRemotely = await syncManager.deleteFileOnServer(pdfKey);
+            } catch (error) {
+                console.warn("[PDFThumbnailCache] Google Drive deletion failed", error);
+            }
+            if (!deletedRemotely) {
+                this.app.ui?.showInfo?.(`Google Drive deletion failed: ${pdfName}`);
+                if (cardElement?.dataset) delete cardElement.dataset.deleting;
+                return;
+            }
+        }
 
         if (docType === "epub") {
             await this.app.progressManager.clearEpubProgress(pdfKey);
@@ -492,13 +513,19 @@ export class PDFThumbnailCache {
         }
 
         // Best-effort server deletion (creates a tombstone so other instances purge too).
-        if (this.app.serverSync?.isEnabled?.()) {
-            const ok = await this.app.serverSync.deleteFileOnServer(pdfKey);
+        if (!googleDriveSelected && syncManager?.isEnabled?.()) {
+            const ok = await syncManager.deleteFileOnServer(pdfKey);
             if (!ok) {
                 console.warn("[PDFThumbnailCache] Failed to delete file on server", { key: pdfKey });
                 this.app.ui?.showInfo?.("Failed to delete file on server");
             }
         }
+
+        this.app.ui?.showInfo?.(
+            googleDriveSelected
+                ? `Deleted locally and from Google Drive: ${pdfName}`
+                : `Deleted locally: ${pdfName}`,
+        );
 
         // Animate removal
         cardElement.style.transition = "opacity 200ms, transform 200ms";

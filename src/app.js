@@ -29,7 +29,7 @@ import { ProgressManager } from "./modules/storage/progressManager.js";
 import { HighlightsStorage } from "./modules/storage/highlightsStorage.js";
 import { ExportManager } from "./modules/storage/exportManager.js";
 import { PDFThumbnailCache } from "./modules/storage/pdfThumbnailCache.js";
-import { ServerSync } from "./modules/storage/serverSync.js";
+import { SyncManager } from "./modules/storage/syncManager.js";
 
 export class PDFTTSApp {
     constructor() {
@@ -69,7 +69,9 @@ export class PDFTTSApp {
         this.highlightsStorage = new HighlightsStorage(this);
         this.exportManager = new ExportManager(this);
         this.pdfThumbnailCache = new PDFThumbnailCache(this);
-        this.serverSync = new ServerSync(this);
+        // Keep the historic property name while routing storage through the
+        // selected self-host or Google Drive backend.
+        this.serverSync = new SyncManager(this);
 
         // PDF / Text
         this.pdfLoader = new PDFLoader(this);

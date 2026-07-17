@@ -1,10 +1,10 @@
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
-    VERSION_LABEL: "0.36.5+1",
+    VERSION_LABEL: "0.37.0+3",
     VERSION_MAJOR: 0,
-    VERSION_MINOR: 36,
-    VERSION_PATCH: 7,
-    VERSION_BUILD: 3,
+    VERSION_MINOR: 38,
+    VERSION_PATCH: 2,
+    VERSION_BUILD: 0,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -70,6 +70,9 @@ export const CONFIG = {
     VIEW_MODE_STORAGE_KEY: "pdfViewMode",
     PROGRESS_STORAGE_KEY: "charlesneimog.github.io/pdfReaderProgressMap",
     HIGHLIGHTS_STORAGE_KEY: "charlesneimog.github.io/pdfReaderHighlightsMap",
+    // Public OAuth web client ID owned by the PocketReader deployment.
+    // See assets/GOOGLE_DRIVE_SETUP.md. Never place a client secret here.
+    GOOGLE_DRIVE_CLIENT_ID: "529564700634-tajs7foa2f241jhil10r3phq3e96smi9.apps.googleusercontent.com",
 
     // Export
     // 0..1 (lower = more transparent). Helps keep highlighted text readable in exported PDFs.

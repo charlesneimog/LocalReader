@@ -31,7 +31,10 @@ export class ServerSync {
         this.lastServerPullCheck = 0;
 
         try {
-            if (localStorage.getItem("localreaderAuthToken")) {
+            if (
+                localStorage.getItem("config.syncBackend") !== "google-drive" &&
+                localStorage.getItem("localreaderAuthToken")
+            ) {
                 this._ensureServerAvailable({ force: true }).catch(() => {});
             }
         } catch {

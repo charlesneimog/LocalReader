@@ -22,7 +22,8 @@ It runs entirely in your browser and can be installed as a **Progressive Web App
 - **EPUB** rendering via *Foliate-view* (annotations, CFIs).  
 - **PDF** rendering via *PDF.js* with sentence extraction and layout cleanup.  
 - **Accessible UI**, keyboard navigation, and per-sentence playback control.  
-- **No remote services or telemetry.**
+- **No required remote storage service or telemetry.**
+- Optional sync through either a self-hosted server or Google Drive.
 
 ## Usage
 
@@ -119,6 +120,8 @@ You can configure the target translation language (used by `t`) with `TRANSLATE_
 
 Put the domain where the selfhost will be accessible in the `Server Link` in the `PocketReader` configuration.
 
+To enable browser-to-Drive sync, follow [the Google Drive registration guide](assets/GOOGLE_DRIVE_SETUP.md). Users can then choose **Continue with Google** in the cloud configuration panel.
+
 ---
 
 ### Credits
@@ -133,3 +136,5 @@ With appreciation to the creators of **Piper**, **Foliate-JS**, **PDF.js**, and 
 
 * [Demo (GitHub Pages)](https://charlesneimog.github.io/PocketReader/)
 * [Source Repository](https://github.com/charlesneimog/PocketReader)
+* [Privacy Policy](https://charlesneimog.github.io/PocketReader/privacy.html)
+* [Terms of Service](https://charlesneimog.github.io/PocketReader/terms.html)

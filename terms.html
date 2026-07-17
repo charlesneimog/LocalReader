@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="color-scheme" content="light dark" />
+        <title>Terms of Service — PocketReader</title>
+        <meta name="description" content="Terms governing use of the PocketReader open-source application." />
+        <style>
+            :root {
+                color-scheme: light dark;
+                --background: #f7f7fb;
+                --surface: #ffffff;
+                --text: #202124;
+                --muted: #5f6368;
+                --border: #dadce0;
+                --accent: #654ef0;
+            }
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --background: #0f1115;
+                    --surface: #181b22;
+                    --text: #f1f3f4;
+                    --muted: #bdc1c6;
+                    --border: #343842;
+                    --accent: #a99bff;
+                }
+            }
+            * { box-sizing: border-box; }
+            body {
+                margin: 0;
+                background: var(--background);
+                color: var(--text);
+                font: 16px/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            }
+            main {
+                width: min(760px, calc(100% - 32px));
+                margin: 40px auto;
+                padding: clamp(24px, 5vw, 48px);
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+            }
+            h1, h2 { line-height: 1.25; }
+            h1 { margin: 0 0 8px; }
+            h2 { margin-top: 32px; font-size: 1.25rem; }
+            p, li { max-width: 70ch; }
+            .updated { color: var(--muted); margin-top: 0; }
+            a { color: var(--accent); }
+            nav, footer { display: flex; flex-wrap: wrap; gap: 16px; }
+            nav { margin-bottom: 32px; }
+            footer { margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--border); }
+        </style>
+    </head>
+    <body>
+        <main>
+            <nav aria-label="Policy navigation">
+                <a href="./">PocketReader</a>
+                <a href="./privacy.html">Privacy Policy</a>
+                <a href="https://github.com/charlesneimog/PocketReader">Source code</a>
+            </nav>
+
+            <h1>Terms of Service</h1>
+            <p class="updated">Effective July 17, 2026</p>
+
+            <p>
+                These terms govern your use of the hosted PocketReader web application and its optional synchronization
+                features. By using PocketReader, you agree to these terms.
+            </p>
+
+            <h2>Open-source software</h2>
+            <p>
+                PocketReader's source code is available under the GNU General Public License version 3. Your rights to
+                copy, modify, and distribute the software are governed by that license. These service terms do not
+                reduce rights granted by the open-source license.
+            </p>
+
+            <h2>Acceptable use</h2>
+            <p>You agree to use PocketReader lawfully and not to:</p>
+            <ul>
+                <li>use the service to infringe copyrights, privacy rights, or other legal rights;</li>
+                <li>attempt to disrupt, overload, or compromise the hosted application or related services;</li>
+                <li>misrepresent your identity or authorization to access documents or accounts; or</li>
+                <li>use PocketReader to distribute malicious or unlawful content.</li>
+            </ul>
+
+            <h2>Your documents and accounts</h2>
+            <p>
+                You retain ownership of your documents, annotations, and other content. You are responsible for having
+                the right to open, process, translate, synchronize, and store that content. You are also responsible
+                for protecting access to your browser, Google Account, and any self-hosted server account.
+            </p>
+
+            <h2>Optional third-party and self-hosted services</h2>
+            <p>
+                Google Drive and translation features depend on services operated by third parties and may also be
+                subject to their terms. Self-hosted PocketReader servers are operated independently by their respective
+                operators. The PocketReader project does not control those deployments or guarantee their availability.
+            </p>
+
+            <h2>Availability and changes</h2>
+            <p>
+                PocketReader may change, suspend, or discontinue hosted features at any time. Features can contain bugs,
+                and synchronization can be interrupted by network failures, browser restrictions, authorization expiry,
+                quotas, or third-party service changes. Keep independent backups of important documents and annotations.
+            </p>
+
+            <h2>No warranty</h2>
+            <p>
+                To the extent permitted by law, PocketReader and its hosted service are provided “as is” and “as
+                available,” without warranties of any kind. No guarantee is made that text extraction, text-to-speech,
+                translation, annotations, or synchronization will be accurate, uninterrupted, secure, or error-free.
+            </p>
+
+            <h2>Limitation of liability</h2>
+            <p>
+                To the extent permitted by law, PocketReader's contributors and maintainers are not liable for indirect,
+                incidental, special, consequential, or exemplary damages, or for loss of data, access, profits, or
+                goodwill resulting from use of or inability to use PocketReader.
+            </p>
+
+            <h2>Privacy</h2>
+            <p>
+                The <a href="./privacy.html">Privacy Policy</a> explains how PocketReader processes local data and data
+                used by optional synchronization and translation features.
+            </p>
+
+            <h2>Changes to these terms</h2>
+            <p>
+                These terms may be updated as PocketReader evolves. The effective date above identifies the current
+                version. Continued use after an update constitutes acceptance of the revised terms.
+            </p>
+
+            <h2>Contact</h2>
+            <p>
+                Questions about these terms can be sent to
+                <a href="mailto:charlesneimog@outlook.com">charlesneimog@outlook.com</a> or raised in the
+                <a href="https://github.com/charlesneimog/PocketReader/issues">project issue tracker</a>.
+            </p>
+
+            <footer>
+                <a href="./">Return to PocketReader</a>
+                <a href="./privacy.html">Privacy Policy</a>
+            </footer>
+        </main>
+    </body>
+</html>

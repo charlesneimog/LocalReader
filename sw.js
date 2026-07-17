@@ -1,4 +1,4 @@
-const APP_VERSION = "0.36.7+3";
+const APP_VERSION = "0.38.2+0";
 const IDB_VERSION = 1;
 const cacheName = `PocketReader-v${APP_VERSION}`;
 const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;
@@ -26,6 +26,8 @@ const resolvePath = (path) => {
 const staticFiles = [
     "/",
     "/index.html",
+    "/privacy.html",
+    "/terms.html",
     "/manifest.webmanifest",
     "/threads.js",
 
@@ -69,7 +71,9 @@ const staticFiles = [
     "/src/modules/epub/epubLoader.js",
     "/src/modules/epub/epubRenderer.js",
     "/src/modules/storage/pdfThumbnailCache.js",
+    "/src/modules/storage/googleDriveSync.js",
     "/src/modules/storage/serverSync.js",
+    "/src/modules/storage/syncManager.js",
     "/src/modules/storage/exportManager.js",
     "/src/modules/storage/highlightsStorage.js",
     "/src/modules/storage/progressManager.js",
@@ -425,7 +429,9 @@ const applyCoepHeaders = (response) => {
     if (!coepCredentialless) {
         headers.set("Cross-Origin-Resource-Policy", "cross-origin");
     }
-    headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    // Google Identity Services needs to keep a communication channel to its
+    // authorization popup when FedCM is unavailable.
+    headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
 
     return new Response(clonedResponse.body, {
         status: clonedResponse.status,

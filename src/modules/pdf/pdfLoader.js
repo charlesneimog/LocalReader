@@ -1,6 +1,40 @@
 import { EVENTS } from "../../constants/events.js";
 import { normalizeText, cooperativeYield } from "../utils/helpers.js";
 
+function getTextItemSegmentGeometry(item, viewport, startFraction = 0, endFraction = 1) {
+    const transform = pdfjsLib.Util.transform(viewport.transform, item.transform);
+    const directionLength = Math.hypot(transform[0], transform[1]);
+    const directionX = directionLength > 0 ? transform[0] / directionLength : 1;
+    const directionY = directionLength > 0 ? transform[1] / directionLength : 0;
+    const itemWidth = Number(item.width);
+    const totalWidth =
+        Number.isFinite(itemWidth) && itemWidth !== 0 ? Math.abs(itemWidth * viewport.scale) : directionLength;
+    const startOffset = totalWidth * startFraction;
+    const endOffset = totalWidth * endFraction;
+
+    const baselineStart = {
+        x: transform[4] + directionX * startOffset,
+        y: transform[5] + directionY * startOffset,
+    };
+    const baselineEnd = {
+        x: transform[4] + directionX * endOffset,
+        y: transform[5] + directionY * endOffset,
+    };
+    const heightVector = { x: transform[2], y: transform[3] };
+    const corners = [
+        baselineStart,
+        baselineEnd,
+        { x: baselineStart.x + heightVector.x, y: baselineStart.y + heightVector.y },
+        { x: baselineEnd.x + heightVector.x, y: baselineEnd.y + heightVector.y },
+    ];
+
+    const x1 = Math.min(...corners.map((point) => point.x));
+    const y1 = Math.min(...corners.map((point) => point.y));
+    const x2 = Math.max(...corners.map((point) => point.x));
+    const y2 = Math.max(...corners.map((point) => point.y));
+    return { x1, y1, x2, y2, width: x2 - x1, height: y2 - y1 };
+}
+
 export class PDFLoader {
     constructor(app) {
         this.app = app;
@@ -55,64 +89,63 @@ export class PDFLoader {
             if (!item?.transform || !item.str) continue;
             if (!item.str.trim()) continue;
 
-            const [a, , , d, e, f] = item.transform;
-            const x = e * displayScale;
-            const y = viewportDisplay.height - f * displayScale;
-            const width = (item.width || Math.abs(a)) * displayScale;
-            const height = (item.height || Math.abs(d)) * displayScale;
-
-            // Canonical (unscaled) values relative to unscaled page coordinates
-            // Such that: scaledValue = canonicalValue * page.currentDisplayScale
-            const canonX = e; // already in unscaled units
-            const canonYDisplay = unscaled.height - f; // matches computation above before scaling
-            const canonWidth = item.width || Math.abs(a);
-            const canonHeight = item.height || Math.abs(d);
+            // Compose the PDF text matrix with the page viewport. This accounts for
+            // page rotation, CropBox/MediaBox offsets, and rotated text runs so the
+            // extracted word boxes share coordinates with the rendered page/model.
+            const itemGeometry = getTextItemSegmentGeometry(item, viewportDisplay);
 
             const tokens = item.str.split(/(\s+)/).filter((t) => t.trim().length > 0);
             const markLineBreak = !!item.hasEOL;
 
-            const createWord = ({ str, x: xPos, width: wordWidth, lineBreak }) => {
-                const bboxTop = y - height;
+            const createWord = ({ str, geometry, lineBreak }) => {
+                const { x1, y1, x2, y2, width, height } = geometry;
                 const word = {
                     pageNumber,
                     str: str.trim(),
-                    x: xPos,
-                    y,
-                    width: wordWidth,
+                    x: x1,
+                    y: y2,
+                    width,
                     height,
                     lineBreak: !!lineBreak,
                     font: item.fontName,
                     bbox: {
-                        x: xPos,
-                        y: bboxTop,
-                        width: wordWidth,
+                        x: x1,
+                        y: y1,
+                        width,
                         height,
-                        x1: xPos,
-                        y1: bboxTop,
-                        x2: xPos + wordWidth,
-                        y2: bboxTop + height,
+                        x1,
+                        y1,
+                        x2,
+                        y2,
                     },
                     isReadable: null,
 
-                    // Canonical base geometry (for lazy rescaling)
-                    _baseX: canonX,
-                    _baseYDisplay: canonYDisplay,
-                    _baseWidth: canonWidth,
-                    _baseHeight: canonHeight,
+                    // Canonical display geometry at viewport scale 1. The renderer
+                    // can safely rescale these values without losing rotation/crop
+                    // offsets already applied by the viewport transform.
+                    _baseX: x1 / displayScale,
+                    _baseYDisplay: y2 / displayScale,
+                    _baseWidth: width / displayScale,
+                    _baseHeight: height / displayScale,
                 };
                 pageWords.push(word);
                 return word;
             };
 
             if (tokens.length <= 1) {
-                createWord({ str: item.str, x, width, lineBreak: markLineBreak });
+                createWord({ str: item.str, geometry: itemGeometry, lineBreak: markLineBreak });
             } else {
                 const totalChars = tokens.reduce((acc, t) => acc + t.length, 0) || 1;
-                let cursorX = x;
+                let consumedChars = 0;
                 for (const tk of tokens) {
-                    const w = width * (tk.length / totalChars);
-                    createWord({ str: tk, x: cursorX, width: w, lineBreak: false });
-                    cursorX += w;
+                    const startFraction = consumedChars / totalChars;
+                    consumedChars += tk.length;
+                    const endFraction = consumedChars / totalChars;
+                    createWord({
+                        str: tk,
+                        geometry: getTextItemSegmentGeometry(item, viewportDisplay, startFraction, endFraction),
+                        lineBreak: false,
+                    });
                 }
                 if (markLineBreak && pageWords.length) {
                     pageWords[pageWords.length - 1].lineBreak = true;

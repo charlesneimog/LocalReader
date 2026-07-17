@@ -4,7 +4,7 @@ export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 36,
     VERSION_PATCH: 7,
-    VERSION_BUILD: 2,
+    VERSION_BUILD: 3,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -37,8 +37,8 @@ export const CONFIG = {
 
     // TTS
     PREFETCH_AHEAD: 10,
-    // Keep PDF layout work on the active page. Three phrases ahead plus the
-    // current phrase is enough to maintain playback without analyzing page two.
+    // Keep three readable PDF phrases synthesized ahead of playback, including
+    // across page boundaries, to avoid a pause when auto-advancing pages.
     PDF_PREFETCH_PHRASES: 3,
     // Layout inference shares the same CPU with Piper. A small pool avoids
     // starving audio generation and the browser compositor on 8-core devices.

@@ -32,7 +32,7 @@ export class TTSEngine {
         this.pendingVoiceId = null;
         this.preferredVoiceId = null;
         this.initializingPromise = null;
-        this._renderAheadPages = new Set();
+        this._pdfPhrasePrefetchRequestId = 0;
         this._restartAttemptedCount = 0;
         this._resetPromise = null;
 
@@ -688,11 +688,6 @@ export class TTSEngine {
         try {
             await this.buildPiperAudio(s, voice, sourceText);
             this.app.eventBus.emit(EVENTS.TTS_SYNTHESIS_COMPLETE, { index: idx });
-            if (state.currentDocumentType === "pdf") {
-                this.prepareNextPdfPageWhenReady(s.pageNumber).catch((error) => {
-                    console.warn("[TTSEngine] Next PDF page prefetch failed", error);
-                });
-            }
         } catch (err) {
             s.audioError = err;
             if (this._isOfflineTtsUnavailableError(err)) {
@@ -736,75 +731,63 @@ export class TTSEngine {
     schedulePrefetch() {
         const { state, config } = this.app;
         if (!state.generationEnabled) return;
-        const indices = [];
         const isPdf = state.currentDocumentType === "pdf";
-        const currentPage = isPdf ? state.sentences[state.currentSentenceIndex]?.pageNumber : null;
         const prefetchLimit = isPdf
             ? Math.max(0, Number(config.PDF_PREFETCH_PHRASES) || 3)
             : Math.max(0, Number(config.PREFETCH_AHEAD) || 0);
         if (state.currentSentenceIndex >= 0) {
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
-            indices.push(state.currentSentenceIndex);
-        }
-        const base = state.currentSentenceIndex;
-        for (let i = base + 1; i <= base + prefetchLimit && i < state.sentences.length; i++) {
-            // Crossing a PDF page boundary here starts layout analysis for both
-            // pages. Leave the next page for auto-advance; a short final remainder
-            // on the current page is still queued by this loop.
-            if (isPdf && state.sentences[i]?.pageNumber !== currentPage) break;
-            this.app.ttsQueue.add(i);
-            this.app.prefetchSentenceTranslationForTTS?.(i);
-        }
-
-        if (state.currentSentenceIndex >= 0) {
             this.app.prefetchSentenceTranslationForTTS?.(state.currentSentenceIndex);
         }
 
-        if (indices.length) {
-            Promise.resolve()
-                .then(() => this._renderSentencesAhead(indices))
-                .catch((err) => console.warn("[TTSEngine] Prefetch render failed", err));
+        const base = state.currentSentenceIndex;
+        if (isPdf) {
+            this._schedulePdfPhrasePrefetch(base, prefetchLimit);
+            return;
+        }
+
+        for (let i = base + 1; i <= base + prefetchLimit && i < state.sentences.length; i++) {
+            this.app.ttsQueue.add(i);
+            this.app.prefetchSentenceTranslationForTTS?.(i);
         }
     }
 
-    async prepareNextPdfPageWhenReady(pageNumber) {
-        const { state, config } = this.app;
-        if (!state.generationEnabled || state.currentDocumentType !== "pdf") return;
+    _schedulePdfPhrasePrefetch(fromIndex, limit) {
+        if (!Number.isFinite(fromIndex) || fromIndex < 0 || limit <= 0) return;
+        const requestId = ++this._pdfPhrasePrefetchRequestId;
+
+        Promise.resolve()
+            .then(() => this._prefetchPdfPhrasesAhead(fromIndex, limit, requestId))
+            .catch((error) => console.warn("[TTSEngine] PDF phrase prefetch failed", error));
+    }
+
+    async _prefetchPdfPhrasesAhead(fromIndex, limit, requestId) {
+        const { state } = this.app;
         const pdf = state.pdf;
-        if (!pdf) return;
+        if (!pdf || state.currentDocumentType !== "pdf") return;
 
-        const currentPageIndices = state.pageSentencesIndex.get(pageNumber) || [];
-        const readableCurrentPage = currentPageIndices
-            .map((index) => state.sentences[index])
-            .filter((sentence) => sentence?.layoutProcessed && sentence.isTextToRead);
-        if (!readableCurrentPage.length) return;
-        if (readableCurrentPage.some((sentence) => !sentence.audioReady && !sentence.audioError)) return;
+        let queued = 0;
+        for (let index = fromIndex + 1; index < state.sentences.length && queued < limit; index++) {
+            if (requestId !== this._pdfPhrasePrefetchRequestId || state.pdf !== pdf) return;
 
-        const nextPageSentence = state.sentences.find((sentence) => sentence?.pageNumber > pageNumber);
-        const nextPage = nextPageSentence?.pageNumber;
-        if (!Number.isFinite(nextPage)) return;
-        if (this._renderAheadPages.has(nextPage)) return;
+            let sentence = state.sentences[index];
+            if (!sentence) continue;
 
-        this._renderAheadPages.add(nextPage);
-        try {
-            await this.app.pdfRenderer.ensureFullPageRendered(nextPage);
-            if (state.pdf !== pdf) return;
-            await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(nextPage);
-            if (state.pdf !== pdf) return;
+            if (!sentence.layoutProcessed) {
+                await this.app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
+                if (requestId !== this._pdfPhrasePrefetchRequestId || state.pdf !== pdf) return;
 
-            const nextPageIndices = state.pageSentencesIndex.get(nextPage) || [];
-            const prefetchLimit = Math.max(1, Number(config.PDF_PREFETCH_PHRASES) || 3);
-            let queued = 0;
-            for (const index of nextPageIndices) {
-                const sentence = state.sentences[index];
-                if (!sentence?.layoutProcessed || !sentence.isTextToRead) continue;
-                this.app.ttsQueue.add(index);
-                this.app.prefetchSentenceTranslationForTTS?.(index);
-                queued += 1;
-                if (queued >= prefetchLimit) break;
+                await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(sentence.pageNumber);
+                if (requestId !== this._pdfPhrasePrefetchRequestId || state.pdf !== pdf) return;
+                sentence = state.sentences[index];
             }
-        } finally {
-            this._renderAheadPages.delete(nextPage);
+
+            if (!sentence?.layoutProcessed || !sentence.isTextToRead) continue;
+
+            this.app.ttsQueue.add(index);
+            this.app.prefetchSentenceTranslationForTTS?.(index);
+            queued += 1;
+            await cooperativeYield();
         }
     }
 
@@ -983,45 +966,4 @@ export class TTSEngine {
         }
     }
 
-    async _renderSentencesAhead(indices) {
-        const app = this.app;
-        const { state } = app;
-
-        if (!Array.isArray(indices) || !indices.length) return;
-        if (state.currentDocumentType && state.currentDocumentType !== "pdf") return;
-        if (!app.pdfRenderer || !app.getPdfHeaderFooterDetector) return;
-
-        const pagesToPrefetch = [];
-        const seenPages = new Set();
-
-        for (const idx of indices) {
-            const sentence = state.sentences[idx];
-            if (!sentence || sentence.layoutProcessed) continue;
-            const pageNumber = sentence.pageNumber;
-            if (!pageNumber || seenPages.has(pageNumber)) continue;
-            if (state.prefetchedPages.has(pageNumber) || this._renderAheadPages.has(pageNumber)) continue;
-            seenPages.add(pageNumber);
-            this._renderAheadPages.add(pageNumber);
-            pagesToPrefetch.push(pageNumber);
-        }
-
-        for (const pageNumber of pagesToPrefetch) {
-            let addedToGlobalPrefetch = false;
-            if (!state.prefetchedPages.has(pageNumber)) {
-                state.prefetchedPages.add(pageNumber);
-                addedToGlobalPrefetch = true;
-            }
-
-            try {
-                await app.pdfRenderer.ensureFullPageRendered(pageNumber);
-                await app.getPdfHeaderFooterDetector().ensureReadabilityForPage(pageNumber);
-            } catch (err) {
-                console.warn("[TTSEngine] Failed to pre-render page", pageNumber, err);
-                if (addedToGlobalPrefetch) state.prefetchedPages.delete(pageNumber);
-            } finally {
-                this._renderAheadPages.delete(pageNumber);
-                await cooperativeYield();
-            }
-        }
-    }
 }

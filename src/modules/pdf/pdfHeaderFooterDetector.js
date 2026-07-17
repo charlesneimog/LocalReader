@@ -300,7 +300,7 @@ export class PDFHeaderFooterDetector {
             .catch((error) => {
                 this._pendingDetectionsByPage.delete(pageNumber);
                 console.error(`[Layout] Detection failed for page ${pageNumber}`, error);
-                return [];
+                throw error;
             });
 
         const wrappedPromise = shouldShowSpinner
@@ -326,8 +326,7 @@ export class PDFHeaderFooterDetector {
 
         return ensureCanvas.then((canvas) => {
             if (!canvas) {
-                console.warn(`[Layout] No canvas available for page ${pageNumber} after render attempt.`);
-                return [];
+                throw new Error(`[Layout] No canvas available for page ${pageNumber} after render attempt.`);
             }
 
             const tmpCanvas = document.createElement("canvas");
@@ -335,8 +334,7 @@ export class PDFHeaderFooterDetector {
             tmpCanvas.height = Math.max(1, Math.floor(canvas.height * scaleFactor));
             const tmpCtx = tmpCanvas.getContext("2d");
             if (!tmpCtx) {
-                console.error(`[Layout] Failed to acquire temp canvas context for page ${pageNumber}`);
-                return [];
+                throw new Error(`[Layout] Failed to acquire temp canvas context for page ${pageNumber}`);
             }
             tmpCtx.drawImage(canvas, 0, 0, tmpCanvas.width, tmpCanvas.height);
 
@@ -344,8 +342,7 @@ export class PDFHeaderFooterDetector {
             try {
                 imageData = tmpCtx.getImageData(0, 0, tmpCanvas.width, tmpCanvas.height);
             } catch (error) {
-                console.error(`[Layout] Could not extract image data for page ${pageNumber}`, error);
-                return [];
+                throw new Error(`[Layout] Could not extract image data for page ${pageNumber}`, { cause: error });
             }
 
             return this._sendWorkerDetection({
@@ -358,8 +355,11 @@ export class PDFHeaderFooterDetector {
                 detectionThreshold: this.DETECTION_THRESHOLD,
                 detectionClasses: this.DETECTION_CLASSES,
             }).then((payload) => {
+                if (!Array.isArray(payload?.detections)) {
+                    throw new Error(`[Layout] Invalid detection response for page ${pageNumber}.`);
+                }
                 const detections = this._normalizeDetectionLabels(
-                    Array.isArray(payload?.detections) ? payload.detections.map((det) => ({ ...det, pageNumber })) : [],
+                    payload.detections.map((det) => ({ ...det, pageNumber })),
                 );
 
                 const cacheEntry = {
@@ -546,8 +546,11 @@ export class PDFHeaderFooterDetector {
                           y2: word.y,
                       };
 
-                const insideReadable =
-                    readableBoxes.length === 0 ? true : readableBoxes.some((r) => this._overlaps(box, r));
+                // A successful inference with no readable regions means that the
+                // model did not classify any part of this page as speech text.
+                // Do not fail open here: model/render failures reject above, while
+                // a genuine empty result deliberately leaves every word unreadable.
+                const insideReadable = readableBoxes.some((r) => this._overlaps(box, r));
                 const overlapsIgnored = ignoreBoxes.some((r) => this._overlaps(box, r));
                 const isReadable = insideReadable && !overlapsIgnored;
                 word.isReadable = isReadable;

@@ -5,6 +5,16 @@ export class ServerSync {
         this.lastSyncTime = 0;
         this.isSyncing = false;
 
+        // Gate background sync traffic behind one deduplicated availability
+        // probe. When the configured server is offline, ordinary sync GET/POST
+        // requests are skipped until the retry window expires or an explicit
+        // focus/online probe succeeds.
+        this.serverAvailabilityRetryMs = 30000;
+        this._serverAvailable = null;
+        this._lastServerAvailabilityCheck = 0;
+        this._serverAvailabilityPromise = null;
+        this._serverUnavailableNoticeShown = false;
+
         this._autoSyncEnabled = false;
         this._autoSyncListeners = [];
 
@@ -22,7 +32,7 @@ export class ServerSync {
 
         try {
             if (localStorage.getItem("localreaderAuthToken")) {
-                this.pingServer(true).catch(() => {});
+                this._ensureServerAvailable({ force: true }).catch(() => {});
             }
         } catch {
             // ignore
@@ -56,9 +66,14 @@ export class ServerSync {
 
     clearAuthToken() {
         this._setAuthToken("");
+        this.stopAutoSync();
+        this._clearPendingClientSync();
     }
 
-    async apiFetch(path, { method = "GET", body = null, withAuth = true } = {}) {
+    async apiFetch(
+        path,
+        { method = "GET", body = null, withAuth = true, skipAvailabilityGate = false } = {},
+    ) {
         const serverUrl = this.getServerUrl();
         if (!serverUrl) throw new Error("No server URL configured");
 
@@ -67,10 +82,11 @@ export class ServerSync {
         const headers = { "Content-Type": "application/json" };
         const finalHeaders = withAuth ? this._withAuthHeaders(headers) : headers;
 
-        const res = await fetch(`${serverUrl}${path}`, {
+        const res = await this._fetch(`${serverUrl}${path}`, {
             method,
             headers: finalHeaders,
             body: body ? JSON.stringify(body) : undefined,
+            skipAvailabilityGate,
         });
 
         const data = await res.json().catch(() => ({}));
@@ -90,6 +106,7 @@ export class ServerSync {
             method: "POST",
             body: { email, password },
             withAuth: false,
+            skipAvailabilityGate: true,
         });
         if (persistToken && data?.token) this._setAuthToken(data.token);
         return data;
@@ -100,6 +117,7 @@ export class ServerSync {
             method: "POST",
             body: { email, password },
             withAuth: false,
+            skipAvailabilityGate: true,
         });
         if (persistToken && data?.token) this._setAuthToken(data.token);
         return data;
@@ -110,6 +128,7 @@ export class ServerSync {
             method: "POST",
             body: { email },
             withAuth: false,
+            skipAvailabilityGate: true,
         });
     }
 
@@ -118,6 +137,7 @@ export class ServerSync {
             method: "POST",
             body: { email, token, newPassword },
             withAuth: false,
+            skipAvailabilityGate: true,
         });
         if (persistToken && data?.token) this._setAuthToken(data.token);
         return data;
@@ -137,9 +157,82 @@ export class ServerSync {
         return { ...headers, Authorization: `Bearer ${token}` };
     }
 
-    _fetch(url, options = {}) {
-        const headers = this._withAuthHeaders(options.headers || {});
-        return fetch(url, { ...options, headers });
+    _createServerUnavailableError(message = "Server is unavailable") {
+        const error = new Error(message);
+        error.name = "ServerUnavailableError";
+        error.code = "SERVER_UNAVAILABLE";
+        return error;
+    }
+
+    _isServerUnavailableError(error) {
+        return error?.code === "SERVER_UNAVAILABLE" || error?.name === "ServerUnavailableError";
+    }
+
+    _logServerError(message, error, { level = "warn" } = {}) {
+        if (this._isServerUnavailableError(error)) {
+            if (!this._serverUnavailableNoticeShown) {
+                this._serverUnavailableNoticeShown = true;
+                console.warn("[ServerSync] Server unavailable; sync paused.");
+            }
+            return;
+        }
+
+        const logger = level === "error" ? console.error : console.warn;
+        logger(message, error);
+    }
+
+    _markServerAvailability(available) {
+        this._serverAvailable = !!available;
+        this._lastServerAvailabilityCheck = Date.now();
+        if (available) this._serverUnavailableNoticeShown = false;
+    }
+
+    async _ensureServerAvailable({ force = false, showMessages = false } = {}) {
+        const serverUrl = this.getServerUrl();
+        if (!serverUrl) return false;
+
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+            this._markServerAvailability(false);
+            return false;
+        }
+
+        const age = Date.now() - this._lastServerAvailabilityCheck;
+        if (!force && this._serverAvailable !== null && age < this.serverAvailabilityRetryMs) {
+            return this._serverAvailable;
+        }
+
+        if (this._serverAvailabilityPromise) return this._serverAvailabilityPromise;
+
+        this._serverAvailabilityPromise = this.pingServer(showMessages)
+            .catch(() => false)
+            .finally(() => {
+                this._serverAvailabilityPromise = null;
+            });
+        return this._serverAvailabilityPromise;
+    }
+
+    async _fetch(url, options = {}) {
+        const { skipAvailabilityGate = false, ...fetchOptions } = options;
+        if (!skipAvailabilityGate) {
+            const available = await this._ensureServerAvailable();
+            if (!available) {
+                const error = this._createServerUnavailableError();
+                this._logServerError("", error);
+                throw error;
+            }
+        }
+
+        const headers = this._withAuthHeaders(fetchOptions.headers || {});
+        try {
+            const response = await fetch(url, { ...fetchOptions, headers });
+            this._markServerAvailability(true);
+            return response;
+        } catch (error) {
+            this._markServerAvailability(false);
+            const unavailableError = this._createServerUnavailableError(error?.message || "Server is unavailable");
+            this._logServerError("", unavailableError);
+            throw unavailableError;
+        }
     }
 
     _addAutoSyncListener(element, type, handler, options) {
@@ -154,13 +247,22 @@ export class ServerSync {
         this._autoSyncListeners = [];
     }
 
+    _clearPendingClientSync() {
+        for (const timer of this._positionSyncTimers.values()) clearTimeout(timer);
+        for (const timer of this._voiceSyncTimers.values()) clearTimeout(timer);
+        this._positionSyncTimers.clear();
+        this._voiceSyncTimers.clear();
+        this._pendingPositionByFile.clear();
+        this._pendingVoiceByFile.clear();
+    }
+
     getServerUrl() {
         const serverLink = this.app.controlsManager?.getServerLink();
         return serverLink ? serverLink.replace(/\/$/, "") : null;
     }
 
     isEnabled() {
-        return !!this.getServerUrl();
+        return !!this.getServerUrl() && !!this._getAuthToken();
     }
 
     _parseIsoToMs(value) {
@@ -240,7 +342,7 @@ export class ServerSync {
                 removed++;
             }
         } catch (e) {
-            console.warn("[ServerSync] Failed to purge local copies by actual filename:", e);
+            this._logServerError("[ServerSync] Failed to purge local copies by actual filename:", e);
         }
 
         return removed;
@@ -291,6 +393,7 @@ export class ServerSync {
 
         const t = setTimeout(() => {
             this._positionSyncTimers.delete(fileId);
+            if (!this.isEnabled()) return;
             const latest = this._pendingPositionByFile.get(fileId);
             if (!Number.isFinite(latest)) return;
             this.syncPosition(fileId, latest).catch((err) => {
@@ -313,6 +416,7 @@ export class ServerSync {
 
         const t = setTimeout(() => {
             this._voiceSyncTimers.delete(fileId);
+            if (!this.isEnabled()) return;
             const latest = this._pendingVoiceByFile.get(fileId);
             if (typeof latest !== "string" || !latest.trim()) return;
             this.syncVoice(fileId, latest.trim()).catch((err) => {
@@ -450,7 +554,7 @@ export class ServerSync {
                             }
                         }
                     } catch (e) {
-                        console.warn("[ServerSync] Failed to pull highlights:", e);
+                        this._logServerError("[ServerSync] Failed to pull highlights:", e);
                     }
                     localEntry.serverHighlightsUpdatedAt = serverHlMs;
                     updatedCount++;
@@ -461,7 +565,7 @@ export class ServerSync {
 
             this.app.progressManager.setProgressMap(progressMap);
         } catch (e) {
-            console.warn("[ServerSync] pullServerStateUpdates failed:", e);
+            this._logServerError("[ServerSync] pullServerStateUpdates failed:", e);
         }
     }
 
@@ -479,13 +583,13 @@ export class ServerSync {
             const msg = data?.error || `${response.status} ${response.statusText}`;
             throw new Error(msg);
         } catch (e) {
-            console.warn("[ServerSync] Failed to delete file on server:", e);
+            this._logServerError("[ServerSync] Failed to delete file on server:", e);
             return false;
         }
     }
 
     async checkServerAvailability() {
-        return await this.pingServer(false);
+        return await this._ensureServerAvailable({ force: true });
     }
 
     async pingServer(showMessages = true) {
@@ -499,17 +603,18 @@ export class ServerSync {
             return false;
         }
 
+        let timeoutId = null;
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            timeoutId = setTimeout(() => controller.abort(), 5000);
 
             const startTime = Date.now();
             const response = await this._fetch(`${serverUrl}/api/ping`, {
                 method: "GET",
                 signal: controller.signal,
+                skipAvailabilityGate: true,
             });
 
-            clearTimeout(timeoutId);
             const pingTime = Date.now() - startTime;
 
             if (response.ok) {
@@ -521,23 +626,27 @@ export class ServerSync {
                 }
                 return true;
             } else {
+                this._markServerAvailability(false);
                 const msg = `Server returned ${response.status} ${response.statusText}`;
-                console.error("[ServerSync] ✗ Ping failed:", msg);
+                this._logServerError("", this._createServerUnavailableError(msg));
                 if (showMessages) {
                     this.app.ui?.showInfo?.(`❌ Ping failed: ${msg}`);
                 }
                 return false;
             }
         } catch (error) {
+            this._markServerAvailability(false);
             let errorMsg = error.message;
             if (error.name === "AbortError") {
                 errorMsg = "Connection timeout (server not responding)";
             }
-            console.error("[ServerSync] ✗ Ping failed:", errorMsg);
+            this._logServerError("[ServerSync] Ping failed:", error, { level: "error" });
             if (showMessages) {
                 this.app.ui?.showInfo?.(`❌ Ping failed: ${errorMsg}`);
             }
             return false;
+        } finally {
+            if (timeoutId !== null) clearTimeout(timeoutId);
         }
     }
 
@@ -632,7 +741,7 @@ export class ServerSync {
 
             return response.ok;
         } catch (error) {
-            console.warn("[ServerSync] Failed to check if file exists:", error);
+            this._logServerError("[ServerSync] Failed to check if file exists:", error);
             return false;
         }
     }
@@ -682,20 +791,23 @@ export class ServerSync {
                 return false;
             }
         } catch (error) {
-            console.error("[ServerSync] Upload error:", error);
-            this.app.ui?.showInfo?.("Error syncing file to server");
+            this._logServerError("[ServerSync] Upload error:", error, { level: "error" });
+            if (!this._isServerUnavailableError(error)) {
+                this.app.ui?.showInfo?.("Error syncing file to server");
+            }
             return false;
         }
     }
 
     async syncPosition(fileId, sentenceIndex) {
         const serverUrl = this.getServerUrl();
-        if (!serverUrl || !fileId || sentenceIndex < 0) return false;
+        if (!this.isEnabled() || !serverUrl || !fileId || sentenceIndex < 0) return false;
 
         try {
             // Find the actual file_id on server (may have different timestamp)
             let actualFileIdOnServer = await this.findFileIdOnServer(fileId);
             if (!actualFileIdOnServer) {
+                if (this._serverAvailable === false) return false;
                 console.warn("[ServerSync] File not found on server for position sync; trying ensureFileOnServer()");
                 try {
                     await this.ensureFileOnServer();
@@ -704,7 +816,6 @@ export class ServerSync {
                 }
                 actualFileIdOnServer = await this.findFileIdOnServer(fileId);
                 if (!actualFileIdOnServer) {
-                    console.warn("[ServerSync] Still no matching file on server; position not synced", { fileId });
                     return false;
                 }
             }
@@ -730,7 +841,7 @@ export class ServerSync {
                 return false;
             }
         } catch (error) {
-            console.warn("[ServerSync] Position sync error:", error);
+            this._logServerError("[ServerSync] Position sync error:", error);
             return false;
         }
     }
@@ -743,6 +854,7 @@ export class ServerSync {
             // Find the actual file_id on server (may have different timestamp)
             let actualFileIdOnServer = await this.findFileIdOnServer(fileId);
             if (!actualFileIdOnServer) {
+                if (this._serverAvailable === false) return false;
                 console.warn("[ServerSync] File not found on server for voice sync; trying ensureFileOnServer()");
                 try {
                     await this.ensureFileOnServer();
@@ -751,7 +863,6 @@ export class ServerSync {
                 }
                 actualFileIdOnServer = await this.findFileIdOnServer(fileId);
                 if (!actualFileIdOnServer) {
-                    console.warn("[ServerSync] Still no matching file on server; voice not synced", { fileId });
                     return false;
                 }
             }
@@ -777,7 +888,7 @@ export class ServerSync {
                 return false;
             }
         } catch (error) {
-            console.warn("[ServerSync] Voice sync error:", error);
+            this._logServerError("[ServerSync] Voice sync error:", error);
             return false;
         }
     }
@@ -829,7 +940,7 @@ export class ServerSync {
 
             return !!response.ok;
         } catch (error) {
-            console.warn("[ServerSync] Translation settings sync error:", error);
+            this._logServerError("[ServerSync] Translation settings sync error:", error);
             return false;
         }
     }
@@ -901,7 +1012,7 @@ export class ServerSync {
                 return false;
             }
         } catch (error) {
-            console.warn("[ServerSync] Highlights sync error:", error);
+            this._logServerError("[ServerSync] Highlights sync error:", error);
             return false;
         }
     }
@@ -979,7 +1090,7 @@ export class ServerSync {
 
             return { position, voice, highlights, translationTarget, translationMode };
         } catch (error) {
-            console.warn("[ServerSync] Failed to load data from server:", error);
+            this._logServerError("[ServerSync] Failed to load data from server:", error);
             return { position: null, voice: null, highlights: null, translationTarget: null, translationMode: null };
         }
     }
@@ -1027,7 +1138,7 @@ export class ServerSync {
                 return matchingFile ? matchingFile.filename : null;
             }
         } catch (error) {
-            console.warn("[ServerSync] Failed to find file on server:", error);
+            this._logServerError("[ServerSync] Failed to find file on server:", error);
         }
 
         return null;
@@ -1087,7 +1198,7 @@ export class ServerSync {
                 }
             }
         } catch (error) {
-            console.warn("[ServerSync] Failed to check for existing files:", error);
+            this._logServerError("[ServerSync] Failed to check for existing files:", error);
         }
 
         // File doesn't exist, upload it
@@ -1169,7 +1280,7 @@ export class ServerSync {
             const voice = state.currentPiperVoice;
             return await this.uploadFile(file, fileId, format, voice);
         } catch (error) {
-            console.error("[ServerSync] Error uploading file:", error);
+            this._logServerError("[ServerSync] Error uploading file:", error, { level: "error" });
             return false;
         }
     }
@@ -1212,7 +1323,7 @@ export class ServerSync {
 
             this.lastSyncTime = Date.now();
         } catch (error) {
-            console.error("[ServerSync] Sync error:", error);
+            this._logServerError("[ServerSync] Sync error:", error, { level: "error" });
         } finally {
             this.isSyncing = false;
         }
@@ -1350,7 +1461,9 @@ export class ServerSync {
                                 this.app.pdfThumbnailCache.showSavedPDFs();
                             }
                         } catch (error) {
-                            console.error("[ServerSync] Failed to refresh library view:", error);
+                            this._logServerError("[ServerSync] Failed to refresh library view:", error, {
+                                level: "error",
+                            });
                         }
                     }, 100);
                 }
@@ -1370,7 +1483,9 @@ export class ServerSync {
                         this.app.ui?.showInfo?.(`Downloaded ${downloaded}/${missingFiles.length} files`);
                     }
                 } catch (error) {
-                    console.error(`[ServerSync] Failed to download ${fileInfo.filename}:`, error);
+                    this._logServerError(`[ServerSync] Failed to download ${fileInfo.filename}:`, error, {
+                        level: "error",
+                    });
                 }
             }
 
@@ -1409,7 +1524,9 @@ export class ServerSync {
 
                         // console.log("[ServerSync] Library view refresh initiated");
                     } catch (error) {
-                        console.error("[ServerSync] Failed to refresh library view:", error);
+                        this._logServerError("[ServerSync] Failed to refresh library view:", error, {
+                            level: "error",
+                        });
                         console.error("[ServerSync] Error details:", {
                             name: error.name,
                             message: error.message,
@@ -1419,8 +1536,10 @@ export class ServerSync {
                 }, 1000);
             }
         } catch (error) {
-            console.error("[ServerSync] Sync from server failed:", error);
-            this.app.ui?.showInfo?.("Failed to sync from server");
+            this._logServerError("[ServerSync] Sync from server failed:", error, { level: "error" });
+            if (!this._isServerUnavailableError(error)) {
+                this.app.ui?.showInfo?.("Failed to sync from server");
+            }
         }
     }
 
@@ -1521,7 +1640,7 @@ export class ServerSync {
                 }
             }
         } catch (e) {
-            console.warn("[ServerSync] Failed to fetch/save highlights:", e);
+            this._logServerError("[ServerSync] Failed to fetch/save highlights:", e);
         }
 
         // console.log(`[ServerSync] Downloaded and cached: ${actualFilename}`);

@@ -878,15 +878,15 @@ html {
     position: absolute;
     display: block;
     padding: 0;
-    border: 1.5px dashed rgba(245, 158, 11, 0.95);
+    border: 1.5px dashed rgba(128, 128, 128, 0.72);
     border-radius: 4px;
-    background: rgba(245, 158, 11, 0.1);
+    background: rgba(200, 200, 200, 0.12);
     cursor: pointer;
     pointer-events: auto;
 }
 
 .not-sure-layout-region:hover {
-    background: rgba(245, 158, 11, 0.18);
+    background: rgba(200, 200, 200, 0.2);
 }
 
 .not-sure-layout-add {
@@ -899,15 +899,15 @@ html {
     justify-content: center;
     border: 0;
     border-radius: 999px;
-    background: rgba(245, 158, 11, 0.96);
-    color: white;
+    background: rgba(105, 105, 105, 0.9);
+    color: rgba(255, 255, 255, 0.9);
     box-shadow: 0 2px 8px rgba(15, 23, 42, 0.28);
     cursor: pointer;
     transform: translateY(-50%);
 }
 
 .not-sure-layout-add:hover {
-    background: rgba(217, 119, 6, 1);
+    background: rgba(82, 82, 82, 0.96);
 }
 
 .not-sure-layout-add .material-symbols-outlined {

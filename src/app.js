@@ -508,9 +508,19 @@ export class PDFTTSApp {
     }
 
     async _startPlaybackAfterDocumentLoad() {
-        if (!this.state?.sentences?.length) return;
-        await this.ensureReadTranslationVoiceReady?.();
-        await this.audioManager?.playCurrentSentence?.();
+        if (!this.state?.sentences?.length) {
+            this.ui?.finishPlaybackPreparation?.();
+            return;
+        }
+        try {
+            this.ui?.updatePlaybackPreparation?.("Loading the selected voice…");
+            await this.ensureReadTranslationVoiceReady?.();
+            await this.audioManager?.playCurrentSentence?.();
+        } finally {
+            if (!this.state.isPlaying) {
+                this.ui?.finishPlaybackPreparation?.();
+            }
+        }
     }
 
     async _ensureVoiceForTranslationSetup(setup) {
@@ -989,9 +999,17 @@ export class PDFTTSApp {
         await voiceWarmupPromise;
         // Re-check after loading because server/local resume data may have
         // selected a different voice while the early warm-up was running.
-        await this._ensureVoiceForTranslationSetup(setup.setup);
-        this.serverSync?.startAutoSync();
-        if (setup.shouldPlay) await this._startPlaybackAfterDocumentLoad();
+        try {
+            await this._ensureVoiceForTranslationSetup(setup.setup);
+            this.serverSync?.startAutoSync();
+            if (setup.shouldPlay) await this._startPlaybackAfterDocumentLoad();
+        } catch (error) {
+            if (setup.shouldPlay) {
+                const detail = String(error?.message || "Unknown error");
+                this.ui?.finishPlaybackPreparation?.(`Unable to start reading: ${detail}`);
+            }
+            throw error;
+        }
         return result;
     }
 

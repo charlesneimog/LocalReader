@@ -18,6 +18,7 @@ export class UIService {
         this.infoBox = document.getElementById("info-box");
         this.fatalErrorBox = document.getElementById("fatal-error");
         this.hideMessageTimeout = null;
+        this.playbackPreparationActive = false;
         this.hideErrorTimeout = null;
         this.playBarIcon = document.querySelector("#play-toggle span.material-symbols-outlined");
 
@@ -1049,6 +1050,28 @@ export class UIService {
         }
     }
 
+    beginPlaybackPreparation(message = "Preparing to read…") {
+        this.playbackPreparationActive = true;
+        this.updatePlayButton(this.app.state.playerState.LOADING);
+        this.showMessage(message, 0);
+    }
+
+    updatePlaybackPreparation(message) {
+        if (!this.playbackPreparationActive) return;
+        this.updatePlayButton(this.app.state.playerState.LOADING);
+        this.showMessage(message, 0);
+    }
+
+    finishPlaybackPreparation(message = "") {
+        this.playbackPreparationActive = false;
+        if (message) {
+            this.showMessage(message, 2500);
+        }
+        if (!this.app.state.isPlaying) {
+            this.updatePlayButton(this.app.state.playerState.DONE);
+        }
+    }
+
     updatePlayButton(value) {
         const { state } = this.app;
         if (!this.playBarIcon) return;
@@ -1057,6 +1080,13 @@ export class UIService {
             this.isLoading = true;
             this.playBarIcon.textContent = "hourglass_empty";
             this.playBarIcon.classList.add("animate-spin");
+            return;
+        }
+
+        // Layout detection, voice initialization, and TTS synthesis finish at
+        // different times. None of those intermediate completions should stop
+        // the visual loading state while a play request is still pending.
+        if (this.playbackPreparationActive && !state.isPlaying) {
             return;
         }
 

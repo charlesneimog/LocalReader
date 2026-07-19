@@ -21,6 +21,11 @@ export class AudioManager {
             return;
         }
 
+        this.app.ui.beginPlaybackPreparation(
+            state.currentDocumentType === "pdf" ? "Checking page layout…" : "Preparing the text for reading…",
+        );
+        state.stopRequested = false;
+
         const context = {
             id: this._playbackContextId++,
             sentenceIndex: state.currentSentenceIndex,
@@ -29,11 +34,15 @@ export class AudioManager {
         this._clearWaitingForAudio();
 
         const playPromise = this._playCurrentSentence(context);
-        this._playPromise = playPromise.finally(() => {
-            if (this._playPromise === playPromise) {
+        const trackedPromise = playPromise.finally(() => {
+            if (this._playPromise === trackedPromise) {
                 this._playPromise = null;
             }
+            if (!state.isPlaying && this._isContextActive(context)) {
+                this.app.ui.finishPlaybackPreparation();
+            }
         });
+        this._playPromise = trackedPromise;
         return this._playPromise;
     }
 
@@ -155,6 +164,7 @@ export class AudioManager {
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
             await this._activateMediaBridge(sentence);
+            this.app.ui.finishPlaybackPreparation("Reading started.");
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -192,6 +202,9 @@ export class AudioManager {
             return;
         }
         if (!this._isContextActive(context)) return;
+
+        state.stopRequested = false;
+        this.app.ui.updatePlaybackPreparation("Phrases are ready. Preparing speech…");
 
         let sentence = state.currentSentence;
         if (!sentence) {
@@ -253,6 +266,7 @@ export class AudioManager {
 
         if (!this._isContextActive(context)) return;
 
+        this.app.ui.updatePlaybackPreparation("Starting reading…");
         await this.stopPlayback(false, { clearContext: false, emitEvent: false });
         if (!this._isContextActive(context)) return;
 
@@ -301,6 +315,7 @@ export class AudioManager {
             state.playingSentenceIndex = state.currentSentenceIndex;
             await this._activateMediaBridge(sentence);
             this.app.pdfRenderer.updateHighlightFullDoc();
+            this.app.ui.finishPlaybackPreparation("Reading started.");
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -441,8 +456,10 @@ export class AudioManager {
             state.autoAdvanceActive = false;
             this.app.ui.updatePlayButton(state.playerState.PAUSE);
         } else {
-            this.playCurrentSentence();
-            this.app.ui.updatePlayButton(state.playerState.PLAY);
+            this.playCurrentSentence().catch((error) => {
+                console.error("Unable to start playback:", error);
+                this.app.ui.finishPlaybackPreparation();
+            });
         }
     }
 
@@ -504,9 +521,14 @@ export class AudioManager {
 
         this._waitingForAudioNoticeKey = key;
         const friendlyPosition = Number.isFinite(sentenceIndex) && sentenceIndex >= 0 ? sentenceIndex + 1 : null;
-        const prefix = state.autoAdvanceActive ? "Preparing the next voice" : "Preparing audio";
+        const prefix = state.autoAdvanceActive ? "Generating speech for the next phrase" : "Generating speech";
         const suffix = friendlyPosition ? ` (${friendlyPosition}/${state.sentences.length})` : "";
-        this.app.ui.showMessage(`${prefix}${suffix}. Long passages can take a moment.`, 4500);
+        const message = `${prefix}${suffix}… Long passages can take a moment.`;
+        if (this.app.ui.playbackPreparationActive) {
+            this.app.ui.updatePlaybackPreparation(message);
+        } else {
+            this.app.ui.showMessage(message, 4500);
+        }
     }
 
     _clearWaitingForAudio() {
@@ -819,9 +841,12 @@ export class AudioManager {
             setCurrentPhrase(phraseTimings[0]?.blockKey || null);
             for (let i = 1; i < phraseTimings.length; i++) {
                 const timing = phraseTimings[i];
-                const id = setTimeout(() => {
-                    setCurrentPhrase(timing?.blockKey || null);
-                }, Math.max(0, timing?.offsetMs || 0));
+                const id = setTimeout(
+                    () => {
+                        setCurrentPhrase(timing?.blockKey || null);
+                    },
+                    Math.max(0, timing?.offsetMs || 0),
+                );
                 s.playbackWordTimers.push(id);
             }
         } else {

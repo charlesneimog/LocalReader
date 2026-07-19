@@ -284,42 +284,55 @@ export class PDFLoader {
             state.currentDocumentType = "pdf";
             if (!state.pdf.numPages) throw new Error("PDF has no pages.");
 
+            if (app.ui.playbackPreparationActive) {
+                app.ui.updatePlaybackPreparation(`Extracting text from ${state.pdf.numPages} pages…`);
+            } else {
+                app.ui.showMessage(`Extracting text from ${state.pdf.numPages} pages…`, 0);
+            }
+
             // Model initialization is independent of PDF text extraction. Start it
             // now so opening the document and preparing layout overlap.
-            app.getPdfHeaderFooterDetector().prepare().catch((error) => {
-                console.warn("[PDFLoader] Layout model warmup failed", error);
-            });
+            app.getPdfHeaderFooterDetector()
+                .prepare()
+                .catch((error) => {
+                    console.warn("[PDFLoader] Layout model warmup failed", error);
+                });
 
             await this._preprocessPages(state.pdf.numPages);
 
             // Build sentences (now with layout filtering)
+            if (app.ui.playbackPreparationActive) {
+                app.ui.updatePlaybackPreparation("Building the sentence list…");
+            } else {
+                app.ui.showMessage("Building the sentence list…", 0);
+            }
             await app.sentenceParser.buildSentences(1);
 
             let startIndex = 0;
             let resumeVoiceId = null;
-            
+
             // First, try to load from server if enabled
             if (app.serverSync?.isEnabled() && state.currentPdfKey) {
                 try {
                     const serverData = await app.serverSync.loadPositionAndHighlightsFromServer(state.currentPdfKey);
-                    
+
                     // Update position from server if available
                     if (serverData.position !== null && serverData.position >= 0) {
                         startIndex = Math.min(Math.max(serverData.position, 0), state.sentences.length - 1);
                         //console.log(`[PDFLoader] Restored position from server: ${startIndex}`);
                     }
-                    
+
                     // Update voice from server if available
                     if (resume && serverData.voice) {
                         resumeVoiceId = serverData.voice;
                         //console.log(`[PDFLoader] Restored voice from server: ${resumeVoiceId}`);
                     }
-                    
+
                     // Update highlights from server if available
                     if (serverData.highlights && serverData.highlights.size > 0) {
                         state.savedHighlights = serverData.highlights;
                         //console.log(`[PDFLoader] Restored ${serverData.highlights.size} highlights from server`);
-                        
+
                         // Also save to local storage
                         app.highlightsStorage?.saveHighlights?.(state.currentPdfKey, serverData.highlights);
                     }
@@ -347,7 +360,7 @@ export class PDFLoader {
                     console.warn("[PDFLoader] Failed to load from server, using local data:", error);
                 }
             }
-            
+
             // If no server data, load from local storage
             if (startIndex === 0 && state.currentPdfKey) {
                 const saved = app.progressManager.loadSavedPosition(state.currentPdfKey);
@@ -376,6 +389,11 @@ export class PDFLoader {
             if (state.savedHighlights.size) {
                 const lastSaved = Array.from(state.savedHighlights.values()).pop();
                 if (lastSaved?.color) state.selectedHighlightColor = lastSaved.color;
+            }
+            if (app.ui.playbackPreparationActive) {
+                app.ui.updatePlaybackPreparation("Rendering the first page…");
+            } else {
+                app.ui.showMessage("Rendering the first page…", 0);
             }
             await app.pdfRenderer.renderSentence(startIndex);
             app.ui.showInfo(`Total sentences: ${state.sentences.length}`);
@@ -409,7 +427,7 @@ export class PDFLoader {
         }
 
         if (state.layoutFilteringPromise) {
-            app.ui.showInfo("Finishing layout analysis...");
+            app.ui.updatePlaybackPreparation?.("Analyzing page layout…");
             return state.layoutFilteringPromise;
         }
 
@@ -426,7 +444,9 @@ export class PDFLoader {
         const { app } = this;
         const { state } = app;
 
-        app.audioManager.stopPlayback(true);
+        await app.audioManager.stopPlayback(true, {
+            clearContext: !app.ui.playbackPreparationActive,
+        });
         state.autoAdvanceActive = false;
         state.layoutFilteringReady = false;
         state.generationEnabled = true;
@@ -460,7 +480,11 @@ export class PDFLoader {
         const prevIndex = state.currentSentenceIndex;
 
         app.ui.updatePlayButton(state.playerState.LOADING);
-        app.ui.showInfo("Preparing current page for playback...");
+        if (app.ui.playbackPreparationActive) {
+            app.ui.updatePlaybackPreparation("Analyzing page layout…");
+        } else {
+            app.ui.showMessage("Analyzing page layout…", 0);
+        }
 
         const targetPages = new Set();
         if (prevSentence) {
@@ -473,6 +497,12 @@ export class PDFLoader {
             await app.pdfRenderer.ensureFullPageRendered(pageNumber);
             await app.getPdfHeaderFooterDetector().ensureReadabilityForPage(pageNumber, { force: forceRebuild });
             await cooperativeYield();
+        }
+
+        if (app.ui.playbackPreparationActive) {
+            app.ui.updatePlaybackPreparation("Layout detection complete. Building readable phrases…");
+        } else {
+            app.ui.showMessage("Layout detection complete. Building readable phrases…", 0);
         }
 
         if (!state.sentences.length) {
@@ -505,11 +535,21 @@ export class PDFLoader {
         }
 
         if (resolvedIndex >= 0) {
+            if (app.ui.playbackPreparationActive) {
+                app.ui.updatePlaybackPreparation("Rendering readable phrases…");
+            } else {
+                app.ui.showMessage("Rendering readable phrases…", 0);
+            }
             await app.pdfRenderer.renderSentence(resolvedIndex, { skipTTS: skipAudio });
             state.layoutFilteringReady = true;
-            app.ui.showInfo(
-                `Layout analysis ready. Starting from sentence ${state.currentSentenceIndex + 1}/${state.sentences.length}.`,
-            );
+            if (app.ui.playbackPreparationActive) {
+                app.ui.updatePlaybackPreparation("Phrases are ready. Preparing speech…");
+            } else {
+                app.ui.showMessage(
+                    `Layout ready. Sentence ${state.currentSentenceIndex + 1} of ${state.sentences.length} is ready.`,
+                    3500,
+                );
+            }
         } else {
             state.currentSentenceIndex = -1;
             state.hoveredSentenceIndex = -1;

@@ -1499,27 +1499,13 @@ export class PDFRenderer {
         this.updateHighlightFullDoc(sentence);
         this.scrollSentenceIntoView(sentence);
 
-        // Prefetch only within the active page. Cross-page prefetch caused layout
-        // detection to run on two pages as soon as playback started.
-        if (state.generationEnabled) {
-            const nextSentence = state.sentences[idx + 1];
-            if (
-                nextSentence?.pageNumber === pageNumber &&
-                nextSentence.layoutProcessed &&
-                nextSentence.isTextToRead &&
-                !nextSentence.audioReady &&
-                !nextSentence.audioInProgress
-            ) {
-                this.app.ttsQueue.add(idx + 1);
-                this.app.ttsQueue.run();
-            }
-        }
-
         if (state.generationEnabled && !sentence.isTextToRead) {
             this.app.ui.showInfo(
                 `Sentence ${sentence.index + 1} is outside readable layout regions. Select another sentence to play.`,
             );
         } else if (!skipTTS) {
+            // Always start the selected sentence before scheduling look-ahead.
+            // A running prefetch cannot be preempted by a later priority item.
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             this.app.ttsQueue.run();
         }

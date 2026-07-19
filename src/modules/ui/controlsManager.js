@@ -23,6 +23,7 @@ export class ControlsManager {
     _cacheDOMElements() {
         this.serverLinkInput = document.getElementById("server-link");
         this.voiceSelect = document.getElementById("voice-select");
+        this.ttsWebGpuToggle = document.getElementById("tts-webgpu-toggle");
         this.speedSelect = document.getElementById("reading-speed");
         this.speedSelectValue = document.getElementById("reading-speed-value");
         this.btnDecreaseSpeed = document.getElementById("btn-speed-decrease");
@@ -292,6 +293,13 @@ export class ControlsManager {
         }
 
         // Voice and speed
+        on(this.ttsWebGpuToggle, "change", () => {
+            app.setTtsWebGpuEnabled(this.ttsWebGpuToggle.checked).catch((error) => {
+                console.error("[TTS] Failed to change WebGPU preference", error);
+                this.reflectTtsWebGpuToggle(app.isTtsWebGpuEnabled?.());
+            });
+        });
+
         on(this.voiceSelect, "change", () => {
             app.audioManager.stopPlayback(true);
             app.state.autoAdvanceActive = false;
@@ -476,6 +484,21 @@ export class ControlsManager {
 
         const icon = this.toggleOriginalSubtitlesBtn.querySelector(".material-symbols-outlined");
         if (icon) icon.textContent = active ? "subtitles" : "subtitles_off";
+    }
+
+    reflectTtsWebGpuToggle(enabled) {
+        if (!this.ttsWebGpuToggle) return;
+        const active = !!enabled;
+        this.ttsWebGpuToggle.checked = active;
+        this.ttsWebGpuToggle.setAttribute("aria-checked", active ? "true" : "false");
+    }
+
+    reflectTtsWebGpuAvailability(available) {
+        if (!this.ttsWebGpuToggle) return;
+        this.ttsWebGpuToggle.disabled = !available;
+        this.ttsWebGpuToggle.title = available
+            ? "Use WebGPU for text-to-speech"
+            : "WebGPU TTS is disabled on smartphones; two WASM workers are used";
     }
 
     showHelpOverlay() {

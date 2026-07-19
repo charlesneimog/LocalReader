@@ -16,6 +16,11 @@ import { SentenceParser } from "./modules/pdf/sentenceParser.js";
 import { EPUBLoader } from "./modules/epub/epubLoader.js";
 
 import { TTSEngine } from "./modules/tts/ttsEngine.js";
+import {
+    isSmartphoneEnvironment,
+    resolveTtsWebGpuPreference,
+    TTS_WEBGPU_STORAGE_KEY,
+} from "./modules/tts/ttsBackendPreference.js";
 import { AudioManager } from "./modules/tts/audioManager.js";
 import { TTSQueueManager } from "./modules/tts/synthesisQueue.js";
 import { WordHighlighter } from "./modules/tts/wordHighlighter.js";
@@ -44,11 +49,6 @@ export class PDFTTSApp {
         this.state = new StateManager(this);
         this.eventBus = new EventBus();
         this.cache = new CacheManager(this.state);
-
-        // Resolve real WebGPU availability once and share the result with model
-        // workers. navigator.gpu alone is not enough: requestAdapter() may still
-        // return null because of browser, driver, or policy restrictions.
-        this.webGpuCapabilityPromise = this._detectAndReportWebGpuAccess();
 
         // Runtime settings
         this._autoTranslateCache = new Map();
@@ -134,33 +134,6 @@ export class PDFTTSApp {
         return this.state.currentDocumentType === "epub" ? this.epubRenderer : this._pdfRenderer;
     }
 
-    async _detectAndReportWebGpuAccess() {
-        console.info(`[Runtime] crossOriginIsolated: ${window.crossOriginIsolated === true}`);
-        const hasApi = typeof navigator !== "undefined" && !!navigator.gpu;
-        if (!hasApi) {
-            console.info("[WebGPU] Available: false (navigator.gpu is not exposed by this browser/context)");
-            return false;
-        }
-
-        try {
-            const adapter = await navigator.gpu.requestAdapter();
-            const available = !!adapter;
-            console.info(
-                available
-                    ? "[WebGPU] Available: true (GPU adapter acquired)"
-                    : "[WebGPU] Available: false (requestAdapter returned null)",
-            );
-            return available;
-        } catch (error) {
-            console.warn("[WebGPU] Available: false (adapter request failed)", error);
-            return false;
-        }
-    }
-
-    getWebGpuAccess() {
-        return this.webGpuCapabilityPromise || Promise.resolve(false);
-    }
-
     getPdfHeaderFooterDetector() {
         if (!this._pdfHeaderFooterDetector) {
             this._pdfHeaderFooterDetector = new PDFHeaderFooterDetector(this);
@@ -234,6 +207,12 @@ export class PDFTTSApp {
     }
 
     _loadRuntimeSettings() {
+        const crossOriginIsolated = window.crossOriginIsolated === true;
+        const sharedArrayBufferAvailable = typeof globalThis.SharedArrayBuffer === "function";
+        console.info(
+            `[Runtime] Cross-origin isolation=${crossOriginIsolated ? "enabled" : "disabled"}; crossOriginIsolated=${crossOriginIsolated}; SharedArrayBuffer=${sharedArrayBufferAvailable}; WASM threads=${crossOriginIsolated && sharedArrayBufferAvailable ? "available" : "unavailable"}`,
+        );
+
         const raw = localStorage.getItem("config.autoTranslate");
         const enabled = raw === "1" || raw === "true";
         this.state.autoTranslateEnabled = enabled;
@@ -248,6 +227,96 @@ export class PDFTTSApp {
         const originalSubtitlesEnabled = rawOriginalSubtitles === "1" || rawOriginalSubtitles === "true";
         this.state.originalSubtitlesEnabled = originalSubtitlesEnabled;
         this.controlsManager?.reflectOriginalSubtitlesToggle?.(originalSubtitlesEnabled);
+
+        const storedTtsWebGpu = localStorage.getItem(TTS_WEBGPU_STORAGE_KEY);
+        const ttsEnvironment = {
+            userAgent: navigator.userAgent,
+            viewportWidth: window.innerWidth,
+            coarsePointer: window.matchMedia?.("(pointer: coarse)")?.matches === true,
+            maxTouchPoints: navigator.maxTouchPoints,
+            mobileBreakpoint: this.config.MOBILE_BREAKPOINT,
+        };
+        this._isSmartphoneRuntime = isSmartphoneEnvironment(ttsEnvironment);
+        const ttsWebGpuEnabled = resolveTtsWebGpuPreference({ storedValue: storedTtsWebGpu, ...ttsEnvironment });
+        this.state.ttsWebGpuEnabled = ttsWebGpuEnabled;
+        this.config.PIPER_USE_WEBGPU = ttsWebGpuEnabled;
+        this.controlsManager?.reflectTtsWebGpuToggle?.(ttsWebGpuEnabled);
+        this.controlsManager?.reflectTtsWebGpuAvailability?.(!this._isSmartphoneRuntime);
+        console.info(
+            `[TTS] WebGPU preference=${ttsWebGpuEnabled ? "enabled" : "disabled"} (${this._isSmartphoneRuntime ? "smartphone compatibility" : storedTtsWebGpu === null ? "desktop default" : "saved setting"})`,
+        );
+    }
+
+    isTtsWebGpuEnabled() {
+        return !!this.state.ttsWebGpuEnabled;
+    }
+
+    startBookOpenPlaybackTimer({ bookName = "", documentType = "unknown", storageKey = null } = {}) {
+        this._bookOpenPlaybackTimer = {
+            startedAt: performance.now(),
+            bookName: String(bookName || ""),
+            documentType: String(documentType || "unknown"),
+            storageKey,
+        };
+        console.info(
+            `[Startup] Translation setup complete; TTS startup timer started: ${JSON.stringify(this._bookOpenPlaybackTimer.bookName)} (${this._bookOpenPlaybackTimer.documentType})`,
+        );
+    }
+
+    finishBookOpenPlaybackTimer({ sentenceIndex = null } = {}) {
+        const timer = this._bookOpenPlaybackTimer;
+        if (!timer) return null;
+        this._bookOpenPlaybackTimer = null;
+        const elapsedMs = Math.round(performance.now() - timer.startedAt);
+        console.info(
+            `[Startup] Translation setup to TTS audio playing: ${elapsedMs} ms`,
+            {
+                bookName: timer.bookName,
+                documentType: timer.documentType,
+                sentenceIndex,
+            },
+        );
+        return elapsedMs;
+    }
+
+    cancelBookOpenPlaybackTimer(reason = "book open cancelled") {
+        if (!this._bookOpenPlaybackTimer) return;
+        console.info(`[Startup] TTS startup timer cancelled: ${reason}`);
+        this._bookOpenPlaybackTimer = null;
+    }
+
+    async setTtsWebGpuEnabled(
+        enabled,
+        { reconfigure = true, notify = true, reason = "TTS backend preference changed" } = {},
+    ) {
+        const value = this._isSmartphoneRuntime ? false : !!enabled;
+        if (enabled && this._isSmartphoneRuntime) {
+            this.controlsManager?.reflectTtsWebGpuToggle?.(false);
+            if (notify) this.ui?.showInfo?.("TTS WebGPU is disabled on smartphones; using parallel WASM workers");
+            return;
+        }
+        const changed = value !== !!this.state.ttsWebGpuEnabled;
+        this.state.ttsWebGpuEnabled = value;
+        this.config.PIPER_USE_WEBGPU = value;
+        localStorage.setItem(TTS_WEBGPU_STORAGE_KEY, value ? "1" : "0");
+        this.controlsManager?.reflectTtsWebGpuToggle?.(value);
+
+        if (changed && reconfigure && (this.ttsEngine?.initialized || this.ttsEngine?.client)) {
+            this.audioManager?.stopPlayback?.(true);
+            this.state.autoAdvanceActive = false;
+            this.ttsQueue?.reset?.();
+            this.cache?.clearAudioFrom?.(Math.max(0, this.state.currentSentenceIndex));
+            await this.ttsEngine.resetEngine({
+                clearCache: true,
+                reason,
+                preservePlayback: false,
+                announce: false,
+            });
+        }
+
+        if (notify) {
+            this.ui?.showInfo?.(value ? "TTS WebGPU enabled" : "TTS WebGPU disabled; using WASM");
+        }
     }
 
     _normalizeTranslationTarget(target) {
@@ -974,6 +1043,13 @@ export class PDFTTSApp {
     async loadPDF(file = null, options = {}) {
         const setup = await this._promptTranslationSetupBeforeOpen(file, "pdf", options);
         if (!setup.proceed) return null;
+        if (setup.shouldPlay) {
+            this.startBookOpenPlaybackTimer({
+                bookName: file?.name || "",
+                documentType: "pdf",
+                storageKey: options?.existingKey || null,
+            });
+        }
 
         if (file !== null) {
             const nopdf = document.getElementById("no-pdf-overlay");
@@ -1016,6 +1092,13 @@ export class PDFTTSApp {
     async loadEPUB(file = null, options = {}) {
         const setup = await this._promptTranslationSetupBeforeOpen(file, "epub", options);
         if (!setup.proceed) return null;
+        if (setup.shouldPlay) {
+            this.startBookOpenPlaybackTimer({
+                bookName: file?.name || "",
+                documentType: "epub",
+                storageKey: options?.existingKey || null,
+            });
+        }
 
         this.releasePdfHeaderFooterDetector();
 

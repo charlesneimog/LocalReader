@@ -48,8 +48,7 @@ if (typeof window === "undefined") {
                     if (!coepCredentialless) {
                         newHeaders.set("Cross-Origin-Resource-Policy", "cross-origin");
                     }
-                    // Keep OAuth/sign-in popups connected to the opener.
-                    newHeaders.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+                    newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
 
                     return new Response(response.body, {
                         status: response.status,
@@ -71,7 +70,9 @@ if (typeof window === "undefined") {
             shouldRegister: () => !reloadedBySelf,
             shouldDeregister: () => false,
             coepCredentialless: () => true,
-            coepDegrade: () => true,
+            // Keep credentialless enabled. Falling back to require-corp can
+            // block the cross-origin model and CDN resources used by the app.
+            coepDegrade: () => false,
             doReload: () => window.location.reload(),
             quiet: false,
             ...window.coi,

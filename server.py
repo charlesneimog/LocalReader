@@ -452,10 +452,9 @@ class APIHandler(BaseHTTPRequestHandler):
 
         Required for SharedArrayBuffer and cross-origin isolated contexts.
         """
-        #self.send_header("Cross-Origin-Opener-Policy", "same-origin")
-        #self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
-        # Recommended: lock resources to same-origin unless explicitly shared.
-        #self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Embedder-Policy", "credentialless")
+        self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
         self.send_header("Access-Control-Allow-Origin", "*")
 
     def _should_apply_coi_headers(self, path: str) -> bool:

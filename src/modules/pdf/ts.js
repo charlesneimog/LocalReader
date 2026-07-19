@@ -8,7 +8,6 @@ import {
 let model;
 let processor;
 let initPromise = null;
-let activeBackend = "wasm";
 const MODEL_VERSION = "Oblix/yolov10m-doclaynet_ONNX_document-layout-analysis";
 
 const serializeError = (error) => ({
@@ -20,36 +19,28 @@ const serializeError = (error) => ({
 function ensureInitialized(config) {
     if (!initPromise) {
         initPromise = (async () => {
-            env.backends.onnx.wasm.numThreads = config.threads;
+            const requestedThreads = Math.max(1, Number(config.threads) || 4);
+            const hardwareThreads = Math.max(1, Number(self.navigator?.hardwareConcurrency) || 1);
+            const threads = self.crossOriginIsolated === true ? Math.min(requestedThreads, hardwareThreads) : 1;
+            env.backends.onnx.wasm.numThreads = threads;
             env.backends.onnx.wasm.simd = true;
             env.backends.onnx.logLevel = "error";
             env.allowLocalModels = false;
 
-            const loadModel = async () => {
-                if (config.webgpu) {
-                    try {
-                        const webgpuModel = await AutoModel.from_pretrained(MODEL_VERSION, {
-                            dtype: "fp32",
-                            device: "webgpu",
-                        });
-                        activeBackend = "webgpu";
-                        return webgpuModel;
-                    } catch (error) {
-                        console.warn("[Layout] WebGPU model initialization failed; falling back to WASM", error);
-                    }
-                }
-
-                activeBackend = "wasm";
-                return AutoModel.from_pretrained(MODEL_VERSION, { dtype: "fp32" });
-            };
-
             [model, processor] = await Promise.all([
-                loadModel(),
+                AutoModel.from_pretrained(MODEL_VERSION, {
+                    dtype: "fp32",
+                    device: "wasm",
+                }),
                 AutoProcessor.from_pretrained(MODEL_VERSION),
             ]);
+            return {
+                requestedThreads: Math.max(1, Number(config.threads) || 4),
+                threads: env.backends.onnx.wasm.numThreads,
+            };
         })()
-            .then(() => {
-                self.postMessage({ status: "ready", backend: activeBackend });
+            .then(({ requestedThreads, threads }) => {
+                self.postMessage({ status: "ready", backend: "wasm", requestedThreads, threads });
             })
             .catch((error) => {
                 self.postMessage({ status: "error", error: serializeError(error) });

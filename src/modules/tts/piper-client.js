@@ -15,9 +15,17 @@ export class PiperWorkerClient {
         this.worker = new Worker(this.workerUrl);
         this._reqId = 1;
         this._pending = new Map();
+        this.backend = null;
+        this.onBackendChange = typeof options.onBackendChange === "function" ? options.onBackendChange : null;
 
         this.worker.onmessage = (e) => {
             const { id, type } = e.data || {};
+            if (type === "backend-change") {
+                this.backend = e.data.backend || null;
+                console.warn(`[TTS] Piper backend changed to ${this.backend}`, e.data.reason || "");
+                this.onBackendChange?.({ backend: this.backend, reason: e.data.reason || "" });
+                return;
+            }
             const pending = this._pending.get(id);
             if (!pending) return;
 
@@ -30,13 +38,20 @@ export class PiperWorkerClient {
             // Resolve based on operation
             if (type === "init-ok") {
                 this._pending.delete(id);
-                pending.resolve({ threads: e.data.threads, simd: e.data.simd });
+                this.backend = e.data.backend || null;
+                pending.resolve({
+                    backend: this.backend,
+                    ortVersion: e.data.ortVersion || null,
+                    threads: e.data.threads,
+                    simd: e.data.simd,
+                });
                 return;
             }
 
             if (type === "change-voice-ok") {
                 this._pending.delete(id);
-                pending.resolve();
+                this.backend = e.data.backend || this.backend;
+                pending.resolve({ backend: this.backend });
                 return;
             }
 
@@ -85,7 +100,8 @@ export class PiperWorkerClient {
         phonemizerDataUrl,
         logLevel = "error",
         transferModel = true,
-        maxThreads = 2,
+        maxThreads = 4,
+        useWebGpu = true,
     }) {
         if (!(modelBuffer instanceof ArrayBuffer)) {
             throw new Error("modelBuffer must be an ArrayBuffer");
@@ -106,6 +122,7 @@ export class PiperWorkerClient {
                 espeakVoice,
                 logLevel,
                 maxThreads,
+                useWebGpu,
             },
             transfers,
         );
@@ -152,6 +169,89 @@ export class PiperWorkerClient {
             pending.reject(new Error("Worker terminated"));
         }
         this._pending.clear();
+    }
+}
+
+export class PiperWorkerPoolClient {
+    constructor(options = {}) {
+        this.size = Math.max(1, Number(options.size) || 2);
+        this._active = new Array(this.size).fill(0);
+        this._cursor = 0;
+        this.clients = Array.from(
+            { length: this.size },
+            () =>
+                new PiperWorkerClient({
+                    workerUrl: options.workerUrl,
+                    onBackendChange: options.onBackendChange,
+                }),
+        );
+        this.availableVoices = null;
+    }
+
+    get backend() {
+        const backends = [...new Set(this.clients.map((client) => client.backend).filter(Boolean))];
+        return backends.length === 1 ? backends[0] : backends.length ? "mixed" : null;
+    }
+
+    async _initializeAll(method, options) {
+        const modelBuffer = options.modelBuffer;
+        if (!(modelBuffer instanceof ArrayBuffer)) throw new Error("modelBuffer must be an ArrayBuffer");
+
+        const results = await Promise.all(
+            this.clients.map((client, index) => {
+                const workerModel = index === this.clients.length - 1 ? modelBuffer : modelBuffer.slice(0);
+                return client[method]({ ...options, modelBuffer: workerModel, transferModel: true });
+            }),
+        );
+        const first = results[0] || {};
+        return {
+            ...first,
+            backend: this.backend || first.backend || null,
+            workers: this.clients.length,
+            threadsPerWorker: first.threads || 1,
+        };
+    }
+
+    init(options) {
+        return this._initializeAll("init", options);
+    }
+
+    changeVoice(options) {
+        return this._initializeAll("changeVoice", options);
+    }
+
+    _nextWorkerIndex() {
+        let selected = this._cursor % this.clients.length;
+        for (let offset = 1; offset < this.clients.length; offset += 1) {
+            const candidate = (this._cursor + offset) % this.clients.length;
+            if (this._active[candidate] < this._active[selected]) selected = candidate;
+        }
+        this._cursor = (selected + 1) % this.clients.length;
+        return selected;
+    }
+
+    async synthesize(text, speed = 1.0, espeakVoice, options = {}) {
+        const workerIndex = this._nextWorkerIndex();
+        const startedAt = performance.now();
+        this._active[workerIndex] += 1;
+        console.info(`[TTS] Worker ${workerIndex + 1}/${this.clients.length} start: ${JSON.stringify(text)}`);
+        try {
+            return await this.clients[workerIndex].synthesize(text, speed, espeakVoice, options);
+        } finally {
+            this._active[workerIndex] = Math.max(0, this._active[workerIndex] - 1);
+            console.info(
+                `[TTS] Worker ${workerIndex + 1}/${this.clients.length} done (${Math.round(performance.now() - startedAt)} ms)`,
+            );
+        }
+    }
+
+    freeUserTimeLimit() {
+        for (const client of this.clients) client.freeUserTimeLimit();
+    }
+
+    terminate() {
+        for (const client of this.clients) client.terminate();
+        this._active.fill(0);
     }
 }
 
@@ -375,6 +475,7 @@ export async function getUncachedJSON(url) {
 
 // Export for browser
 window.PiperWorkerClient = PiperWorkerClient;
+window.PiperWorkerPoolClient = PiperWorkerPoolClient;
 window.getCachedModel = getCachedModel;
 window.getCachedJSON = getCachedJSON;
 window.getUncachedModel = getUncachedModel;

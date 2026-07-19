@@ -1,10 +1,10 @@
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
-    VERSION_LABEL: "0.38.2+2",
+    VERSION_LABEL: "0.38.7+16",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 38,
-    VERSION_PATCH: 4,
-    VERSION_BUILD: 0,
+    VERSION_PATCH: 7,
+    VERSION_BUILD: 17,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -41,12 +41,16 @@ export const CONFIG = {
     // Keep three readable PDF phrases synthesized ahead of playback, including
     // across page boundaries, to avoid a pause when auto-advancing pages.
     PDF_PREFETCH_PHRASES: 3,
-    // Layout inference shares the same CPU with Piper. A small pool avoids
-    // starving audio generation and the browser compositor on 8-core devices.
-    PDF_LAYOUT_MAX_THREADS: 2,
-    // A single Piper worker owns one ONNX session. Keep first-sentence and
-    // prefetch synthesis serialized so queued work cannot delay initial audio.
-    MAX_CONCURRENT_SYNTH: 1,
+    // Independent worker thread caps for layout inference and Piper synthesis.
+    PDF_LAYOUT_MAX_THREADS: 4,
+    // Generate the selected sentence and one look-ahead sentence concurrently.
+    MAX_CONCURRENT_SYNTH: 2,
+    // Runtime settings override this; smartphones always use parallel WASM workers.
+    PIPER_USE_WEBGPU: true,
+    // Two independent workers provide two parallel synthesis lanes. Each worker
+    // uses two WASM threads when cross-origin isolation is available, and safely
+    // falls back to one thread when SharedArrayBuffer is unavailable.
+    PIPER_WORKERS: 2,
     PIPER_MAX_THREADS: 2,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,

@@ -1,4 +1,4 @@
-const APP_VERSION = "0.38.4+0";
+const APP_VERSION = "0.38.7+17";
 const IDB_VERSION = 1;
 const cacheName = `PocketReader-v${APP_VERSION}`;
 const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;
@@ -80,6 +80,7 @@ const staticFiles = [
     "/src/modules/tts/audioManager.js",
     "/src/modules/tts/piper-client.js",
     "/src/modules/tts/piper.worker.js",
+    "/src/modules/tts/ttsBackendPreference.js",
     "/src/modules/tts/synthesisQueue.js",
     "/src/modules/tts/ttsEngine.js",
     "/src/modules/tts/wordHighlighter.js",
@@ -95,6 +96,8 @@ const staticFiles = [
 
     // Third-party
     "/thirdparty/ort/ort.js",
+    "/thirdparty/ort/ort-wasm-simd-threaded.asyncify.mjs",
+    "/thirdparty/ort/ort-wasm-simd-threaded.asyncify.wasm",
     "/thirdparty/ort/ort-wasm-simd.wasm",
     "/thirdparty/ort/ort-wasm-simd-threaded.jsep.mjs",
     "/thirdparty/ort/ort-wasm-simd-threaded.jsep.wasm",
@@ -429,9 +432,7 @@ const applyCoepHeaders = (response) => {
     if (!coepCredentialless) {
         headers.set("Cross-Origin-Resource-Policy", "cross-origin");
     }
-    // Google Identity Services needs to keep a communication channel to its
-    // authorization popup when FedCM is unavailable.
-    headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+    headers.set("Cross-Origin-Opener-Policy", "same-origin");
 
     return new Response(clonedResponse.body, {
         status: clonedResponse.status,

@@ -8,7 +8,7 @@ import {
 } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
 import {
-    PiperWorkerClient,
+    PiperWorkerPoolClient,
     getCachedJSON,
     getCachedModel,
     getUncachedJSON,
@@ -188,7 +188,18 @@ export class TTSEngine {
 
         try {
             if (!this.client) {
-                this.client = new PiperWorkerClient({ workerUrl: "./src/modules/tts/piper.worker.js" });
+                this.client = new PiperWorkerPoolClient({
+                    size: Math.max(1, Number(this.app.config.PIPER_WORKERS) || 2),
+                    workerUrl: "./src/modules/tts/piper.worker.js",
+                    onBackendChange: ({ backend, reason }) => {
+                        if (backend !== "wasm" || !this.app.isTtsWebGpuEnabled?.()) return;
+                        this.app.setTtsWebGpuEnabled(false, {
+                            reconfigure: false,
+                            notify: true,
+                            reason: reason || "WebGPU synthesis failed",
+                        });
+                    },
+                });
             }
 
             const usesPersonalizedModel = this._isPersonalizedPiperEnabled();
@@ -244,9 +255,10 @@ export class TTSEngine {
             const phonemizerWasmUrl = `${baseUrl}thirdparty/piper/piper_phonemize.wasm`;
             const phonemizerDataUrl = `${baseUrl}thirdparty/piper/piper_phonemize.data`;
             const maxThreads = Math.max(1, Number(this.app.config.PIPER_MAX_THREADS) || 1);
+            const useWebGpu = this.app.config.PIPER_USE_WEBGPU !== false;
 
             if (!this.initialized) {
-                await this.client.init({
+                const runtime = await this.client.init({
                     modelBuffer,
                     voiceConfig,
                     ortJsUrl,
@@ -257,13 +269,25 @@ export class TTSEngine {
                     logLevel: "error",
                     transferModel: true,
                     maxThreads,
+                    useWebGpu,
                 });
+                console.info(
+                    `[TTS] Piper ready; backend=${runtime.backend || "unknown"}; ort=${runtime.ortVersion || "unknown"}; workers=${runtime.workers || 1}; threadsPerWorker=${runtime.threadsPerWorker || runtime.threads || 1}`,
+                );
+                if (useWebGpu && runtime.backend === "wasm") {
+                    await this.app.setTtsWebGpuEnabled?.(false, {
+                        reconfigure: false,
+                        notify: true,
+                        reason: "WebGPU initialization failed",
+                    });
+                }
             } else if (this.voiceId !== targetVoiceId) {
-                await this.client.changeVoice({
+                const runtime = await this.client.changeVoice({
                     modelBuffer,
                     voiceConfig,
                     transferModel: true,
                 });
+                console.info(`[TTS] Piper voice loaded; backend=${runtime.backend || "unknown"}`);
             }
 
             this.voiceId = targetVoiceId;
@@ -518,9 +542,10 @@ export class TTSEngine {
         let phraseOffsetMs = 0;
         for (let i = 0; i < phraseEntries.length; i++) {
             const phrase = phraseEntries[i].text;
+            const cleaned = formatTextToSpeech(phrase);
+            console.info(`[TTS] Rendering phrase: ${JSON.stringify(cleaned)}`);
             const { blob: wavBlob, wavBuffer } = await retryAsync(async () => {
                 try {
-                    const cleaned = formatTextToSpeech(phrase);
                     const activeClient = this.app.state.piperInstance || client;
                     if (!activeClient) throw new Error("Piper worker unavailable");
                     const createBlob = !config.STORE_DECODED_ONLY || config.MAKE_WAV_COPY;
@@ -864,7 +889,7 @@ export class TTSEngine {
         }
     }
 
-    async resetEngine({ clearCache = true, reason, preservePlayback = true, attempt } = {}) {
+    async resetEngine({ clearCache = true, reason, preservePlayback = true, attempt, announce = true } = {}) {
         const { state } = this.app;
 
         if (this._resetPromise) {
@@ -872,13 +897,17 @@ export class TTSEngine {
             return;
         }
 
-        this._restartAttemptedCount += 1;
+        if (announce) this._restartAttemptedCount += 1;
         const attemptNo = Number.isFinite(attempt) ? attempt : this._restartAttemptedCount;
-        console.warn(`[TTS] Restarting engine (attempt ${attemptNo})`, reason || "");
-        this.app.ui.showMessage(
-            `TTS warning: restart attempt ${attemptNo}.${preservePlayback ? " Reader keeps playing." : ""}`,
-            2800,
-        );
+        if (announce) {
+            console.warn(`[TTS] Restarting engine (attempt ${attemptNo})`, reason || "");
+            this.app.ui.showMessage(
+                `TTS warning: restart attempt ${attemptNo}.${preservePlayback ? " Reader keeps playing." : ""}`,
+                2800,
+            );
+        } else {
+            console.info("[TTS] Reconfiguring engine", reason || "");
+        }
 
         const activePlayingSentence =
             preservePlayback && state.isPlaying && state.playingSentenceIndex >= 0

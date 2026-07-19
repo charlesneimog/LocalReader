@@ -50,6 +50,7 @@ export class StateManager {
         this.piperInstance = null;
         this.currentPiperVoice = null;
         this.piperLoading = false;
+        this.ttsWebGpuEnabled = false;
 
         // View
         // TODO: Disable single view and remove code

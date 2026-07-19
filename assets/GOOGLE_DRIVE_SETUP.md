@@ -144,7 +144,7 @@ copy.
 - **Error 400: origin_mismatch**: add the exact browser origin to **Authorized JavaScript origins**. For the published app it is `https://charlesneimog.github.io`.
 - **Access blocked / app not verified**: add the Google account as a test user, or complete the publishing/verification steps requested by Google.
 - **Google Identity Services did not load**: check content blockers and network filtering for `accounts.google.com`.
-- **Popup window closed immediately**: confirm the deployed app sends `Cross-Origin-Opener-Policy: same-origin-allow-popups`; a strict `same-origin` policy breaks the popup callback when FedCM is unavailable.
+- **Popup window closed immediately**: PocketReader uses strict `Cross-Origin-Opener-Policy: same-origin` to enable multi-threaded WASM. Use a browser with FedCM support; legacy popup callbacks cannot retain `window.opener` under strict isolation.
 - **Drive API has not been used**: enable the Google Drive API in the same Cloud project as the OAuth client.
 - **Google Drive is not configured by the app owner**: set `GOOGLE_DRIVE_CLIENT_ID` in `src/config.js` and deploy the change.
 - **Reconnect required**: this is expected after the browser token expires; connect again from the cloud panel.

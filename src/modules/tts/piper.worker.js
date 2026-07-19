@@ -1,6 +1,6 @@
 /* Piper TTS WebWorker
    Loads:
-   - onnxruntime-web (WASM) inside the worker
+   - onnxruntime-web (WebGPU with WASM recovery) inside the worker
    - Piper phonemizer (Emscripten WASM) inside the worker
    Accepts:
    - modelBuffer (ArrayBuffer of ONNX)
@@ -13,12 +13,23 @@
 
 let ortLoaded = false;
 let session = null;
+let modelBytes = null;
 let voiceConfig = null;
+let activeBackend = null;
+let preferWebGpu = true;
+
+// Piper's duration predictor uses INT64 indices for these GatherND nodes.
+// WebGPU shaders cannot represent INT64, so ONNX Runtime keeps only these
+// nodes on CPU while the rest of the model remains on WebGPU.
+const PIPER_INT64_GATHER_ND_NODES = [3, 5, 7].flatMap((flow) =>
+    ["", "_1", "_2", "_3", "_4"].map((suffix) => `/dp/flows.${flow}/GatherND${suffix}`),
+);
 
 let createPiperPhonemizeWorker = null;
 let phonemizerModule = null;
 let currentPhonemizeResolve = null;
 let currentPhonemizeReject = null;
+let phonemizeQueue = Promise.resolve();
 let limitUserTime = false;
 
 function respond(id, type, payload) {
@@ -44,7 +55,7 @@ function normalizeAssetUrl(url) {
     }
 }
 
-async function loadOrt(ortJsUrl, wasmRoot, logLevel = "error", maxThreads = 2) {
+async function loadOrt(ortJsUrl, wasmRoot, logLevel = "error", maxThreads = 4) {
     if (ortLoaded) return;
 
     ortJsUrl = normalizeAssetUrl(ortJsUrl);
@@ -136,7 +147,7 @@ async function ensurePhonemizer(phonemizerWasmUrl, phonemizerDataUrl) {
     });
 }
 
-function phonemize(text, espeakVoice, timeoutMs = 5000) {
+function phonemizeOnce(text, espeakVoice, timeoutMs = 5000) {
     if (!phonemizerModule) throw new Error("Phonemizer module is not initialized");
 
     return new Promise((resolve, reject) => {
@@ -177,13 +188,36 @@ function phonemize(text, espeakVoice, timeoutMs = 5000) {
     });
 }
 
-async function createSession(modelBuffer) {
+function phonemize(text, espeakVoice, timeoutMs = 5000) {
+    // The Emscripten phonemizer exposes one global stdout callback. Serialize
+    // only this short stage so two overlapping sentence requests cannot steal
+    // each other's result; their ONNX inference can still overlap afterward.
+    const task = phonemizeQueue
+        .catch(() => {})
+        .then(() => phonemizeOnce(text, espeakVoice, timeoutMs));
+    phonemizeQueue = task.catch(() => {});
+    return task;
+}
+
+async function releaseSession() {
+    if (!session) return;
+    const previousSession = session;
+    session = null;
+    try {
+        await previousSession.release?.();
+    } catch (error) {
+        console.warn("[TTS] Failed to release Piper ONNX session", error);
+    }
+}
+
+async function createSession(modelBuffer, useWebGpu = preferWebGpu) {
     if (!ortLoaded) throw new Error("ONNX Runtime is not loaded");
 
-    // Session options
+    modelBytes = modelBuffer instanceof Uint8Array ? modelBuffer : new Uint8Array(modelBuffer);
+    await releaseSession();
+
     const threads = self.ort.env.wasm.numThreads || 1;
-    const sessionOptions = {
-        executionProviders: ["wasm"],
+    const commonOptions = {
         graphOptimizationLevel: "all",
         enableCpuMemArena: true,
         enableMemPattern: true,
@@ -192,9 +226,42 @@ async function createSession(modelBuffer) {
         interOpNumThreads: Math.max(1, Math.floor(threads / 2)),
     };
 
-    // onnxruntime-web accepts ArrayBuffer or Uint8Array
-    const model = modelBuffer instanceof Uint8Array ? modelBuffer : new Uint8Array(modelBuffer);
-    session = await self.ort.InferenceSession.create(model, sessionOptions);
+    if (useWebGpu && self.navigator?.gpu) {
+        try {
+            console.info(
+                `[TTS] Piper WebGPU hybrid mode; ${PIPER_INT64_GATHER_ND_NODES.length} INT64 GatherND nodes on CPU`,
+            );
+            session = await self.ort.InferenceSession.create(modelBytes, {
+                ...commonOptions,
+                executionProviders: [
+                    {
+                        name: "webgpu",
+                        forceCpuNodeNames: PIPER_INT64_GATHER_ND_NODES,
+                    },
+                    "wasm",
+                ],
+            });
+            activeBackend = "webgpu";
+            return;
+        } catch (error) {
+            console.warn("[TTS] Piper WebGPU initialization failed; using WASM", error);
+            preferWebGpu = false;
+        }
+    }
+
+    session = await self.ort.InferenceSession.create(modelBytes, {
+        ...commonOptions,
+        executionProviders: ["wasm"],
+    });
+    activeBackend = "wasm";
+}
+
+async function switchToWasm(error) {
+    if (activeBackend === "wasm") throw error;
+    console.warn("[TTS] Piper WebGPU synthesis failed; retrying with WASM", error);
+    preferWebGpu = false;
+    await createSession(modelBytes, false);
+    self.postMessage({ type: "backend-change", backend: activeBackend, reason: error?.message || String(error) });
 }
 
 function floatToWavPCM16(float32Array, sampleRate) {
@@ -230,12 +297,7 @@ function floatToWavPCM16(float32Array, sampleRate) {
     return buffer;
 }
 
-async function synthesize(text, speed = 1.0, espeakVoice) {
-    if (!session) throw new Error("Inference session not initialized");
-    if (!voiceConfig) throw new Error("voiceConfig is missing");
-
-    const phonemeIds = await phonemize(text, espeakVoice);
-
+async function runSynthesis(phonemeIds, speed) {
     const inputs = {
         input: new self.ort.Tensor("int64", new BigInt64Array(phonemeIds.map((v) => BigInt(v))), [
             1,
@@ -245,7 +307,21 @@ async function synthesize(text, speed = 1.0, espeakVoice) {
         scales: new self.ort.Tensor("float32", new Float32Array([0.667, speed || 1.0, 0.8]), [3]),
     };
 
-    const results = await session.run(inputs);
+    return session.run(inputs);
+}
+
+async function synthesize(text, speed = 1.0, espeakVoice) {
+    if (!session) throw new Error("Inference session not initialized");
+    if (!voiceConfig) throw new Error("voiceConfig is missing");
+
+    const phonemeIds = await phonemize(text, espeakVoice);
+    let results;
+    try {
+        results = await runSynthesis(phonemeIds, speed);
+    } catch (error) {
+        await switchToWasm(error);
+        results = await runSynthesis(phonemeIds, speed);
+    }
     const outTensor = results.output || results[Object.keys(results)[0]];
     if (!outTensor || !outTensor.data) throw new Error("No output audio tensor");
 
@@ -270,6 +346,7 @@ self.onmessage = async (event) => {
                 voiceConfig: cfg,
                 logLevel,
                 maxThreads,
+                useWebGpu,
             } = payload;
 
             await loadOrt(ortJsUrl, ortWasmRoot, logLevel || "error", maxThreads);
@@ -277,17 +354,23 @@ self.onmessage = async (event) => {
             await ensurePhonemizer(phonemizerWasmUrl, phonemizerDataUrl);
 
             voiceConfig = cfg;
-            await createSession(modelBuffer);
+            preferWebGpu = useWebGpu !== false;
+            await createSession(modelBuffer, preferWebGpu);
 
-            respond(id, "init-ok", { threads: self.ort.env.wasm.numThreads, simd: !!self.ort.env.wasm.simd });
+            respond(id, "init-ok", {
+                backend: activeBackend,
+                ortVersion: self.ort.env?.versions?.web || null,
+                threads: self.ort.env.wasm.numThreads,
+                simd: !!self.ort.env.wasm.simd,
+            });
             return;
         }
 
         if (type === "change-voice") {
             const { modelBuffer, voiceConfig: cfg } = payload;
             voiceConfig = cfg;
-            await createSession(modelBuffer);
-            respond(id, "change-voice-ok", {});
+            await createSession(modelBuffer, preferWebGpu);
+            respond(id, "change-voice-ok", { backend: activeBackend });
             return;
         }
 

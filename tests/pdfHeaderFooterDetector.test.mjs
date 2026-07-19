@@ -178,3 +178,44 @@ test("uses separately translated layout entries for speech and popup timing", as
 
     assert.deepEqual(entries, sentence.readTranslationPhraseEntries);
 });
+
+test("queues the selected PDF sentence before scheduling TTS prefetch", async () => {
+    const events = [];
+    const sentence = {
+        index: 0,
+        pageNumber: 1,
+        layoutProcessed: true,
+        isTextToRead: true,
+    };
+    const renderer = Object.create(PDFRenderer.prototype);
+    renderer.pageCoordinateSystems = new Map([[1, "baseline"]]);
+    renderer.updateHighlightFullDoc = () => {};
+    renderer.scrollSentenceIntoView = () => {};
+    renderer.app = {
+        state: {
+            sentences: [sentence],
+            generationEnabled: true,
+            currentSentenceIndex: -1,
+        },
+        ttsQueue: {
+            add: (index, priority) => events.push(`add:${index}:${priority}`),
+            run: () => events.push("run"),
+        },
+        ttsEngine: {
+            schedulePrefetch: () => events.push("prefetch"),
+        },
+        progressManager: { saveProgress: () => {} },
+        eventBus: { emit: () => {} },
+        ui: { showInfo: () => {} },
+    };
+
+    const previousDocument = globalThis.document;
+    globalThis.document = { getElementById: () => null };
+    try {
+        await renderer.renderSentence(0);
+    } finally {
+        globalThis.document = previousDocument;
+    }
+
+    assert.deepEqual(events, ["add:0:true", "run", "prefetch"]);
+});

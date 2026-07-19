@@ -14,9 +14,10 @@ export class PDFHeaderFooterDetector {
 
         this._pendingWorkerRequests = new Map();
         this._pendingDetectionsByPage = new Map();
+        this._detectionQueue = Promise.resolve();
         this._requestIdCounter = 0;
 
-        const threads = 1;
+        const threads = Math.max(1, Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 4);
         this.workerReadyPromise = new Promise((resolve, reject) => {
             this._resolveWorkerReady = resolve;
             this._rejectWorkerReady = reject;
@@ -25,7 +26,9 @@ export class PDFHeaderFooterDetector {
         this.worker.onmessage = (event) => {
             const { status, requestId } = event.data || {};
             if (status === "ready") {
-                console.info(`[Layout] Model ready; backend=${event.data.backend || "wasm"}`);
+                console.info(
+                    `[Layout] Model ready; backend=${event.data.backend || "wasm"}; threads=${event.data.threads || 1}/${event.data.requestedThreads || threads}`,
+                );
                 if (typeof this._resolveWorkerReady === "function") this._resolveWorkerReady();
                 return;
             }
@@ -61,13 +64,8 @@ export class PDFHeaderFooterDetector {
             this._pendingWorkerRequests.clear();
         };
 
-        this.app
-            .getWebGpuAccess()
-            .catch(() => false)
-            .then((webgpu) => {
-                console.info(`[Layout] Initializing model; requested backend=${webgpu ? "webgpu" : "wasm"}`);
-                this.worker?.postMessage({ action: "init", threads, webgpu });
-            });
+        console.info(`[Layout] Initializing model; backend=wasm; maxThreads=${threads}`);
+        this.worker?.postMessage({ action: "init", threads });
 
         // Detection configuration
         this.DETECTION_THRESHOLD = 0.35;
@@ -289,7 +287,9 @@ export class PDFHeaderFooterDetector {
             this.app.ui.updatePlayButton(state.playerState.LOADING);
         }
 
-        const detectionPromise = this._ensureModelReady()
+        const detectionPromise = this._detectionQueue
+            .catch(() => {})
+            .then(() => this._ensureModelReady())
             .then(() => this._performDetection(pageNumber, scaleFactor))
             .then((detections) => {
                 this._pendingDetectionsByPage.delete(pageNumber);
@@ -300,6 +300,7 @@ export class PDFHeaderFooterDetector {
                 console.error(`[Layout] Detection failed for page ${pageNumber}`, error);
                 throw error;
             });
+        this._detectionQueue = detectionPromise.catch(() => {});
 
         const wrappedPromise = shouldShowSpinner
             ? detectionPromise.finally(() => {
@@ -343,6 +344,10 @@ export class PDFHeaderFooterDetector {
                 throw new Error(`[Layout] Could not extract image data for page ${pageNumber}`, { cause: error });
             }
 
+            const totalPages = Number(state.pdf?.numPages) || "?";
+            const detectionStartedAt = performance.now();
+            console.info(`[Layout] Detecting page ${pageNumber}/${totalPages}`);
+
             return this._sendWorkerDetection({
                 pageNumber,
                 imageData,
@@ -378,6 +383,10 @@ export class PDFHeaderFooterDetector {
                     this._drawDetectedLayoutOverlay(pageNumber, detections, canvas);
                 }
 
+                const elapsedMs = Math.round(performance.now() - detectionStartedAt);
+                console.info(
+                    `[Layout] Detecting page ${pageNumber}/${totalPages} done (${elapsedMs} ms, ${detections.length} detections)`,
+                );
                 return detections;
             });
         });

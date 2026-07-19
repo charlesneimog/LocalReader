@@ -159,6 +159,7 @@ export class AudioManager {
             }
 
             source.start();
+            this.app.finishBookOpenPlaybackTimer?.({ sentenceIndex: state.currentSentenceIndex });
             this._clearWaitingForAudio();
             state.isPlaying = true;
             state.autoAdvanceActive = true;
@@ -309,6 +310,7 @@ export class AudioManager {
             }
 
             source.start();
+            this.app.finishBookOpenPlaybackTimer?.({ sentenceIndex: state.currentSentenceIndex });
             this._clearWaitingForAudio();
             state.isPlaying = true;
             state.autoAdvanceActive = true;

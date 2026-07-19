@@ -652,7 +652,9 @@ export class PDFThumbnailCache {
 
                     loadResult = await this.app.loadPDF(pdfFile, { resume: true, existingKey: storageKey });
                 }
-                if (loadResult === null) return;
+                if (loadResult === null) {
+                    return;
+                }
 
                 // Hide overlay after successful load
                 const overlay = this.overlay;
@@ -666,6 +668,7 @@ export class PDFThumbnailCache {
                     this.app.pdfRenderer.releaseCanvas(canvas);
                 }
             } catch (error) {
+                this.app.cancelBookOpenPlaybackTimer?.("book opening failed");
                 const docLabel = docType === "epub" ? "EPUB" : "PDF";
                 console.error(`[PDFThumbnailCache] Failed to load ${docLabel} ${pdfName}:`, error);
                 this.app.ui?.showInfo?.(`Failed to load ${docLabel}: ${error.message}`);

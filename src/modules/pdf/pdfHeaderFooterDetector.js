@@ -16,9 +16,7 @@ export class PDFHeaderFooterDetector {
         this._pendingDetectionsByPage = new Map();
         this._requestIdCounter = 0;
 
-        const hardwareThreads = Number(navigator.hardwareConcurrency) || 2;
-        const configuredMaxThreads = Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 2;
-        const threads = Math.max(1, Math.min(configuredMaxThreads, Math.floor(hardwareThreads / 4) || 1));
+        const threads = 1;
         this.workerReadyPromise = new Promise((resolve, reject) => {
             this._resolveWorkerReady = resolve;
             this._rejectWorkerReady = reject;
@@ -411,6 +409,32 @@ export class PDFHeaderFooterDetector {
         return verticalGap <= avgHeight * 0.9;
     }
 
+    _hasInterveningReadableBox(a, b, boxes) {
+        if (!a || !b || !Array.isArray(boxes)) return false;
+
+        const centerYA = (a.y1 + a.y2) / 2;
+        const centerYB = (b.y1 + b.y2) / 2;
+        const minCenterY = Math.min(centerYA, centerYB);
+        const maxCenterY = Math.max(centerYA, centerYB);
+        const corridorX1 = Math.min(a.x1, b.x1);
+        const corridorX2 = Math.max(a.x2, b.x2);
+        const corridorWidth = Math.max(1, corridorX2 - corridorX1);
+
+        return boxes.some((candidate) => {
+            if (!candidate || candidate === a || candidate === b || candidate.label === a.label) return false;
+
+            const candidateCenterY = (candidate.y1 + candidate.y2) / 2;
+            if (candidateCenterY <= minCenterY || candidateCenterY >= maxCenterY) return false;
+
+            const candidateWidth = Math.max(1, candidate.x2 - candidate.x1);
+            const horizontalOverlap = Math.max(
+                0,
+                Math.min(corridorX2, candidate.x2) - Math.max(corridorX1, candidate.x1),
+            );
+            return horizontalOverlap / Math.min(corridorWidth, candidateWidth) >= 0.35;
+        });
+    }
+
     _mergeReadableBoxes(readableBoxes) {
         if (!Array.isArray(readableBoxes) || readableBoxes.length < 2) return readableBoxes || [];
 
@@ -424,6 +448,10 @@ export class PDFHeaderFooterDetector {
             outer: for (let i = 0; i < boxes.length; i++) {
                 for (let j = i + 1; j < boxes.length; j++) {
                     if (!this._shouldMergeReadableBoxes(boxes[i], boxes[j])) continue;
+                    // A different readable block is a phrase boundary even when the
+                    // surrounding same-label blocks are tall enough to satisfy the
+                    // gap heuristic (for example: text -> section-header -> text).
+                    if (this._hasInterveningReadableBox(boxes[i], boxes[j], boxes)) continue;
                     boxes[i] = {
                         ...boxes[i],
                         x1: Math.min(boxes[i].x1, boxes[j].x1),
@@ -439,9 +467,7 @@ export class PDFHeaderFooterDetector {
             }
         }
 
-        return boxes
-            .sort((a, b) => a._order - b._order)
-            .map(({ _order, ...box }) => box);
+        return boxes.sort((a, b) => a._order - b._order).map(({ _order, ...box }) => box);
     }
 
     _buildRegionsFromDetections(detections, viewportDisplay) {

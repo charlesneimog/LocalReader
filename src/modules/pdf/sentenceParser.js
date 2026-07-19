@@ -106,14 +106,55 @@ export class SentenceParser {
             return sentenceEndRegex.test(token);
         }
 
-        // Keep sentence boundaries text-based. Layout filtering is applied later for PDF readability,
-        // and layout-block phrase splitting happens only in the TTS renderer.
         const wordsToProcess = page.pageWords;
         if (!wordsToProcess || wordsToProcess.length === 0) {
             return;
         }
 
+        let readableLayoutBoxes = [];
+        if (state.generationEnabled && config.SPLIT_PDF_SENTENCES_ON_LAYOUT_BLOCKS) {
+            try {
+                const regions = await app.getPdfHeaderFooterDetector().getLayoutRegions(pageNumber);
+                readableLayoutBoxes = Array.isArray(regions?.readableBoxes) ? regions.readableBoxes : [];
+            } catch (error) {
+                console.warn(`[SentenceParser] Layout phrase split failed for page ${pageNumber}`, error);
+            }
+        }
+
+        const getWordBox = (word) => {
+            if (word?.bbox && Number.isFinite(word.bbox.x1) && Number.isFinite(word.bbox.y1)) {
+                return { x1: word.bbox.x1, y1: word.bbox.y1, x2: word.bbox.x2, y2: word.bbox.y2 };
+            }
+            const x1 = Number(word?.x) || 0;
+            const y2 = Number(word?.y) || 0;
+            return {
+                x1,
+                y1: y2 - (Number(word?.height) || 0),
+                x2: x1 + (Number(word?.width) || 0),
+                y2,
+            };
+        };
+
+        const getLayoutBlockKey = (word) => {
+            if (readableLayoutBoxes.length < 2) return null;
+            const wordBox = getWordBox(word);
+            let bestIndex = -1;
+            let bestOverlapArea = 0;
+            for (let i = 0; i < readableLayoutBoxes.length; i++) {
+                const box = readableLayoutBoxes[i];
+                const overlapWidth = Math.max(0, Math.min(wordBox.x2, box.x2) - Math.max(wordBox.x1, box.x1));
+                const overlapHeight = Math.max(0, Math.min(wordBox.y2, box.y2) - Math.max(wordBox.y1, box.y1));
+                const overlapArea = overlapWidth * overlapHeight;
+                if (overlapArea > bestOverlapArea) {
+                    bestOverlapArea = overlapArea;
+                    bestIndex = i;
+                }
+            }
+            return bestIndex >= 0 ? `readable:${bestIndex}` : null;
+        };
+
         let buffer = [];
+        let bufferLayoutBlockKey = null;
         let lastY = null;
         let lastHeight = null;
 
@@ -153,6 +194,7 @@ export class SentenceParser {
                 layoutProcessed: !layoutActive,
                 isTextToRead: !layoutActive,
                 layoutProcessingPromise: null,
+                layoutBlockKey: bufferLayoutBlockKey,
             };
             state.sentences.push(sentence);
             if (!state.pageSentencesIndex.has(pageNumber)) {
@@ -160,11 +202,24 @@ export class SentenceParser {
             }
             state.pageSentencesIndex.get(pageNumber).push(sentence.index);
             buffer = [];
+            bufferLayoutBlockKey = null;
         };
 
         for (let i = 0; i < wordsToProcess.length; i++) {
             const w = wordsToProcess[i];
             let gapBreak = false;
+            const layoutBlockKey = getLayoutBlockKey(w);
+
+            // A detected layout block is a phrase boundary even when neither side
+            // contains punctuation (for example: text -> section-header -> text).
+            if (
+                buffer.length &&
+                bufferLayoutBlockKey !== null &&
+                layoutBlockKey !== null &&
+                layoutBlockKey !== bufferLayoutBlockKey
+            ) {
+                flush();
+            }
 
             const { x: canonX, y: canonY, width: canonWidth, height: canonHeight } = getCanonicalGeom(w);
 
@@ -194,6 +249,9 @@ export class SentenceParser {
 
             if (gapBreak && buffer.length) flush();
 
+            if (bufferLayoutBlockKey === null && layoutBlockKey !== null) {
+                bufferLayoutBlockKey = layoutBlockKey;
+            }
             buffer.push(w);
 
             const nextWord = wordsToProcess[i + 1]?.str || "";

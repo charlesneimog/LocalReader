@@ -175,6 +175,37 @@ export class PDFTTSApp {
         this.pdfHeaderFooterDetector = null;
     }
 
+    _getSentencePhraseEntries(index) {
+        const sentence = this.state?.sentences?.[index];
+        if (!sentence) return [];
+
+        if (this.state.currentDocumentType === "pdf") {
+            const layoutEntries = this.pdfRenderer?.getLayoutPhraseEntriesForSentence?.(sentence) || [];
+            if (layoutEntries.length) return layoutEntries;
+        }
+
+        const text = String(sentence.readableText || sentence.text || sentence.originalText || "").trim();
+        return text ? [{ blockKey: sentence.layoutBlockKey || null, text, words: sentence.readableWords || [] }] : [];
+    }
+
+    _getActiveSentencePhraseEntry(index, blockKey = null) {
+        const entries = this._getSentencePhraseEntries(index);
+        if (!entries.length) return null;
+
+        const { state } = this;
+        const activeBlockKey =
+            blockKey ||
+            (state.playingSentenceIndex === index ? state.playingPhraseBlockKey : null) ||
+            (state.hoveredSentenceIndex === index ? state.hoveredPhraseBlockKey : null) ||
+            state.sentences[index]?.layoutBlockKey ||
+            null;
+        return entries.find((entry) => entry.blockKey === activeBlockKey) || entries[0];
+    }
+
+    _getPhraseCacheKey(index, blockKey = null) {
+        return `${index}::${blockKey || "sentence"}`;
+    }
+
     async translateCurrentSentence() {
         const { state } = this;
         if (!state?.sentences?.length) {
@@ -186,8 +217,8 @@ export class PDFTTSApp {
             typeof state.playingSentenceIndex === "number" && state.playingSentenceIndex >= 0
                 ? state.playingSentenceIndex
                 : state.currentSentenceIndex;
-        const sentence = state.sentences[idx];
-        const text = (sentence?.text || "").trim();
+        const phrase = this._getActiveSentencePhraseEntry(idx);
+        const text = String(phrase?.text || "").trim();
         if (!text) return;
 
         this.ui?.showInfo?.("Translating...");
@@ -582,7 +613,13 @@ export class PDFTTSApp {
         this.eventBus.on(EVENTS.AUDIO_PLAYBACK_START, ({ index } = {}) => {
             if (!this.isAutoTranslateEnabled()) return;
             if (!Number.isFinite(index)) return;
-            this._handleAutoTranslatePlaybackStart(index);
+            this._handleAutoTranslatePlaybackStart(index, this.state.playingPhraseBlockKey);
+        });
+
+        this.eventBus.on(EVENTS.AUDIO_PHRASE_CHANGE, ({ index, blockKey } = {}) => {
+            if (!this.isAutoTranslateEnabled()) return;
+            if (!Number.isFinite(index)) return;
+            this._handleAutoTranslatePlaybackStart(index, blockKey);
         });
     }
 
@@ -605,6 +642,14 @@ export class PDFTTSApp {
             if (!Number.isFinite(index) || index < 0) return;
             this._showReadTranslationPopupForPlayback(index).catch((err) => {
                 console.warn("[translation] failed to show read-translation popup", err);
+            });
+        });
+
+        this.eventBus.on(EVENTS.AUDIO_PHRASE_CHANGE, ({ index, blockKey } = {}) => {
+            if (!this.isReadTranslationEnabled()) return;
+            if (!Number.isFinite(index) || index < 0) return;
+            this._showReadTranslationPopupForPlayback(index, blockKey).catch((err) => {
+                console.warn("[translation] failed to update read-translation popup", err);
             });
         });
     }
@@ -716,12 +761,19 @@ export class PDFTTSApp {
         await this._syncTtsVoiceWithTranslationTarget(this._getTranslationTargetLanguage());
     }
 
-    async _showReadTranslationPopupForPlayback(index) {
+    async _showReadTranslationPopupForPlayback(index, blockKey = null) {
         const sentence = this.state?.sentences?.[index];
-        const originalText = (sentence?.readableText || sentence?.text || "").trim();
+        const phrase = this._getActiveSentencePhraseEntry(index, blockKey);
+        const originalText = String(phrase?.text || "").trim();
         if (!originalText) return;
 
-        const translatedText = (await this.getSentenceSpeechText(index, originalText)) || "";
+        if (!Array.isArray(sentence?.readTranslationPhraseEntries)) {
+            await this.getSentenceSpeechText(index, sentence?.readableText || sentence?.text || originalText);
+        }
+        const translatedPhrase = sentence?.readTranslationPhraseEntries?.find(
+            (entry) => entry.blockKey === phrase?.blockKey,
+        );
+        const translatedText = translatedPhrase?.text || originalText;
         if (!this.isReadTranslationEnabled()) return;
 
         const stillCurrent = this.state.playingSentenceIndex === index || this.state.currentSentenceIndex === index;
@@ -738,13 +790,16 @@ export class PDFTTSApp {
     _resetReadTranslationCache() {
         this._readTranslationCache.clear();
         this._readTranslationInFlight.clear();
+        for (const sentence of this.state?.sentences || []) {
+            delete sentence.readTranslationPhraseEntries;
+        }
     }
 
-    _getReadTranslationKey(index) {
+    _getReadTranslationKey(index, blockKey = null) {
         const { state } = this;
         const docType = state.currentDocumentType || "pdf";
         const docKey = docType === "epub" ? state.currentEpubKey : state.currentPdfKey;
-        return `${docType}::${docKey || ""}::${index}`;
+        return `${docType}::${docKey || ""}::${this._getPhraseCacheKey(index, blockKey)}`;
     }
 
     prefetchSentenceTranslationForTTS(index) {
@@ -753,25 +808,29 @@ export class PDFTTSApp {
         const sentence = this.state?.sentences?.[index];
         const text = (sentence?.readableText || sentence?.text || "").trim();
         if (!text) return;
+        this.getSentenceSpeechText(index, text).catch(() => {});
+    }
 
-        const key = this._getReadTranslationKey(index);
-        if (this._readTranslationCache.has(key)) return;
-        if (this._readTranslationInFlight.has(key)) return;
+    async _getReadTranslationForPhrase(index, phrase) {
+        const base = String(phrase?.text || "").trim();
+        if (!base) return "";
+        const key = this._getReadTranslationKey(index, phrase?.blockKey);
+        const cached = this._readTranslationCache.get(key);
+        if (typeof cached === "string" && cached.trim()) return cached.trim();
 
-        const p = Promise.resolve()
-            .then(async () => {
-                const result = await this.serverSync.translateText(text);
-                const translatedText = (result?.translatedText || "").trim();
-                if (translatedText) {
-                    this._readTranslationCache.set(key, translatedText);
-                }
-            })
-            .catch(() => {})
-            .finally(() => {
-                this._readTranslationInFlight.delete(key);
-            });
-
-        this._readTranslationInFlight.set(key, p);
+        let inFlight = this._readTranslationInFlight.get(key);
+        if (!inFlight) {
+            inFlight = (async () => {
+                const result = await this.serverSync.translateText(base);
+                const translatedText = String(result?.translatedText || "").trim();
+                if (translatedText) this._readTranslationCache.set(key, translatedText);
+                return translatedText || base;
+            })()
+                .catch(() => base)
+                .finally(() => this._readTranslationInFlight.delete(key));
+            this._readTranslationInFlight.set(key, inFlight);
+        }
+        return (await inFlight) || base;
     }
 
     async getSentenceSpeechText(index, fallbackText) {
@@ -779,38 +838,19 @@ export class PDFTTSApp {
         if (!base) return "";
         if (!this.isReadTranslationEnabled()) return base;
 
-        const key = this._getReadTranslationKey(index);
-        const cached = this._readTranslationCache.get(key);
-        if (typeof cached === "string" && cached.trim()) return cached.trim();
-
-        const inFlight = this._readTranslationInFlight.get(key);
-        if (inFlight) {
-            try {
-                await inFlight;
-            } catch {}
-            const after = this._readTranslationCache.get(key);
-            if (typeof after === "string" && after.trim()) return after.trim();
-            return base;
+        const phrases = this._getSentencePhraseEntries(index);
+        const effectivePhrases = phrases.length ? phrases : [{ blockKey: null, text: base }];
+        const translatedTexts = await Promise.all(
+            effectivePhrases.map((phrase) => this._getReadTranslationForPhrase(index, phrase)),
+        );
+        const sentence = this.state?.sentences?.[index];
+        if (sentence) {
+            sentence.readTranslationPhraseEntries = effectivePhrases.map((phrase, phraseIndex) => ({
+                blockKey: phrase.blockKey,
+                text: translatedTexts[phraseIndex] || phrase.text,
+            }));
         }
-
-        const p = (async () => {
-            const result = await this.serverSync.translateText(base);
-            const translatedText = (result?.translatedText || "").trim();
-            if (translatedText) {
-                this._readTranslationCache.set(key, translatedText);
-            }
-        })()
-            .catch(() => {})
-            .finally(() => {
-                this._readTranslationInFlight.delete(key);
-            });
-
-        this._readTranslationInFlight.set(key, p);
-        await p;
-
-        const final = this._readTranslationCache.get(key);
-        if (typeof final === "string" && final.trim()) return final.trim();
-        return base;
+        return translatedTexts.filter(Boolean).join(" ") || base;
     }
 
     _kickAutoTranslatePrefetch() {
@@ -825,14 +865,17 @@ export class PDFTTSApp {
         if (Number.isFinite(nextIdx)) this._prefetchSentenceTranslation(nextIdx);
     }
 
-    _handleAutoTranslatePlaybackStart(index) {
-        // Show cached translation for the sentence that just started.
-        const cached = this._autoTranslateCache.get(index);
+    _handleAutoTranslatePlaybackStart(index, blockKey = null) {
+        const phrase = this._getActiveSentencePhraseEntry(index, blockKey);
+        if (!phrase) return;
+        const cacheKey = this._getPhraseCacheKey(index, phrase.blockKey);
+        const cached = this._autoTranslateCache.get(cacheKey);
         if (cached) {
             this.ui?.showTranslatePopup?.(cached).catch(() => {});
+        } else {
+            this._prefetchSentenceTranslation(index, phrase.blockKey, { showWhenReady: true });
         }
 
-        // Prefetch translation for the *next* sentence.
         const nextIdx = this._getNextTranslatableSentenceIndex(index);
         if (Number.isFinite(nextIdx)) this._prefetchSentenceTranslation(nextIdx);
     }
@@ -852,31 +895,41 @@ export class PDFTTSApp {
         return null;
     }
 
-    _prefetchSentenceTranslation(index) {
+    _prefetchSentenceTranslation(index, blockKey = null, { showWhenReady = false } = {}) {
         if (!this.isAutoTranslateEnabled()) return;
         if (!Number.isFinite(index) || index < 0) return;
-        if (this._autoTranslateCache.has(index)) return;
-        if (this._autoTranslateInFlight.has(index)) return;
-
-        const sentence = this.state?.sentences?.[index];
-        const text = (sentence?.text || "").trim();
+        const phrase = this._getActiveSentencePhraseEntry(index, blockKey);
+        const text = String(phrase?.text || "").trim();
         if (!text) return;
+        const cacheKey = this._getPhraseCacheKey(index, phrase.blockKey);
+        if (this._autoTranslateCache.has(cacheKey)) return;
+        if (this._autoTranslateInFlight.has(cacheKey)) return;
 
-        this._autoTranslateInFlight.add(index);
+        this._autoTranslateInFlight.add(cacheKey);
         (async () => {
             try {
                 const result = await this.serverSync.translateText(text);
                 if (!result) return;
-                this._autoTranslateCache.set(index, {
+                const popup = {
                     originalText: text,
                     translatedText: result.translatedText || "",
                     target: result.target || "",
                     detectedSource: result.detectedSource || "",
-                });
+                };
+                this._autoTranslateCache.set(cacheKey, popup);
+
+                const activePhrase = this._getActiveSentencePhraseEntry(index);
+                if (
+                    showWhenReady &&
+                    this.state.playingSentenceIndex === index &&
+                    activePhrase?.blockKey === phrase.blockKey
+                ) {
+                    await this.ui?.showTranslatePopup?.(popup);
+                }
             } catch (e) {
                 console.warn("[autoTranslate] prefetch failed", e);
             } finally {
-                this._autoTranslateInFlight.delete(index);
+                this._autoTranslateInFlight.delete(cacheKey);
             }
         })();
     }

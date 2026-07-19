@@ -247,6 +247,69 @@ export class PDFRenderer {
         return words.filter((word) => this._boxesOverlap(this._getWordBoxViewport(word), block));
     }
 
+    getLayoutPhraseEntriesForSentence(sentence) {
+        if (!sentence) return [];
+        const readableBoxes = this._getCachedReadableLayoutBoxes(sentence.pageNumber);
+        if (readableBoxes.length < 2) return [];
+
+        const entries = [];
+        let currentBlockKey = null;
+        let currentWords = [];
+        const flush = () => {
+            if (!currentWords.length || !currentBlockKey) return;
+            const text =
+                this.app.sentenceParser?.joinWords?.(currentWords) ||
+                currentWords
+                    .map((word) => word?.str || "")
+                    .filter(Boolean)
+                    .join(" ");
+            if (String(text || "").trim()) {
+                entries.push({ blockKey: currentBlockKey, text: String(text).trim(), words: currentWords });
+            }
+            currentWords = [];
+        };
+
+        // Preserve the PDF text stream's reading order. Detection arrays are not
+        // guaranteed to be top-to-bottom and must only identify boundaries.
+        for (const word of this.getReadableWords(sentence)) {
+            const wordBox = this._getWordBoxViewport(word);
+            const blockIndex = readableBoxes.findIndex((box) => this._boxesOverlap(wordBox, box));
+            if (blockIndex < 0) continue;
+            const blockKey = `readable:${blockIndex}`;
+            if (currentBlockKey !== null && blockKey !== currentBlockKey) flush();
+            currentBlockKey = blockKey;
+            currentWords.push(word);
+        }
+        flush();
+        return entries;
+    }
+
+    getNearestSentenceIndexForLayoutBlock(pageNumber, blockKey, xDisplay, yDisplay) {
+        if (!blockKey) return -1;
+        const { state } = this.app;
+        const indices = state.pageSentencesIndex.get(pageNumber);
+        if (!Array.isArray(indices) || !indices.length) return -1;
+
+        let nearestIndex = -1;
+        let nearestDistanceSquared = Infinity;
+        for (const index of indices) {
+            const sentence = state.sentences[index];
+            if (!sentence) continue;
+            const phraseWords = this.getLayoutPhraseWordsForBlock(sentence, blockKey);
+            for (const word of phraseWords) {
+                const box = this._getWordBoxViewport(word);
+                const dx = xDisplay < box.x1 ? box.x1 - xDisplay : xDisplay > box.x2 ? xDisplay - box.x2 : 0;
+                const dy = yDisplay < box.y1 ? box.y1 - yDisplay : yDisplay > box.y2 ? yDisplay - box.y2 : 0;
+                const distanceSquared = dx * dx + dy * dy;
+                if (distanceSquared < nearestDistanceSquared) {
+                    nearestDistanceSquared = distanceSquared;
+                    nearestIndex = index;
+                }
+            }
+        }
+        return nearestIndex;
+    }
+
     getHoverPhraseWords(sentence) {
         const { state } = this.app;
         if (!sentence || state.currentDocumentType !== "pdf") return [];

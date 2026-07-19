@@ -1,9 +1,9 @@
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
-    VERSION_LABEL: "0.37.0+3",
+    VERSION_LABEL: "0.38.2+2",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 38,
-    VERSION_PATCH: 2,
+    VERSION_PATCH: 3,
     VERSION_BUILD: 0,
 
     // Rendering
@@ -22,16 +22,17 @@ export const CONFIG = {
     AUDIO_CONTEXT_OPTIONS: { latencyHint: "playback" },
 
     // Sentence processing
-    // Sentence parsing stays text-based so saved/highlighted sentence indexes remain stable.
-    // PDF layout blocks are split later, only while rendering audio.
+    // Treat detected PDF layout blocks as phrase boundaries, independently of punctuation.
+    SPLIT_PDF_SENTENCES_ON_LAYOUT_BLOCKS: true,
+    // Retain block-aware audio timing/highlighting for sentences created before layout
+    // processing and for any document where a sentence still overlaps multiple blocks.
     SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS: true,
     PDF_AUDIO_LAYOUT_BLOCK_PAUSE_SEC: 0.18,
     BREAK_ON_LINE: false,
     SPLIT_ON_LINE_GAP: false,
     SPLIT_ON_WORD_GAP: false,
     LINE_GAP_THRESHOLD: 2,
-    // Optional fallback for splitting on unusually large word gaps. Keep disabled by default:
-    // layout block phrase splitting is handled later by the PDF audio renderer.
+    // Optional fallback for splitting on unusually large word gaps.
     WORD_GAP_THRESHOLD_EM: 2.5,
     SENTENCE_END: [".", ":", "?", "!", ".\"", ":\""],
 

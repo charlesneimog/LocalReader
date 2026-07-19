@@ -485,6 +485,30 @@ export class InteractionHandler {
         }
     }
 
+    _hitTestPdfPhrase(mapped) {
+        const { state } = this.app;
+        const exactIndex = hitTestSentence(state, mapped.pageNumber, mapped.xDisplay, mapped.yDisplay);
+        if (exactIndex >= 0) return exactIndex;
+
+        // Word hit-testing deliberately excludes whitespace. When the pointer is
+        // between two rendered lines, use the containing layout block and choose
+        // its nearest sentence instead of falling back to the active full phrase.
+        const blockKey = this.app.pdfRenderer?.getLayoutBlockKeyAtPoint?.(
+            mapped.pageNumber,
+            mapped.xDisplay,
+            mapped.yDisplay,
+        );
+        if (!blockKey) return -1;
+        return (
+            this.app.pdfRenderer?.getNearestSentenceIndexForLayoutBlock?.(
+                mapped.pageNumber,
+                blockKey,
+                mapped.xDisplay,
+                mapped.yDisplay,
+            ) ?? -1
+        );
+    }
+
     handlePointerMove(e) {
         const { state } = this.app;
         state.lastPointerEvent = e;
@@ -498,10 +522,7 @@ export class InteractionHandler {
                 this.setHoveredSentence(-1, null);
                 return;
             }
-            if (this.app.pdfRenderer?.isPointInsideHoveredPhrase?.(mapped)) {
-                return;
-            }
-            const idx = hitTestSentence(state, mapped.pageNumber, mapped.xDisplay, mapped.yDisplay);
+            const idx = this._hitTestPdfPhrase(mapped);
             this.setHoveredSentence(idx, mapped);
         });
     }
@@ -516,14 +537,12 @@ export class InteractionHandler {
 
         const mapped = mapClientPointToPdf(e, state, this.app.config);
         if (!mapped) return;
-        const idx = hitTestSentence(state, mapped.pageNumber, mapped.xDisplay, mapped.yDisplay);
+        const idx = this._hitTestPdfPhrase(mapped);
         if (idx >= 0) {
             const wasPlaying = state.isPlaying;
             this.app.audioManager.stopPlayback(true);
             state.autoAdvanceActive = false;
-            if (idx !== state.hoveredSentenceIndex) {
-                this.setHoveredSentence(idx, mapped);
-            }
+            this.setHoveredSentence(idx, mapped);
             await this.app.pdfRenderer.renderSentence(idx);
             if (wasPlaying) {
                 await this.app.audioManager.playCurrentSentence();

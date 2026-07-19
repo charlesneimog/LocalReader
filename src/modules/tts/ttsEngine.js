@@ -338,10 +338,16 @@ export class TTSEngine {
         const fallback = (sourceText || "").trim();
         if (!fallback) return [];
 
+        if (this.app.isReadTranslationEnabled?.() && Array.isArray(sentence?.readTranslationPhraseEntries)) {
+            const translatedEntries = sentence.readTranslationPhraseEntries.filter(
+                (entry) => hasUsableSpeechText(entry?.text) && entry?.blockKey,
+            );
+            if (translatedEntries.length) return translatedEntries;
+        }
+
         if (
             state.currentDocumentType !== "pdf" ||
-            !config.SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS ||
-            this.app.isReadTranslationEnabled?.()
+            !config.SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS
         ) {
             return [{ text: fallback, blockKey: null }];
         }
@@ -637,7 +643,6 @@ export class TTSEngine {
         const requiresPdfPhraseTimings =
             state.currentDocumentType === "pdf" &&
             config.SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS &&
-            !this.app.isReadTranslationEnabled?.() &&
             Array.isArray(s.readableWords) &&
             s.readableWords.length > 1;
         const hasPhraseTimings = Array.isArray(s.ttsPhraseTimings) && s.ttsPhraseTimings.length > 0;

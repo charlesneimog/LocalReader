@@ -1066,6 +1066,9 @@ export class UIService {
         this.playbackPreparationActive = false;
         if (message) {
             this.showMessage(message, 2500);
+        } else if (this.infoBox) {
+            clearTimeout(this.hideMessageTimeout);
+            this.infoBox.style.display = "none";
         }
         if (!this.app.state.isPlaying) {
             this.updatePlayButton(this.app.state.playerState.DONE);

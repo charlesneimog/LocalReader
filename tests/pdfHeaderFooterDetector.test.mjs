@@ -86,6 +86,62 @@ test("parses text, section header, and following text as separate phrases withou
     );
 });
 
+test("splits PDF phrases at semicolons, including short opening clauses", async () => {
+    const state = {
+        sentences: [],
+        pageSentencesIndex: new Map(),
+        generationEnabled: false,
+    };
+    const app = {
+        state,
+        config: {
+            SENTENCE_END: [".", ":", ";", "?", "!"],
+            SPLIT_PDF_SENTENCES_ON_LAYOUT_BLOCKS: false,
+            SPLIT_ON_LINE_GAP: false,
+            SPLIT_ON_WORD_GAP: false,
+            BREAK_ON_LINE: false,
+        },
+    };
+    const parser = new SentenceParser(app);
+    const word = (str, x) => ({ str, x, y: 20, width: 40, height: 10 });
+
+    await parser.parsePageWords(1, {
+        pageWords: [word("First;", 10), word("second", 60), word("phrase.", 110)],
+    });
+
+    assert.deepEqual(
+        state.sentences.map((sentence) => sentence.originalText),
+        ["First;", "second phrase."],
+    );
+});
+
+test("replays version 1 PDF phrase boundaries for legacy highlights", async () => {
+    const state = {
+        sentences: [],
+        pageSentencesIndex: new Map(),
+        generationEnabled: false,
+        phraseSplitVersion: 1,
+    };
+    const app = {
+        state,
+        config: {
+            SENTENCE_END: [".", ":", "?", "!"],
+            SPLIT_PDF_SENTENCES_ON_LAYOUT_BLOCKS: false,
+            SPLIT_ON_LINE_GAP: false,
+            SPLIT_ON_WORD_GAP: false,
+            BREAK_ON_LINE: false,
+        },
+    };
+    const parser = new SentenceParser(app);
+    const word = (str, x) => ({ str, x, y: 20, width: 40, height: 10 });
+
+    await parser.parsePageWords(1, {
+        pageWords: [word("First;", 10), word("second", 60), word("phrase.", 110)],
+    });
+
+    assert.deepEqual(state.sentences.map(({ originalText }) => originalText), ["First; second phrase."]);
+});
+
 test("resolves whitespace between lines to the nearest sentence in the same layout block", () => {
     const upperSentence = {
         index: 0,

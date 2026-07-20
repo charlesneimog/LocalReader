@@ -162,6 +162,7 @@ def init_db():
             color TEXT NOT NULL,
             text TEXT,
             comment TEXT,
+            phrase_split_version INTEGER,
             created_at TEXT NOT NULL,
             UNIQUE(file_id, sentence_index)
         )
@@ -216,6 +217,7 @@ def init_db():
 
     _ensure_column("highlights", "owner_email", "TEXT")
     _ensure_column("highlights", "comment", "TEXT")
+    _ensure_column("highlights", "phrase_split_version", "INTEGER")
 
     cursor.execute(
         """
@@ -1204,7 +1206,7 @@ def update_highlights(file_id, highlights, owner_email=None):
     
     Args:
         file_id: The file identifier (filename)
-        highlights: List of dicts with sentenceIndex, color, text, comment
+        highlights: List of dicts with sentenceIndex, color, text, comment, phraseSplitVersion
         
     Returns:
         Number of highlights updated
@@ -1255,17 +1257,31 @@ def update_highlights(file_id, highlights, owner_email=None):
                         color = "#ffda76"
                         text = ""
                         comment = ""
+                        phrase_split_version = None
                         if isinstance(highlight, dict):
                             color = highlight.get("color", color)
                             text = highlight.get("text", text)
                             comment = highlight.get("comment", comment)
+                            phrase_split_version = highlight.get("phraseSplitVersion")
+                            if phrase_split_version is None:
+                                phrase_split_version = highlight.get("phrase_split_version")
+                            try:
+                                phrase_split_version = int(phrase_split_version)
+                            except (TypeError, ValueError):
+                                phrase_split_version = None
 
                         cursor.execute(
                             """
-                            INSERT INTO highlights (file_id, sentence_index, color, text, comment, created_at, owner_email)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO highlights (
+                                file_id, sentence_index, color, text, comment,
+                                phrase_split_version, created_at, owner_email
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                             """,
-                            (scoped_file_id, sentence_index, color, text, comment, created_at, owner_n),
+                            (
+                                scoped_file_id, sentence_index, color, text, comment,
+                                phrase_split_version, created_at, owner_n,
+                            ),
                         )
                         count += 1
 
@@ -1322,7 +1338,7 @@ def get_highlights(file_id, owner_email=None):
     if owner_n:
         cursor.execute(
             """
-            SELECT sentence_index, color, text, comment
+            SELECT sentence_index, color, text, comment, phrase_split_version
             FROM highlights
             WHERE file_id = ? AND owner_email = ?
             ORDER BY sentence_index
@@ -1332,7 +1348,7 @@ def get_highlights(file_id, owner_email=None):
     else:
         cursor.execute(
             """
-            SELECT sentence_index, color, text, comment
+            SELECT sentence_index, color, text, comment, phrase_split_version
             FROM highlights
             WHERE file_id = ?
             ORDER BY sentence_index

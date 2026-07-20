@@ -29,6 +29,7 @@ export class AudioManager {
         const context = {
             id: this._playbackContextId++,
             sentenceIndex: state.currentSentenceIndex,
+            continuesReading: !!state.autoAdvanceActive,
         };
         this._playbackContext = context;
         this._clearWaitingForAudio();
@@ -165,7 +166,7 @@ export class AudioManager {
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
             await this._activateMediaBridge(sentence);
-            this.app.ui.finishPlaybackPreparation("Reading started.");
+            this._finishPlaybackPreparationForStart(context);
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -317,7 +318,7 @@ export class AudioManager {
             state.playingSentenceIndex = state.currentSentenceIndex;
             await this._activateMediaBridge(sentence);
             this.app.pdfRenderer.updateHighlightFullDoc();
-            this.app.ui.finishPlaybackPreparation("Reading started.");
+            this._finishPlaybackPreparationForStart(context);
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
             if (!state.stopRequested && this._isContextActive(context)) {
@@ -369,6 +370,10 @@ export class AudioManager {
             } catch {}
             state.audioCtx = null;
         }
+    }
+
+    _finishPlaybackPreparationForStart(context) {
+        this.app.ui.finishPlaybackPreparation(context?.continuesReading ? "" : "Reading started.");
     }
 
     async stopPlayback(fade = true, options = {}) {

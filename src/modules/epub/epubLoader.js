@@ -1,6 +1,8 @@
 import { EVENTS } from "../../constants/events.js";
 import { compare as compareCFI } from "./../../../thirdparty/foliate-js/epubcfi.js";
 import { EPUBRenderer } from "./epubRenderer.js";
+import { splitSegmentsOnSemicolons } from "./sentenceSegmentation.js";
+import { usesSemicolonPhraseBoundaries } from "../phrases/phraseSplitVersions.js";
 
 export class EPUBLoader {
     constructor(app) {
@@ -141,6 +143,11 @@ export class EPUBLoader {
 
                 const computedKey = existingKey || this.computeEpubKeyFromDescriptor(state.currentEpubDescriptor);
                 state.currentEpubKey = computedKey;
+                state.savedHighlights = this.app.highlightsStorage.loadSavedHighlights(computedKey);
+                state.phraseSplitVersion = this.app.highlightsStorage.getPhraseSplitVersion(
+                    computedKey,
+                    state.savedHighlights,
+                );
                 if (computedKey && !state.bookCoverDataUrl) {
                     const savedProgress = this.app.progressManager.loadSavedPosition(computedKey, "epub");
                     if (typeof savedProgress?.cover === "string") {
@@ -200,7 +207,17 @@ export class EPUBLoader {
 
                         // Update highlights from server if available
                         if (serverData.highlights && serverData.highlights.size > 0) {
+                            const serverSplitVersion = this.app.highlightsStorage.getPhraseSplitVersion(
+                                state.currentEpubKey,
+                                serverData.highlights,
+                            );
                             state.savedHighlights = serverData.highlights;
+                            if (serverSplitVersion !== state.phraseSplitVersion) {
+                                state.phraseSplitVersion = serverSplitVersion;
+                                this._sentencesReady = false;
+                                await this._buildSentences();
+                                startIndex = Math.min(startIndex, Math.max(0, state.sentences.length - 1));
+                            }
                             console.log(`[EPUBLoader] Restored ${serverData.highlights.size} highlights from server`);
 
                             // Also save to local storage
@@ -427,7 +444,10 @@ export class EPUBLoader {
         if (!fullText.trim()) return [];
 
         const segmenter = this._getSentenceSegmenter(locale);
-        const segments = segmenter ? segmenter(fullText) : this._fallbackSegment(fullText);
+        const sentenceSegments = segmenter ? segmenter(fullText) : this._fallbackSegment(fullText);
+        const segments = usesSemicolonPhraseBoundaries(this.app.state.phraseSplitVersion)
+            ? splitSegmentsOnSemicolons(fullText, sentenceSegments)
+            : sentenceSegments;
         if (!segments.length) return [];
 
         const sentences = [];

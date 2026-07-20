@@ -33,6 +33,7 @@ export class StateManager {
         this.hoveredPhraseBlockKey = null;
         this.hoveredPhraseRects = [];
         this.playingPhraseBlockKey = null;
+        this.phraseSplitVersion = this.app.config.PHRASE_SPLIT_VERSION;
         this.pageSentencesIndex = new Map();
         this.hoverRafScheduled = false;
         this.lastPointerEvent = null;

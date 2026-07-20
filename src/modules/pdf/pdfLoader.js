@@ -265,6 +265,11 @@ export class PDFLoader {
             state.initialLayoutWarmupPromise = null;
             state.generationEnabled = false;
             state.sentences = [];
+            state.savedHighlights = app.highlightsStorage.loadSavedHighlights(state.currentPdfKey);
+            state.phraseSplitVersion = app.highlightsStorage.getPhraseSplitVersion(
+                state.currentPdfKey,
+                state.savedHighlights,
+            );
             state.currentSentenceIndex = -1;
             state.hoveredSentenceIndex = -1;
             state.pageSentencesIndex.clear();
@@ -330,7 +335,16 @@ export class PDFLoader {
 
                     // Update highlights from server if available
                     if (serverData.highlights && serverData.highlights.size > 0) {
+                        const serverSplitVersion = app.highlightsStorage.getPhraseSplitVersion(
+                            state.currentPdfKey,
+                            serverData.highlights,
+                        );
                         state.savedHighlights = serverData.highlights;
+                        if (serverSplitVersion !== state.phraseSplitVersion) {
+                            state.phraseSplitVersion = serverSplitVersion;
+                            await app.sentenceParser.buildSentences(1);
+                            startIndex = Math.min(startIndex, Math.max(0, state.sentences.length - 1));
+                        }
                         //console.log(`[PDFLoader] Restored ${serverData.highlights.size} highlights from server`);
 
                         // Also save to local storage

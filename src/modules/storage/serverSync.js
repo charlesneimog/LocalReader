@@ -549,6 +549,8 @@ export class ServerSync {
                                             color: h.color,
                                             text: h.text || "",
                                             comment: typeof h.comment === "string" ? h.comment : "",
+                                            phraseSplitVersion:
+                                                h.phrase_split_version ?? h.phraseSplitVersion,
                                         });
                                     }
                                 }
@@ -982,6 +984,7 @@ export class ServerSync {
                     color: data.color || "#ffda76",
                     text: data.text || data.sentenceText || "",
                     comment: typeof data.comment === "string" ? data.comment : "",
+                    phraseSplitVersion: data.phraseSplitVersion,
                 });
             }
 
@@ -1085,6 +1088,8 @@ export class ServerSync {
                         highlights.set(idx, {
                             color: h?.color,
                             text: h?.text || "",
+                            comment: typeof h?.comment === "string" ? h.comment : "",
+                            phraseSplitVersion: h?.phrase_split_version ?? h?.phraseSplitVersion,
                         });
                     });
                     // console.log(`[ServerSync] Loaded ${highlights.size} highlights from server`);
@@ -1636,6 +1641,8 @@ export class ServerSync {
                             highlightsMap.set(h.sentenceIndex, {
                                 color: h.color,
                                 text: h.text || "",
+                                comment: typeof h.comment === "string" ? h.comment : "",
+                                phraseSplitVersion: h.phrase_split_version ?? h.phraseSplitVersion,
                             });
                         }
                     }

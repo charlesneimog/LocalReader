@@ -1,3 +1,9 @@
+import {
+    CURRENT_PHRASE_SPLIT_VERSION,
+    LEGACY_PHRASE_SPLIT_VERSION,
+    normalizePhraseSplitVersion,
+} from "../phrases/phraseSplitVersions.js";
+
 export class HighlightsStorage {
     constructor(app) {
         this.app = app;
@@ -29,6 +35,27 @@ export class HighlightsStorage {
         }
         return highlightsMap;
     }
+    getPhraseSplitVersion(pdfKey, highlights = null) {
+        const saved = highlights instanceof Map ? highlights : this.loadSavedHighlights(pdfKey);
+        if (!saved.size) return CURRENT_PHRASE_SPLIT_VERSION;
+        let version = CURRENT_PHRASE_SPLIT_VERSION;
+        for (const data of saved.values()) {
+            if (!data || data.phraseSplitVersion == null) return LEGACY_PHRASE_SPLIT_VERSION;
+            version = Math.min(
+                version,
+                normalizePhraseSplitVersion(data.phraseSplitVersion, LEGACY_PHRASE_SPLIT_VERSION),
+            );
+        }
+        return version;
+    }
+    _stampPhraseSplitVersion(highlights) {
+        const version = normalizePhraseSplitVersion(this.app.state?.phraseSplitVersion);
+        if (!(highlights instanceof Map)) return highlights;
+        for (const [sentenceIndex, data] of highlights.entries()) {
+            highlights.set(sentenceIndex, { ...(data || {}), phraseSplitVersion: version });
+        }
+        return highlights;
+    }
     _getCurrentDocumentKey() {
         const { state } = this.app;
         return state.currentDocumentType === "epub" ? state.currentEpubKey : state.currentPdfKey;
@@ -54,6 +81,7 @@ export class HighlightsStorage {
             return;
         }
 
+        this._stampPhraseSplitVersion(state.savedHighlights);
         const pdfHighlights = {};
         for (const [sentenceIndex, data] of state.savedHighlights.entries()) {
             pdfHighlights[sentenceIndex] = data;

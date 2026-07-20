@@ -1,3 +1,5 @@
+import { usesSemicolonPhraseBoundaries } from "../phrases/phraseSplitVersions.js";
+
 export class SentenceParser {
     constructor(app) {
         this.app = app;
@@ -36,6 +38,7 @@ export class SentenceParser {
     async parsePageWords(pageNumber, page) {
         const { app } = this;
         const { config, state } = app;
+        const splitOnEverySemicolon = usesSemicolonPhraseBoundaries(state.phraseSplitVersion);
         const abbreviations = ["Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "e.g", "i.e.", "etc", "Fig", "p", "al"];
         let sentenceIndex = state.sentences.length; // Continue from existing sentences
 
@@ -87,9 +90,15 @@ export class SentenceParser {
                 return false;
             }
 
-            // Short lead-in labels at the beginning of a block ("Abstract:", "Note:")
+            // Short colon-delimited lead-in labels at the beginning of a block
+            // ("Abstract:", "Note:")
             // should stay attached to the phrase that follows.
-            if (currentBufferLength <= 3 && nextWordStr && /[:;]["'”’»›\)\]\}]*$/u.test(token)) {
+            if (
+                currentBufferLength <= 3 &&
+                nextWordStr &&
+                (/:["'”’»›\)\]\}]*$/u.test(token) ||
+                    (!splitOnEverySemicolon && /;["'”’»›\)\]\}]*$/u.test(token)))
+            ) {
                 return false;
             }
 

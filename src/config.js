@@ -1,10 +1,12 @@
+import { CURRENT_PHRASE_SPLIT_VERSION, PHRASE_SPLIT_HISTORY } from "./modules/phrases/phraseSplitVersions.js";
+
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
     VERSION_LABEL: "0.38.7+16",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 38,
     VERSION_PATCH: 7,
-    VERSION_BUILD: 17,
+    VERSION_BUILD: 18,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -22,6 +24,8 @@ export const CONFIG = {
     AUDIO_CONTEXT_OPTIONS: { latencyHint: "playback" },
 
     // Sentence processing
+    PHRASE_SPLIT_VERSION: CURRENT_PHRASE_SPLIT_VERSION,
+    PHRASE_SPLIT_HISTORY,
     // Treat detected PDF layout blocks as phrase boundaries, independently of punctuation.
     SPLIT_PDF_SENTENCES_ON_LAYOUT_BLOCKS: true,
     // Retain block-aware audio timing/highlighting for sentences created before layout
@@ -34,7 +38,7 @@ export const CONFIG = {
     LINE_GAP_THRESHOLD: 2,
     // Optional fallback for splitting on unusually large word gaps.
     WORD_GAP_THRESHOLD_EM: 2.5,
-    SENTENCE_END: [".", ":", "?", "!", ".\"", ":\""],
+    SENTENCE_END: [".", ":", ";", "?", "!", ".\"", ":\"", ";\""],
 
     // TTS
     PREFETCH_AHEAD: 10,

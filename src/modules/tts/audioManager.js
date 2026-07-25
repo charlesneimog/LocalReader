@@ -268,7 +268,7 @@ export class AudioManager {
 
         if (!this._isContextActive(context)) return;
 
-        this.app.ui.updatePlaybackPreparation("Starting reading…");
+        this._updatePlaybackPreparationForStart(context);
         await this.stopPlayback(false, { clearContext: false, emitEvent: false });
         if (!this._isContextActive(context)) return;
 
@@ -374,6 +374,12 @@ export class AudioManager {
 
     _finishPlaybackPreparationForStart(context) {
         this.app.ui.finishPlaybackPreparation(context?.continuesReading ? "" : "Reading started.");
+    }
+
+    _updatePlaybackPreparationForStart(context) {
+        if (!context?.continuesReading) {
+            this.app.ui.updatePlaybackPreparation("Starting reading…");
+        }
     }
 
     async stopPlayback(fade = true, options = {}) {

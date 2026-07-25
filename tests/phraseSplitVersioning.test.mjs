@@ -38,12 +38,21 @@ test("treats unversioned highlights as version 1 and stamps new highlights", () 
 });
 
 test("announces reading only when a reading run starts", () => {
-    const messages = [];
+    const finishedMessages = [];
+    const preparationMessages = [];
     const manager = Object.create(AudioManager.prototype);
-    manager.app = { ui: { finishPlaybackPreparation: (message) => messages.push(message) } };
+    manager.app = {
+        ui: {
+            finishPlaybackPreparation: (message) => finishedMessages.push(message),
+            updatePlaybackPreparation: (message) => preparationMessages.push(message),
+        },
+    };
 
+    manager._updatePlaybackPreparationForStart({ continuesReading: false });
+    manager._updatePlaybackPreparationForStart({ continuesReading: true });
     manager._finishPlaybackPreparationForStart({ continuesReading: false });
     manager._finishPlaybackPreparationForStart({ continuesReading: true });
 
-    assert.deepEqual(messages, ["Reading started.", ""]);
+    assert.deepEqual(preparationMessages, ["Starting reading…"]);
+    assert.deepEqual(finishedMessages, ["Reading started.", ""]);
 });

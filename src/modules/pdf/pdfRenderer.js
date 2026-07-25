@@ -1244,6 +1244,9 @@ export class PDFRenderer {
             e.preventDefault();
             e.stopPropagation();
         };
+        const stopToolbarPointerEvent = (e) => {
+            e.stopPropagation();
+        };
 
         const copyBtn = document.createElement("button");
         copyBtn.type = "button";
@@ -1310,6 +1313,17 @@ export class PDFRenderer {
         panel.appendChild(copyBtn);
         for (const btn of highlightButtons) panel.appendChild(btn);
         panel.appendChild(commentBtn);
+        // In full-document mode the toolbar is a child of the PDF interaction
+        // container. Isolate every pointer phase so delegated touch handlers
+        // cannot select the phrase behind it. Do not prevent touchstart's
+        // default action here: browsers still need it to synthesize the button
+        // click.
+        for (const type of ["pointerdown", "pointerup", "touchstart", "touchmove", "touchend"]) {
+            panel.addEventListener(type, stopToolbarPointerEvent);
+        }
+        panel.addEventListener("mousedown", stopBubble);
+        panel.addEventListener("click", stopToolbarPointerEvent);
+        panel.addEventListener("dblclick", stopToolbarPointerEvent);
         wrapper.appendChild(panel);
         const pageWidth = Math.max(1, wrapper.clientWidth || 0);
         const panelWidth = panel.offsetWidth || 0;

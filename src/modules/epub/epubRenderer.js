@@ -651,6 +651,9 @@ export class EPUBRenderer {
             event.preventDefault();
             event.stopPropagation();
         };
+        const stopToolbarPointerEvent = (event) => {
+            event.stopPropagation();
+        };
 
         const panel = document.createElement("div");
         panel.className = "pdf-active-phrase-actions epub-active-phrase-actions";
@@ -720,6 +723,14 @@ export class EPUBRenderer {
         });
         panel.appendChild(commentBtn);
 
+        // Keep taps entirely in the parent-document toolbar instead of letting
+        // touch/pointer handling reach the EPUB iframe below it.
+        for (const type of ["pointerdown", "pointerup", "touchstart", "touchmove", "touchend"]) {
+            panel.addEventListener(type, stopToolbarPointerEvent);
+        }
+        panel.addEventListener("mousedown", stopBubble);
+        panel.addEventListener("click", stopToolbarPointerEvent);
+        panel.addEventListener("dblclick", stopToolbarPointerEvent);
         document.body.appendChild(panel);
 
         const frame = doc.defaultView?.frameElement || null;
@@ -772,6 +783,7 @@ export class EPUBRenderer {
         if (!this.app?.state?.sentences?.length) return;
         const doc = event.currentTarget;
         if (event.defaultPrevented) return;
+        if (event.target?.closest?.(".pdf-active-phrase-actions")) return;
         if (event.target?.closest?.("a[href]")) return;
 
         const sentenceIndex = this._resolveSentenceIndexFromEvent(doc, event, sectionIndex);
@@ -852,6 +864,7 @@ export class EPUBRenderer {
         if (!this.app?.state?.sentences?.length) return;
         const doc = docOverride || event.currentTarget;
         if (!doc) return;
+        if (event?.target?.closest?.(".pdf-active-phrase-actions")) return;
         if (event?.target?.closest?.("a[href]")) {
             if (event?.type === "mousemove") this._setDocumentPointerCursor(doc, false);
             this._setHoveredSentence(-1);

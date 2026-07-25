@@ -534,8 +534,10 @@ html.reader-scrollbars-hidden #viewer-wrapper::-webkit-scrollbar {
     box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    z-index: 70;
+    z-index: 10000;
     pointer-events: auto;
+    isolation: isolate;
+    touch-action: manipulation;
 }
 
 .pdf-active-phrase-btn {

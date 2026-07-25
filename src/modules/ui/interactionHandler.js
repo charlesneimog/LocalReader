@@ -511,6 +511,7 @@ export class InteractionHandler {
 
     handlePointerMove(e) {
         const { state } = this.app;
+        if (e?.target?.closest?.(".pdf-active-phrase-actions")) return;
         state.lastPointerEvent = e;
         if (state.hoverRafScheduled) return;
         state.hoverRafScheduled = true;
@@ -529,6 +530,11 @@ export class InteractionHandler {
 
     async handlePointerClick(e) {
         const { state } = this.app;
+
+        // The active-phrase toolbar lives inside the PDF page/container. Touch
+        // handling is delegated to that container, so a tap on a toolbar button
+        // can otherwise be hit-tested as a phrase underneath the toolbar.
+        if (e?.target?.closest?.(".pdf-active-phrase-actions")) return;
 
         if (this._suppressNextClick) {
             this._suppressNextClick = false;
@@ -674,6 +680,7 @@ export class InteractionHandler {
         const { state } = this.app;
         if (state.currentDocumentType !== "pdf") return;
         if (state.viewMode !== "full") return;
+        if (e?.target?.closest?.(".pdf-active-phrase-actions")) return;
         if (e.button !== 0) return;
 
         const wrapper = e.target?.closest?.(".pdf-page-wrapper");

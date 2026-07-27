@@ -6,7 +6,7 @@ export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 38,
     VERSION_PATCH: 7,
-    VERSION_BUILD: 20,
+    VERSION_BUILD: 21,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -72,7 +72,7 @@ export const CONFIG = {
 
     // Responsive
     MOBILE_BREAKPOINT: 680,
-    HORIZONTAL_MOBILE_MARGIN: 16,
+    HORIZONTAL_MOBILE_MARGIN: 32,
     SCROLL_MARGIN: 120,
 
     // Storage

@@ -15,6 +15,11 @@
     --hover-highlight-color: rgba(0, 150, 255, 0.28);
     --hover-highlight-stroke: rgba(0, 150, 255, 0.9);
     --vh: 1vh;
+    /*
+     * Use the larger landscape safe-area inset on both sides. A one-sided
+     * phone notch must not move the reader's visual centre.
+     */
+    --safe-area-inline: max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
 }
 
 @media (prefers-color-scheme: light) {
@@ -276,11 +281,18 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
 
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-    padding-top: env(safe-area-inset-top);
+html {
+    padding: 0;
+}
+
+body {
+    box-sizing: border-box;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: var(--safe-area-inline);
+    padding-right: var(--safe-area-inline);
+    padding-top: env(safe-area-inset-top, 0px);
 }
 
 #controls.toolbar {
@@ -399,8 +411,8 @@ input[type="color"]:hover:not(:disabled) {
     background: var(--bg);
     padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 48px);
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
+    padding-left: 0;
+    padding-right: 0;
     margin: 0;
     border-top: 1px solid var(--panel-border);
     scroll-behavior: smooth;
@@ -431,8 +443,8 @@ html.reader-scrollbars-hidden #viewer-wrapper::-webkit-scrollbar {
     background: var(--bg);
     padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 48px);
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
+    padding-left: 0;
+    padding-right: 0;
     margin: 0;
     border-top: 1px solid var(--panel-border);
     min-height: calc(var(--vh, 1vh) * 100);

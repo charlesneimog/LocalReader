@@ -551,9 +551,12 @@ export class PDFRenderer {
                         state.fullPageRenderCache.delete(pageNumber);
                     }
 
+                    const scaledWidth = viewportDisplay.width * scale;
+                    const scaledHeight = viewportDisplay.height * scale;
                     wrapper.dataset.scale = scale.toString();
-                    wrapper.style.width = viewportDisplay.width * scale + "px";
-                    wrapper.style.height = viewportDisplay.height * scale + "px";
+                    wrapper.style.width = scaledWidth + "px";
+                    wrapper.style.height = scaledHeight + "px";
+                    wrapper.style.minHeight = scaledHeight + "px";
 
                     const c = wrapper.querySelector("canvas.page-canvas");
                     if (c) {
@@ -579,9 +582,14 @@ export class PDFRenderer {
             wrapper.dataset.pageNumber = p;
 
             // Reserva altura mínima para scroll contínuo
+            const scale = getPageDisplayScale(viewportDisplay, config);
+            const scaledWidth = viewportDisplay.width * scale;
+            const scaledHeight = viewportDisplay.height * scale;
             wrapper.style.position = "relative";
-            wrapper.style.minHeight = viewportDisplay.height + "px";
-            wrapper.style.width = viewportDisplay.width + "px";
+            wrapper.dataset.scale = scale.toString();
+            wrapper.style.minHeight = scaledHeight + "px";
+            wrapper.style.width = scaledWidth + "px";
+            wrapper.style.height = scaledHeight + "px";
 
             container.appendChild(wrapper);
             observer.observe(wrapper);
@@ -806,9 +814,12 @@ export class PDFRenderer {
     applyPageScale(wrapper, viewportDisplay) {
         const { state, config } = this.app;
         const scale = getPageDisplayScale(viewportDisplay, config);
+        const scaledWidth = viewportDisplay.width * scale;
+        const scaledHeight = viewportDisplay.height * scale;
         wrapper.dataset.scale = String(scale);
-        wrapper.style.width = viewportDisplay.width * scale + "px";
-        wrapper.style.height = viewportDisplay.height * scale + "px";
+        wrapper.style.width = scaledWidth + "px";
+        wrapper.style.height = scaledHeight + "px";
+        wrapper.style.minHeight = scaledHeight + "px";
         const c = wrapper.querySelector("canvas");
         if (c) {
             c.style.width = "100%";

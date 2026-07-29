@@ -546,6 +546,9 @@ export class ServerSync {
                                     const sentenceIndex = typeof idx === "number" ? idx : parseInt(idx, 10);
                                     if (Number.isFinite(sentenceIndex)) {
                                         highlightsMap.set(sentenceIndex, {
+                                            pageIndex: h.page_index ?? h.pageIndex,
+                                            wordStart: h.word_start ?? h.wordStart,
+                                            words: h.words,
                                             color: h.color,
                                             text: h.text || "",
                                             comment: typeof h.comment === "string" ? h.comment : "",
@@ -981,6 +984,9 @@ export class ServerSync {
             for (const [sentenceIndex, data] of highlights.entries()) {
                 highlightsArray.push({
                     sentenceIndex,
+                    pageIndex: data.pageIndex,
+                    wordStart: data.wordStart,
+                    words: data.words,
                     color: data.color || "#ffda76",
                     text: data.text || data.sentenceText || "",
                     comment: typeof data.comment === "string" ? data.comment : "",
@@ -1086,6 +1092,9 @@ export class ServerSync {
                         const idx = Number.isFinite(idxRaw) ? idxRaw : parseInt(String(idxRaw), 10);
                         if (!Number.isFinite(idx) || idx < 0) return;
                         highlights.set(idx, {
+                            pageIndex: h?.page_index ?? h?.pageIndex,
+                            wordStart: h?.word_start ?? h?.wordStart,
+                            words: h?.words,
                             color: h?.color,
                             text: h?.text || "",
                             comment: typeof h?.comment === "string" ? h.comment : "",
@@ -1639,6 +1648,9 @@ export class ServerSync {
                     for (const h of highlightsData.highlights) {
                         if (h && Number.isFinite(h.sentenceIndex)) {
                             highlightsMap.set(h.sentenceIndex, {
+                                pageIndex: h.page_index ?? h.pageIndex,
+                                wordStart: h.word_start ?? h.wordStart,
+                                words: h.words,
                                 color: h.color,
                                 text: h.text || "",
                                 comment: typeof h.comment === "string" ? h.comment : "",

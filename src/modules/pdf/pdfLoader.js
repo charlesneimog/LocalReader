@@ -214,6 +214,11 @@ export class PDFLoader {
                             const highlightsByKey = app.highlightsStorage?.getHighlightsMap?.() || {};
                             const hasHighlights = (k) => {
                                 const hl = highlightsByKey?.[k];
+                                if (hl?.version === 2 && hl.pages) {
+                                    return Object.values(hl.pages).some(
+                                        (items) => Array.isArray(items) && items.length > 0,
+                                    );
+                                }
                                 return hl && typeof hl === "object" && Object.keys(hl).length > 0;
                             };
 
@@ -231,15 +236,14 @@ export class PDFLoader {
                             // Merge any highlights scattered across duplicate keys into the chosen key.
                             // This avoids the common case where highlights were saved under a sibling duplicate.
                             if (matches.length > 1 && app.highlightsStorage?.saveHighlights) {
-                                const merged = {};
+                                const merged = new Map();
                                 for (const k of matches) {
-                                    const hl = highlightsByKey?.[k];
-                                    if (!hl || typeof hl !== "object") continue;
-                                    for (const [sentenceIndex, data] of Object.entries(hl)) {
-                                        merged[String(sentenceIndex)] = data;
+                                    const highlights = app.highlightsStorage.loadSavedHighlights(k);
+                                    for (const [sentenceIndex, data] of highlights.entries()) {
+                                        merged.set(sentenceIndex, data);
                                     }
                                 }
-                                if (Object.keys(merged).length) {
+                                if (merged.size) {
                                     app.highlightsStorage.saveHighlights(chosen, merged, { merge: false });
                                 }
                             }
@@ -312,6 +316,7 @@ export class PDFLoader {
                 app.ui.showMessage("Building the sentence list…", 0);
             }
             await app.sentenceParser.buildSentences(1);
+            state.savedHighlights = app.highlightsStorage.remapPdfHighlights(state.savedHighlights);
 
             let startIndex = 0;
             let resumeVoiceId = null;
@@ -345,6 +350,9 @@ export class PDFLoader {
                             await app.sentenceParser.buildSentences(1);
                             startIndex = Math.min(startIndex, Math.max(0, state.sentences.length - 1));
                         }
+                        state.savedHighlights = app.highlightsStorage.remapPdfHighlights(
+                            state.savedHighlights,
+                        );
                         //console.log(`[PDFLoader] Restored ${serverData.highlights.size} highlights from server`);
 
                         // Also save to local storage
@@ -400,6 +408,7 @@ export class PDFLoader {
             if (!state.savedHighlights || state.savedHighlights.size === 0) {
                 state.savedHighlights = app.highlightsStorage.loadSavedHighlights(state.currentPdfKey);
             }
+            state.savedHighlights = app.highlightsStorage.remapPdfHighlights(state.savedHighlights);
             if (state.savedHighlights.size) {
                 const lastSaved = Array.from(state.savedHighlights.values()).pop();
                 if (lastSaved?.color) state.selectedHighlightColor = lastSaved.color;

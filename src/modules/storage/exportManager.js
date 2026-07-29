@@ -67,9 +67,10 @@ export class ExportManager {
                 // PDF QuadPoints are arrays of numbers in user space: [x1,y1, x2,y2, x3,y3, x4,y4] per rectangle
                 const quadPoints = [];
                 const wordsToAnnotate =
-                    Array.isArray(sentence.readableWords) && sentence.readableWords.length
+                    this.app.highlightsStorage?.getHighlightWords?.(highlightData, sentence) ||
+                    (Array.isArray(sentence.readableWords) && sentence.readableWords.length
                         ? sentence.readableWords
-                        : sentence.words;
+                        : sentence.words);
 
                 // Detect the coordinate reference used for this page so we can convert to PDF space (origin bottom-left)
                 const renderer = this.app?.pdfRenderer;

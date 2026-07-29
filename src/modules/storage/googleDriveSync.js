@@ -470,7 +470,7 @@ export class GoogleDriveSync {
     syncTranslationSettings(fileId, { target, mode } = {}) { return this._updateRecord(fileId, { translationTarget: target || "pt", translationMode: mode || "off", translationUpdatedAt: new Date().toISOString() }); }
     syncHighlights(fileId, highlights) {
         const values = [];
-        for (const [sentenceIndex, data] of highlights.entries()) values.push({ sentenceIndex, color: data.color || "#ffda76", text: data.text || data.sentenceText || "", comment: data.comment || "", phraseSplitVersion: data.phraseSplitVersion });
+        for (const [sentenceIndex, data] of highlights.entries()) values.push({ sentenceIndex, pageIndex: data.pageIndex, wordStart: data.wordStart, words: data.words, color: data.color || "#ffda76", text: data.text || data.sentenceText || "", comment: data.comment || "", phraseSplitVersion: data.phraseSplitVersion });
         return this._updateRecord(fileId, { highlights: values, highlightsUpdatedAt: new Date().toISOString() });
     }
 
@@ -478,7 +478,7 @@ export class GoogleDriveSync {
         const record = await this._record(fileId);
         if (!record || record.deleted) return { position: null, voice: null, highlights: null, translationTarget: null, translationMode: null };
         const highlights = new Map();
-        for (const item of record.highlights || []) highlights.set(Number(item.sentenceIndex), { color: item.color, text: item.text || "", comment: item.comment || "", phraseSplitVersion: item.phraseSplitVersion });
+        for (const item of record.highlights || []) highlights.set(Number(item.sentenceIndex), { pageIndex: item.pageIndex, wordStart: item.wordStart, words: item.words, color: item.color, text: item.text || "", comment: item.comment || "", phraseSplitVersion: item.phraseSplitVersion });
         return { position: Number.isFinite(Number(record.position)) ? Number(record.position) : null, voice: record.voice || null, highlights, translationTarget: record.translationTarget || null, translationMode: record.translationMode || null };
     }
 
@@ -558,7 +558,7 @@ export class GoogleDriveSync {
             entry.docType = format;
             entry.updated = Date.parse(record.updatedAt) || Date.now();
             progressMap[compoundKey] = entry;
-            const highlights = new Map((record.highlights || []).map((h) => [Number(h.sentenceIndex), { color: h.color, text: h.text || "", comment: h.comment || "", phraseSplitVersion: h.phraseSplitVersion }]));
+            const highlights = new Map((record.highlights || []).map((h) => [Number(h.sentenceIndex), { pageIndex: h.pageIndex, wordStart: h.wordStart, words: h.words, color: h.color, text: h.text || "", comment: h.comment || "", phraseSplitVersion: h.phraseSplitVersion }]));
             this.app.highlightsStorage?.saveHighlights?.(fileId, highlights);
         }
         this.app.progressManager.setProgressMap(progressMap);

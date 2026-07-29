@@ -130,8 +130,12 @@ def load_highlights(
     possible_ids = [scoped_id] if scoped_id == filename else [scoped_id, filename]
     placeholders = ",".join("?" for _ in possible_ids)
     comment = "comment" if "comment" in columns else "NULL AS comment"
+    page_index = "page_index" if "page_index" in columns else "NULL AS page_index"
+    word_start = "word_start" if "word_start" in columns else "NULL AS word_start"
+    words = "words" if "words" in columns else "NULL AS words"
     query = (
-        f"SELECT sentence_index, color, text, {comment} FROM highlights "
+        f"SELECT sentence_index, color, text, {comment}, {page_index}, {word_start}, {words} "
+        "FROM highlights "
         f"WHERE file_id IN ({placeholders})"
     )
     parameters: list[Any] = list(possible_ids)
@@ -146,12 +150,24 @@ def load_highlights(
     highlights: dict[int, dict[str, Any]] = {}
     for row in connection.execute(query, parameters):
         index = int(row[0])
-        highlights[index] = {
+        highlight = {
             "sentenceIndex": index,
             "color": row[1] or "#ffda76",
             "text": row[2] or "",
             "comment": row[3] or "",
         }
+        if row[4] is not None:
+            highlight["pageIndex"] = int(row[4])
+        if row[5] is not None:
+            highlight["wordStart"] = int(row[5])
+        if row[6]:
+            try:
+                parsed_words = json.loads(row[6])
+                if isinstance(parsed_words, list):
+                    highlight["words"] = [str(word) for word in parsed_words]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        highlights[index] = highlight
     return list(highlights.values())
 
 

@@ -1036,9 +1036,17 @@ export class PDFRenderer {
 
         for (const [sentenceIndex, highlightData] of state.savedHighlights.entries()) {
             const sentence = state.sentences[sentenceIndex];
-            if (!sentence) continue;
-            this.ensurePageWordsScaled(sentence.pageNumber);
-            const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${sentence.pageNumber}"]`);
+            const savedPageIndex = Number(highlightData?.pageIndex);
+            const anchoredPageNumber =
+                highlightData?.pageIndex != null && Number.isFinite(savedPageIndex)
+                    ? savedPageIndex + 1
+                    : NaN;
+            const pageNumber = Number.isFinite(anchoredPageNumber)
+                ? anchoredPageNumber
+                : sentence?.pageNumber;
+            if (!Number.isFinite(pageNumber)) continue;
+            this.ensurePageWordsScaled(pageNumber);
+            const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${pageNumber}"]`);
             if (!wrapper) continue;
             const canvas = wrapper.querySelector("canvas.page-canvas");
             if (!canvas) continue;
@@ -1048,18 +1056,24 @@ export class PDFRenderer {
             const canvasRect = canvas.getBoundingClientRect();
             const offsetTop = canvasRect.top - wrapperRect.top;
             const offsetLeft = canvasRect.left - wrapperRect.left;
-            const { scaleX, scaleY } = this.getPageScaleFactors(wrapper, canvas, sentence.pageNumber);
+            const { scaleX, scaleY } = this.getPageScaleFactors(wrapper, canvas, pageNumber);
 
-            const wordsToRender = (() => {
-                const readableWords = this.getReadableWords(sentence);
-                return readableWords.length ? readableWords : sentence.words;
-            })();
+            const wordsToRender =
+                this.app.highlightsStorage?.getHighlightWords?.(highlightData, sentence) ||
+                this.getReadableWords(sentence);
 
             if (!Array.isArray(wordsToRender) || !wordsToRender.length) continue;
 
             // Calibrate coordinate system for this page if not already done
-            if (!this.pageCoordinateSystems.has(sentence.pageNumber) && wordsToRender.length > 0) {
-                this.calibratePageCoordinateSystem(sentence.pageNumber, sentence);
+            if (!this.pageCoordinateSystems.has(pageNumber)) {
+                if (sentence) {
+                    this.calibratePageCoordinateSystem(pageNumber, sentence);
+                } else {
+                    this.pageCoordinateSystems.set(
+                        pageNumber,
+                        this.detectPageCoordinateSystem(pageNumber, wordsToRender),
+                    );
+                }
             }
 
             const currentIdx =
@@ -1069,7 +1083,7 @@ export class PDFRenderer {
                 continue;
             }
 
-            const lineRects = this.getMergedLineRects(wordsToRender, sentence.pageNumber);
+            const lineRects = this.getMergedLineRects(wordsToRender, pageNumber);
             if (!lineRects.length) continue;
 
             const hasComment = typeof highlightData?.comment === "string" && highlightData.comment.trim().length > 0;
@@ -1094,7 +1108,11 @@ export class PDFRenderer {
                 }
                 div.style.zIndex = "10";
                 div.style.borderRadius = "2px";
-                div.title = `Highlighted: ${sentence.text.substring(0, 50)}...`;
+                const savedText =
+                    Array.isArray(highlightData?.words) && highlightData.words.length
+                        ? highlightData.words.join(" ")
+                        : sentence?.text || "";
+                div.title = `Highlighted: ${savedText.substring(0, 50)}...`;
                 wrapper.appendChild(div);
 
                 if (!firstMarkerRect) firstMarkerRect = rect;
@@ -1384,15 +1402,19 @@ export class PDFRenderer {
         const playingPhraseWords = this.getPlayingPhraseWords(targetSentence);
         const hoverPhraseWords = playingPhraseWords.length ? [] : this.getHoverPhraseWords(targetSentence);
         const phraseWords = playingPhraseWords.length ? playingPhraseWords : hoverPhraseWords;
-        const highlightWords = phraseWords.length ? phraseWords : this.getReadableWords(targetSentence);
+        const savedHighlightData =
+            targetSentence?.index != null ? state.savedHighlights.get(targetSentence.index) : null;
+        const highlightWords = savedHighlightData
+            ? this.app.highlightsStorage?.getHighlightWords?.(savedHighlightData, targetSentence)
+            : phraseWords.length
+              ? phraseWords
+              : this.getReadableWords(targetSentence);
 
         // Calibrate coordinate system for this page if not already done
         if (!this.pageCoordinateSystems.has(targetSentence.pageNumber) && highlightWords.length > 0) {
             this.calibratePageCoordinateSystem(targetSentence.pageNumber, targetSentence);
         }
 
-        const savedHighlightData =
-            targetSentence?.index != null ? state.savedHighlights.get(targetSentence.index) : null;
         const savedOutlineColor = savedHighlightData?.color || "#ff9800";
 
         const lineRects = this.getMergedLineRects(highlightWords, targetSentence.pageNumber);

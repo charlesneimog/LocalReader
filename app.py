@@ -7,6 +7,7 @@ import hmac
 import secrets
 import logging
 import re
+import json
 
 DB_PATH = "data/database.db"
 
@@ -163,6 +164,9 @@ def init_db():
             text TEXT,
             comment TEXT,
             phrase_split_version INTEGER,
+            page_index INTEGER,
+            word_start INTEGER,
+            words TEXT,
             created_at TEXT NOT NULL,
             UNIQUE(file_id, sentence_index)
         )
@@ -218,6 +222,9 @@ def init_db():
     _ensure_column("highlights", "owner_email", "TEXT")
     _ensure_column("highlights", "comment", "TEXT")
     _ensure_column("highlights", "phrase_split_version", "INTEGER")
+    _ensure_column("highlights", "page_index", "INTEGER")
+    _ensure_column("highlights", "word_start", "INTEGER")
+    _ensure_column("highlights", "words", "TEXT")
 
     cursor.execute(
         """
@@ -1258,6 +1265,9 @@ def update_highlights(file_id, highlights, owner_email=None):
                         text = ""
                         comment = ""
                         phrase_split_version = None
+                        page_index = None
+                        word_start = None
+                        words = None
                         if isinstance(highlight, dict):
                             color = highlight.get("color", color)
                             text = highlight.get("text", text)
@@ -1269,18 +1279,35 @@ def update_highlights(file_id, highlights, owner_email=None):
                                 phrase_split_version = int(phrase_split_version)
                             except (TypeError, ValueError):
                                 phrase_split_version = None
+                            try:
+                                page_index = int(
+                                    highlight.get("pageIndex", highlight.get("page_index"))
+                                )
+                            except (TypeError, ValueError):
+                                page_index = None
+                            try:
+                                word_start = int(
+                                    highlight.get("wordStart", highlight.get("word_start"))
+                                )
+                            except (TypeError, ValueError):
+                                word_start = None
+                            raw_words = highlight.get("words")
+                            if isinstance(raw_words, list):
+                                words = json.dumps([str(word) for word in raw_words])
 
                         cursor.execute(
                             """
                             INSERT INTO highlights (
                                 file_id, sentence_index, color, text, comment,
-                                phrase_split_version, created_at, owner_email
+                                phrase_split_version, page_index, word_start, words,
+                                created_at, owner_email
                             )
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 scoped_file_id, sentence_index, color, text, comment,
-                                phrase_split_version, created_at, owner_n,
+                                phrase_split_version, page_index, word_start, words,
+                                created_at, owner_n,
                             ),
                         )
                         count += 1
@@ -1338,7 +1365,8 @@ def get_highlights(file_id, owner_email=None):
     if owner_n:
         cursor.execute(
             """
-            SELECT sentence_index, color, text, comment, phrase_split_version
+            SELECT sentence_index, color, text, comment, phrase_split_version,
+                   page_index, word_start, words
             FROM highlights
             WHERE file_id = ? AND owner_email = ?
             ORDER BY sentence_index
@@ -1348,7 +1376,8 @@ def get_highlights(file_id, owner_email=None):
     else:
         cursor.execute(
             """
-            SELECT sentence_index, color, text, comment, phrase_split_version
+            SELECT sentence_index, color, text, comment, phrase_split_version,
+                   page_index, word_start, words
             FROM highlights
             WHERE file_id = ?
             ORDER BY sentence_index
@@ -1359,7 +1388,15 @@ def get_highlights(file_id, owner_email=None):
     rows = cursor.fetchall()
     conn.close()
 
-    out = [dict(row) for row in rows]
+    out = []
+    for row in rows:
+        item = dict(row)
+        if item.get("words"):
+            try:
+                item["words"] = json.loads(item["words"])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                item["words"] = []
+        out.append(item)
     logger.info(
         "get_highlights: owner=%s file_id=%s canonical=%s count=%d",
         owner_n or "*",

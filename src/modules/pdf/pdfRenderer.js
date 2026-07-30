@@ -1,6 +1,11 @@
 import { isMobile, clamp, hexToRgb } from "../utils/helpers.js";
 import { getPageDisplayScale } from "../utils/responsive.js";
 import { EVENTS } from "../../constants/events.js";
+import {
+    calculateHorizontalTextFit,
+    getFocusedReadableWords,
+    TEXT_WIDTH_FIT_PADDING_PX,
+} from "./pdfTextWidthFit.js";
 
 const AMOLED_TEXT_COLORS = [
     "#f5f5f5",
@@ -217,6 +222,113 @@ export class PDFRenderer {
         const detector = this.app.getPdfHeaderFooterDetector?.();
         const regions = detector?._buildRegionsFromDetections?.(detections, viewportDisplay);
         return Array.isArray(regions?.readableBoxes) ? regions.readableBoxes : [];
+    }
+
+    _isTextWidthFitActive() {
+        const { state } = this.app;
+        return (
+            state.currentDocumentType === "pdf" &&
+            state.viewMode === "full" &&
+            state.textWidthFitEnabled &&
+            state.generationEnabled &&
+            !state.autoTranslateEnabled &&
+            !state.readTranslationEnabled
+        );
+    }
+
+    _getTextWidthFitBlockKey(sentence) {
+        const { state } = this.app;
+        if (state.playingSentenceIndex === sentence?.index && state.playingPhraseBlockKey) {
+            return state.playingPhraseBlockKey;
+        }
+        return sentence?.layoutBlockKey || null;
+    }
+
+    _restoreTextWidthFitWrapper(wrapper) {
+        if (!wrapper) return;
+        const pageNumber = Number.parseInt(wrapper.dataset.pageNumber, 10);
+        const viewportDisplay = this.app.state.viewportDisplayByPage.get(pageNumber);
+        delete wrapper.dataset.textWidthFit;
+        wrapper.style.marginLeft = "auto";
+        wrapper.style.marginRight = "auto";
+        if (viewportDisplay) this.applyPageScale(wrapper, viewportDisplay);
+    }
+
+    applyTextWidthFit(sentence, { restoreOthers = true } = {}) {
+        const container = document.getElementById("pdf-doc-container");
+        if (!container) return null;
+
+        const targetPage = Number(sentence?.pageNumber);
+        if (restoreOthers) {
+            container.querySelectorAll('.pdf-page-wrapper[data-text-width-fit="1"]').forEach((wrapper) => {
+                if (!this._isTextWidthFitActive() || Number(wrapper.dataset.pageNumber) !== targetPage) {
+                    this._restoreTextWidthFitWrapper(wrapper);
+                }
+            });
+        }
+
+        // Layout processing is deliberately a hard prerequisite. This prevents
+        // headers, footers, figures, and any other unclassified page content from
+        // affecting the horizontal word extrema.
+        if (!this._isTextWidthFitActive() || !sentence?.layoutProcessed) return null;
+        const cacheEntry = this.app.state.layoutDetectionCache?.get?.(targetPage);
+        if (cacheEntry?.readabilityVersion !== this.app.state.layoutCacheVersion) return null;
+
+        const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${targetPage}"]`);
+        const viewportDisplay = this.app.state.viewportDisplayByPage.get(targetPage);
+        const page = this.app.state.pagesCache.get(targetPage);
+        if (!wrapper || !viewportDisplay || !page?.pageWords) return null;
+
+        this.ensurePageWordsScaled(targetPage);
+        const readableBoxes = this._getCachedReadableLayoutBoxes(targetPage);
+        const focusBlockKey = this._getTextWidthFitBlockKey(sentence);
+        const focusedWords = getFocusedReadableWords(page.pageWords, readableBoxes, focusBlockKey);
+        const fit = calculateHorizontalTextFit(
+            focusedWords,
+            viewportDisplay.width,
+            container.clientWidth || window.innerWidth,
+            TEXT_WIDTH_FIT_PADDING_PX,
+        );
+        if (!fit) {
+            this._restoreTextWidthFitWrapper(wrapper);
+            return null;
+        }
+
+        const scaledHeight = viewportDisplay.height * fit.scale;
+        wrapper.dataset.scale = String(fit.scale);
+        wrapper.dataset.textWidthFit = "1";
+        wrapper.dataset.textWidthFitBlock = focusBlockKey || "page";
+        wrapper.style.width = `${fit.pageWidth}px`;
+        wrapper.style.height = `${scaledHeight}px`;
+        wrapper.style.minHeight = `${scaledHeight}px`;
+        wrapper.style.marginLeft = `${fit.offsetLeft}px`;
+        wrapper.style.marginRight = "0px";
+
+        const canvas = wrapper.querySelector("canvas.page-canvas");
+        if (canvas) {
+            canvas.style.width = "100%";
+            canvas.style.height = "100%";
+        }
+        return fit;
+    }
+
+    refreshTextWidthFit({ scrollToFocus = false } = {}) {
+        const { state } = this.app;
+        const container = document.getElementById("pdf-doc-container");
+        if (!container) return;
+        const sentence = state.currentSentence;
+
+        if (!this._isTextWidthFitActive() || !sentence) {
+            container.querySelectorAll('.pdf-page-wrapper[data-text-width-fit="1"]').forEach((wrapper) => {
+                this._restoreTextWidthFitWrapper(wrapper);
+            });
+            this.updatePhraseHighlightsAndListeners({ sentence });
+            return;
+        }
+
+        this.applyTextWidthFit(sentence);
+        this.updatePhraseHighlightsAndListeners({ sentence });
+        if (scrollToFocus) this.scrollSentenceIntoView(sentence);
     }
 
     getLayoutBlockKeyAtPoint(pageNumber, xDisplay, yDisplay) {
@@ -563,6 +675,9 @@ export class PDFRenderer {
                         c.style.width = "100%";
                         c.style.height = "100%";
                     }
+                    if (state.currentSentence?.pageNumber === pageNumber) {
+                        this.applyTextWidthFit(state.currentSentence, { restoreOthers: false });
+                    }
                 }
             },
             {
@@ -817,6 +932,8 @@ export class PDFRenderer {
         const scaledWidth = viewportDisplay.width * scale;
         const scaledHeight = viewportDisplay.height * scale;
         wrapper.dataset.scale = String(scale);
+        delete wrapper.dataset.textWidthFit;
+        delete wrapper.dataset.textWidthFitBlock;
         wrapper.style.width = scaledWidth + "px";
         wrapper.style.height = scaledHeight + "px";
         wrapper.style.minHeight = scaledHeight + "px";
@@ -1382,6 +1499,8 @@ export class PDFRenderer {
             this.renderHoverHighlightFullDoc();
             return;
         }
+
+        this.applyTextWidthFit(targetSentence);
 
         const wrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${targetSentence.pageNumber}"]`);
         if (!wrapper) return;

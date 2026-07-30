@@ -66,6 +66,7 @@ export class StateManager {
         this.autoTranslateEnabled = false;
         this.readTranslationEnabled = false;
         this.originalSubtitlesEnabled = false;
+        this.textWidthFitEnabled = false;
 
         // Layout Detection Cache
         this.layoutDetectionCache = new Map(); // pageNumber → { detections, validWordIndices, timestamp }

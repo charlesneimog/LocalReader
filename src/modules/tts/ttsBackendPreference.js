@@ -1,5 +1,3 @@
-export const TTS_WEBGPU_STORAGE_KEY = "config.ttsWebGpu";
-
 export function isSmartphoneEnvironment({
     userAgent = "",
     viewportWidth = Number.POSITIVE_INFINITY,
@@ -13,9 +11,6 @@ export function isSmartphoneEnvironment({
     return mobileUserAgent || smallTouchScreen;
 }
 
-export function resolveTtsWebGpuPreference({ storedValue = null, ...environment } = {}) {
-    if (isSmartphoneEnvironment(environment)) return false;
-    if (storedValue === "1" || storedValue === "true") return true;
-    if (storedValue === "0" || storedValue === "false") return false;
-    return true;
+export function resolveTtsWebGpuPreference(environment = {}) {
+    return !isSmartphoneEnvironment(environment);
 }

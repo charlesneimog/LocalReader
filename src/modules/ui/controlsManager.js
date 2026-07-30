@@ -23,7 +23,7 @@ export class ControlsManager {
     _cacheDOMElements() {
         this.serverLinkInput = document.getElementById("server-link");
         this.voiceSelect = document.getElementById("voice-select");
-        this.ttsWebGpuToggle = document.getElementById("tts-webgpu-toggle");
+        this.textWidthFitToggle = document.getElementById("toggle-text-width-fit");
         this.speedSelect = document.getElementById("reading-speed");
         this.speedSelectValue = document.getElementById("reading-speed-value");
         this.btnDecreaseSpeed = document.getElementById("btn-speed-decrease");
@@ -293,11 +293,10 @@ export class ControlsManager {
         }
 
         // Voice and speed
-        on(this.ttsWebGpuToggle, "change", () => {
-            app.setTtsWebGpuEnabled(this.ttsWebGpuToggle.checked).catch((error) => {
-                console.error("[TTS] Failed to change WebGPU preference", error);
-                this.reflectTtsWebGpuToggle(app.isTtsWebGpuEnabled?.());
-            });
+        on(this.textWidthFitToggle, "click", () => {
+            const next = !app.isTextWidthFitEnabled?.();
+            app.setTextWidthFitEnabled?.(next);
+            this.showInfo(next ? "Maximize reading text: ON" : "Maximize reading text: OFF", 1500);
         });
 
         on(this.voiceSelect, "change", () => {
@@ -486,19 +485,20 @@ export class ControlsManager {
         if (icon) icon.textContent = active ? "subtitles" : "subtitles_off";
     }
 
-    reflectTtsWebGpuToggle(enabled) {
-        if (!this.ttsWebGpuToggle) return;
+    reflectTextWidthFitToggle(enabled) {
+        if (!this.textWidthFitToggle) return;
         const active = !!enabled;
-        this.ttsWebGpuToggle.checked = active;
-        this.ttsWebGpuToggle.setAttribute("aria-checked", active ? "true" : "false");
-    }
-
-    reflectTtsWebGpuAvailability(available) {
-        if (!this.ttsWebGpuToggle) return;
-        this.ttsWebGpuToggle.disabled = !available;
-        this.ttsWebGpuToggle.title = available
-            ? "Use WebGPU for text-to-speech"
-            : "WebGPU TTS is disabled on smartphones; two WASM workers are used";
+        this.textWidthFitToggle.setAttribute("aria-pressed", active ? "true" : "false");
+        this.textWidthFitToggle.title = active
+            ? "Restore full PDF page width"
+            : "Maximize focused PDF text width";
+        this.textWidthFitToggle.setAttribute("aria-label", this.textWidthFitToggle.title);
+        this.textWidthFitToggle.classList.toggle("bg-primary/10", active);
+        this.textWidthFitToggle.classList.toggle("text-primary", active);
+        const icon = this.textWidthFitToggle.querySelector(".material-symbols-outlined");
+        icon?.classList.toggle("text-primary", active);
+        icon?.classList.toggle("text-slate-600", !active);
+        icon?.classList.toggle("dark:text-slate-300", !active);
     }
 
     showHelpOverlay() {

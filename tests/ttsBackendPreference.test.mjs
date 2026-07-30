@@ -27,14 +27,14 @@ test("enables TTS WebGPU by default on desktop", () => {
     );
 });
 
-test("smartphone compatibility overrides a saved WebGPU choice", () => {
+test("automatic selection is unaffected by retired saved preferences", () => {
     const phone = {
         userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile Safari/604.1",
         viewportWidth: 390,
         coarsePointer: true,
     };
     assert.equal(resolveTtsWebGpuPreference({ ...phone, storedValue: "1" }), false);
-    assert.equal(resolveTtsWebGpuPreference({ storedValue: "0", viewportWidth: 1440 }), false);
+    assert.equal(resolveTtsWebGpuPreference({ storedValue: "0", viewportWidth: 1440 }), true);
 });
 
 test("recognizes a small coarse-pointer screen without relying on user agent", () => {

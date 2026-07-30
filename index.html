@@ -459,25 +459,6 @@
                     ></select>
                 </div>
 
-                <label
-                    class="flex items-center justify-between gap-4 rounded-lg border border-slate-300 bg-white/50 p-3 dark:border-slate-700 dark:bg-black/30"
-                    for="tts-webgpu-toggle"
-                >
-                    <span>
-                        <span class="block text-sm font-medium text-slate-700 dark:text-slate-200">TTS WebGPU</span>
-                        <span class="block text-xs text-slate-500 dark:text-slate-400">
-                            Desktop only. Smartphones use two parallel WASM workers.
-                        </span>
-                    </span>
-                    <input
-                        id="tts-webgpu-toggle"
-                        type="checkbox"
-                        role="switch"
-                        aria-label="Use WebGPU for text-to-speech"
-                        class="h-5 w-5 shrink-0 cursor-pointer accent-blue-500"
-                    />
-                </label>
-
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
                         Adjust reading speed
@@ -608,6 +589,20 @@
                             class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-primary"
                         >
                             fullscreen
+                        </span>
+                    </button>
+
+                    <button
+                        id="toggle-text-width-fit"
+                        title="Maximize focused PDF text width"
+                        aria-label="Maximize focused PDF text width"
+                        aria-pressed="false"
+                        class="flex items-center justify-center rounded p-2"
+                    >
+                        <span
+                            class="material-symbols-outlined text-lg text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-primary"
+                        >
+                            fit_screen
                         </span>
                     </button>
 

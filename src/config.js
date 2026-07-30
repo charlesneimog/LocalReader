@@ -4,9 +4,9 @@ import { CURRENT_PHRASE_SPLIT_VERSION, PHRASE_SPLIT_HISTORY } from "./modules/ph
 export const CONFIG = {
     VERSION_LABEL: "0.38.7+16",
     VERSION_MAJOR: 0,
-    VERSION_MINOR: 38,
-    VERSION_PATCH: 7,
-    VERSION_BUILD: 23,
+    VERSION_MINOR: 39,
+    VERSION_PATCH: 0,
+    VERSION_BUILD: 0,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,

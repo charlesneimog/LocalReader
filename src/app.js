@@ -19,7 +19,6 @@ import { TTSEngine } from "./modules/tts/ttsEngine.js";
 import {
     isSmartphoneEnvironment,
     resolveTtsWebGpuPreference,
-    TTS_WEBGPU_STORAGE_KEY,
 } from "./modules/tts/ttsBackendPreference.js";
 import { AudioManager } from "./modules/tts/audioManager.js";
 import { TTSQueueManager } from "./modules/tts/synthesisQueue.js";
@@ -228,7 +227,14 @@ export class PDFTTSApp {
         this.state.originalSubtitlesEnabled = originalSubtitlesEnabled;
         this.controlsManager?.reflectOriginalSubtitlesToggle?.(originalSubtitlesEnabled);
 
-        const storedTtsWebGpu = localStorage.getItem(TTS_WEBGPU_STORAGE_KEY);
+        const rawTextWidthFit = localStorage.getItem("config.textWidthFit");
+        const textWidthFitEnabled = rawTextWidthFit === "1" || rawTextWidthFit === "true";
+        this.state.textWidthFitEnabled = textWidthFitEnabled;
+        this.controlsManager?.reflectTextWidthFitToggle?.(textWidthFitEnabled);
+
+        // Backend selection is automatic. Remove the retired manual preference
+        // so an old setting cannot override the current device decision.
+        localStorage.removeItem("config.ttsWebGpu");
         const ttsEnvironment = {
             userAgent: navigator.userAgent,
             viewportWidth: window.innerWidth,
@@ -237,13 +243,11 @@ export class PDFTTSApp {
             mobileBreakpoint: this.config.MOBILE_BREAKPOINT,
         };
         this._isSmartphoneRuntime = isSmartphoneEnvironment(ttsEnvironment);
-        const ttsWebGpuEnabled = resolveTtsWebGpuPreference({ storedValue: storedTtsWebGpu, ...ttsEnvironment });
+        const ttsWebGpuEnabled = resolveTtsWebGpuPreference(ttsEnvironment);
         this.state.ttsWebGpuEnabled = ttsWebGpuEnabled;
         this.config.PIPER_USE_WEBGPU = ttsWebGpuEnabled;
-        this.controlsManager?.reflectTtsWebGpuToggle?.(ttsWebGpuEnabled);
-        this.controlsManager?.reflectTtsWebGpuAvailability?.(!this._isSmartphoneRuntime);
         console.info(
-            `[TTS] WebGPU preference=${ttsWebGpuEnabled ? "enabled" : "disabled"} (${this._isSmartphoneRuntime ? "smartphone compatibility" : storedTtsWebGpu === null ? "desktop default" : "saved setting"})`,
+            `[TTS] Automatic backend=${ttsWebGpuEnabled ? "WebGPU preferred" : "parallel WASM"} (${this._isSmartphoneRuntime ? "smartphone compatibility" : "desktop runtime detection"})`,
         );
     }
 
@@ -287,19 +291,16 @@ export class PDFTTSApp {
 
     async setTtsWebGpuEnabled(
         enabled,
-        { reconfigure = true, notify = true, reason = "TTS backend preference changed" } = {},
+        { reconfigure = true, notify = true, reason = "Automatic TTS backend changed" } = {},
     ) {
         const value = this._isSmartphoneRuntime ? false : !!enabled;
         if (enabled && this._isSmartphoneRuntime) {
-            this.controlsManager?.reflectTtsWebGpuToggle?.(false);
             if (notify) this.ui?.showInfo?.("TTS WebGPU is disabled on smartphones; using parallel WASM workers");
             return;
         }
         const changed = value !== !!this.state.ttsWebGpuEnabled;
         this.state.ttsWebGpuEnabled = value;
         this.config.PIPER_USE_WEBGPU = value;
-        localStorage.setItem(TTS_WEBGPU_STORAGE_KEY, value ? "1" : "0");
-        this.controlsManager?.reflectTtsWebGpuToggle?.(value);
 
         if (changed && reconfigure && (this.ttsEngine?.initialized || this.ttsEngine?.client)) {
             this.audioManager?.stopPlayback?.(true);
@@ -638,6 +639,7 @@ export class PDFTTSApp {
         this.controlsManager?.reflectAutoTranslateToggle?.(value);
         if (!value) this._resetAutoTranslateCache();
         if (value) this._kickAutoTranslatePrefetch();
+        this.pdfRenderer?.refreshTextWidthFit?.();
     }
 
     isAutoTranslateEnabled() {
@@ -650,10 +652,23 @@ export class PDFTTSApp {
         localStorage.setItem("config.readTranslation", value ? "1" : "0");
         this.controlsManager?.reflectReadTranslationToggle?.(value);
         if (!value) this._resetReadTranslationCache();
+        this.pdfRenderer?.refreshTextWidthFit?.();
     }
 
     isReadTranslationEnabled() {
         return !!this.state.readTranslationEnabled;
+    }
+
+    setTextWidthFitEnabled(enabled) {
+        const value = !!enabled;
+        this.state.textWidthFitEnabled = value;
+        localStorage.setItem("config.textWidthFit", value ? "1" : "0");
+        this.controlsManager?.reflectTextWidthFitToggle?.(value);
+        this.pdfRenderer?.refreshTextWidthFit?.({ scrollToFocus: true });
+    }
+
+    isTextWidthFitEnabled() {
+        return !!this.state.textWidthFitEnabled;
     }
 
     setOriginalSubtitlesEnabled(enabled) {

@@ -1,0 +1,55 @@
+{
+    "schemaVersion": 1,
+    "trees": [
+        {
+            "id": "minute-sprout",
+            "name": "Minute Sprout",
+            "rarity": "starter",
+            "durationMinutes": 1,
+            "requiredCompletions": 1,
+            "image": "./assets/rewards/trees/minute-sprout.svg",
+            "groundAnchor": 0.905,
+            "palette": ["#bbf7d0", "#22c55e", "#3f6f52"]
+        },
+        {
+            "id": "reading-sapling",
+            "name": "Reading Sapling",
+            "rarity": "common",
+            "durationMinutes": 5,
+            "requiredCompletions": 5,
+            "image": "./assets/rewards/trees/reading-sapling.svg",
+            "groundAnchor": 0.926,
+            "palette": ["#a7d7c5", "#654ef0", "#4c7a67"]
+        },
+        {
+            "id": "violet-blossom",
+            "name": "Violet Blossom Tree",
+            "rarity": "uncommon",
+            "durationMinutes": 7,
+            "requiredCompletions": 5,
+            "image": "./assets/rewards/trees/violet-blossom.svg",
+            "groundAnchor": 0.92,
+            "palette": ["#c4b5fd", "#7c3aed", "#4f7664"]
+        },
+        {
+            "id": "sunset-maple",
+            "name": "Sunset Maple",
+            "rarity": "rare",
+            "durationMinutes": 10,
+            "requiredCompletions": 5,
+            "image": "./assets/rewards/trees/sunset-maple.svg",
+            "groundAnchor": 0.927,
+            "palette": ["#fb923c", "#f43f5e", "#6b4f3b"]
+        },
+        {
+            "id": "moonlit-oak",
+            "name": "Moonlit Oak",
+            "rarity": "legendary",
+            "durationMinutes": 15,
+            "requiredCompletions": null,
+            "image": "./assets/rewards/trees/moonlit-oak.svg",
+            "groundAnchor": 0.932,
+            "palette": ["#93c5fd", "#654ef0", "#344c5c"]
+        }
+    ]
+}

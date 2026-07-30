@@ -11,8 +11,10 @@ export class ActiveReadingTracker {
         performanceNow = () => performance.now(),
         documentObject = globalThis.document,
         windowObject = globalThis.window,
-        setIntervalFn = globalThis.setInterval,
-        clearIntervalFn = globalThis.clearInterval,
+        // Window timers require Window as their receiver in Firefox. Wrapping
+        // them also keeps dependency injection available for fake timers.
+        setIntervalFn = (...args) => globalThis.setInterval(...args),
+        clearIntervalFn = (...args) => globalThis.clearInterval(...args),
     } = {}) {
         this.config = config;
         this.onDelta = onDelta;

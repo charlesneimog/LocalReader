@@ -1,5 +1,9 @@
 import { EVENTS } from "../../constants/events.js";
-import { availablePlantDefinitions, getPlantStage } from "./plantDefinitions.js";
+import {
+    availablePlantDefinitions,
+    getAutomaticTreeTier,
+    getPlantStage,
+} from "./plantDefinitions.js";
 import { SESSION_STATES, sumLedger, uuid } from "./rewardDefinitions.js";
 
 /** Persistent reading-session lifecycle facade. */
@@ -44,7 +48,11 @@ export class ReadingSessionManager {
         if (!session || [SESSION_STATES.COMPLETED, SESSION_STATES.ABANDONED].includes(session.state)) return null;
         await this.storage.transaction((draft) => {
             const stored = draft.sessions.find((candidate) => candidate.id === session.id);
+            const wasExplicitlyPaused =
+                session.state === SESSION_STATES.PAUSED &&
+                (!session.pauseReason || session.pauseReason === "explicit");
             stored.state = SESSION_STATES.PAUSED;
+            stored.pauseReason = wasExplicitlyPaused ? "explicit" : "restore";
             stored.updatedAt = this.now();
             draft.currentSession = { ...stored };
         });
@@ -64,19 +72,22 @@ export class ReadingSessionManager {
         }
     }
 
-    async start({ goalMinutes, speciesId }) {
+    async start({ goalMinutes, speciesId, automatic = false }) {
         const document = this.getDocument?.();
         if (!document?.id || !["pdf", "epub"].includes(document.type)) {
             throw new Error("Open a PDF or EPUB before starting a reading session.");
         }
         const goal = Number(goalMinutes);
-        if (!this.config.sessionGoalsMinutes.includes(goal)) throw new Error("Unsupported session goal.");
+        if (!Number.isFinite(goal) || goal <= 0) throw new Error("Unsupported tree goal.");
+        if (!automatic && !this.config.sessionGoalsMinutes.includes(goal)) throw new Error("Unsupported session goal.");
         const state = this.storage.getSnapshot();
         if (state.currentSession) throw new Error("A reading session is already in progress.");
-        const totalPoints = sumLedger(state.rewardLedger);
-        const selected = availablePlantDefinitions(totalPoints, state.plantUnlocks)
-            .find((definition) => definition.id === speciesId);
-        if (!selected || selected.locked) throw new Error("That plant species is still locked.");
+        if (!automatic) {
+            const totalPoints = sumLedger(state.rewardLedger);
+            const selected = availablePlantDefinitions(totalPoints, state.plantUnlocks)
+                .find((definition) => definition.id === speciesId);
+            if (!selected || selected.locked) throw new Error("That plant species is still locked.");
+        }
         const sessionId = uuid(this.randomUUID);
         if (!this.lock.acquire(sessionId)) throw new Error("Another tab already has an active reading session.");
         const timestamp = this.now();
@@ -111,6 +122,8 @@ export class ReadingSessionManager {
                     goalReachedAt: null,
                     completedAt: null,
                     abandonedAt: null,
+                    automatic: !!automatic,
+                    pauseReason: null,
                     updatedAt: timestamp,
                 };
                 draft.currentGrowingPlantId = plant.id;
@@ -135,13 +148,67 @@ export class ReadingSessionManager {
         return this.getCurrentSession();
     }
 
-    async pause() {
+    async ensureAutomatic() {
+        if (!this.config.automaticTreesEnabled) return null;
+        const document = this.getDocument?.();
+        if (!document?.id) return null;
+        const tier = getAutomaticTreeTier(this.storage.getSnapshot().plants);
+        let current = this.getCurrentSession();
+        if (current) {
+            if (!current.automatic) {
+                await this.abandon();
+            } else {
+                if (
+                    current.state === SESSION_STATES.PAUSED &&
+                    current.pauseReason === "explicit"
+                ) {
+                    this.tracker.setPaused(true);
+                    return current;
+                }
+                const state = this.storage.getSnapshot();
+                const plant = state.plants.find((candidate) => candidate.id === current.plantId);
+                if (plant?.speciesId !== tier.definition.id) {
+                    // Catalog changes take effect without asking the reader to
+                    // discard storage or manually end an older automatic tree.
+                    await this.abandon();
+                    current = null;
+                } else {
+                    const expectedGoalMs = Number(tier.definition.durationMinutes) * 60000;
+                    await this.storage.transaction((draft) => {
+                        const stored = draft.sessions.find((candidate) => candidate.id === current.id);
+                        const storedPlant = draft.plants.find((candidate) => candidate.id === current.plantId);
+                        if (!stored) return;
+                        stored.document = document;
+                        stored.goalMs = expectedGoalMs;
+                        stored.updatedAt = this.now();
+                        draft.currentSession = { ...stored };
+                        if (storedPlant) {
+                            storedPlant.durationMinutes = tier.definition.durationMinutes;
+                            storedPlant.updatedAt = this.now();
+                        }
+                    });
+                    current = this.getCurrentSession();
+                }
+                if (current && [SESSION_STATES.PAUSED, SESSION_STATES.IDLE_TIMEOUT].includes(current.state)) {
+                    return await this.resume();
+                }
+                if (current) return current;
+            }
+        }
+        return await this.start({
+            goalMinutes: tier.definition.durationMinutes,
+            speciesId: tier.definition.id,
+            automatic: true,
+        });
+    }
+
+    async pause({ reason = "explicit" } = {}) {
         const session = this.getCurrentSession();
         if (!session || ![SESSION_STATES.ACTIVE, SESSION_STATES.IDLE_TIMEOUT].includes(session.state)) return null;
         this.tracker.checkpoint();
         this.tracker.setPaused(true);
         await this.deltaQueue;
-        await this._setState(session.id, SESSION_STATES.PAUSED);
+        await this._setState(session.id, SESSION_STATES.PAUSED, { pauseReason: reason });
         this.lifecycleState = SESSION_STATES.PAUSED;
         this.eventBus?.emit(EVENTS.READING_SESSION_PAUSED, this.getCurrentSession());
         return this.getCurrentSession();
@@ -153,7 +220,7 @@ export class ReadingSessionManager {
         if (!this.lock.sessionId && !this.lock.acquire(session.id)) {
             throw new Error("Another tab already has an active reading session.");
         }
-        await this._setState(session.id, SESSION_STATES.ACTIVE);
+        await this._setState(session.id, SESSION_STATES.ACTIVE, { pauseReason: null });
         this.lifecycleState = SESSION_STATES.ACTIVE;
         this.tracker.setPaused(false);
         this.tracker.start();
@@ -173,7 +240,6 @@ export class ReadingSessionManager {
         this.lifecycleState = SESSION_STATES.IDLE;
         if (result) {
             this.eventBus?.emit(EVENTS.READING_SESSION_COMPLETED, result);
-            if (result.plant?.stage === "mature") this.eventBus?.emit(EVENTS.PLANT_MATURED, result.plant);
             this.eventBus?.emit(EVENTS.GARDEN_UPDATED, result);
             if (result.plant?.stage === "mature") {
                 await this.storage.transaction((state) => {
@@ -223,6 +289,22 @@ export class ReadingSessionManager {
             documentId: session.document.id,
             timestamp: this.now(),
         });
+        await this.storage.transaction((draft) => {
+            const storedSession = draft.sessions.find((candidate) => candidate.id === session.id);
+            const storedPlant = draft.plants.find((candidate) => candidate.id === session.plantId);
+            if (!storedSession || !storedPlant || !storedSession.automatic) return;
+            storedPlant.growthProgress = Math.max(
+                0,
+                Math.min(1, storedSession.activeReadingMs / storedSession.goalMs),
+            );
+            const stage = getPlantStage(
+                storedPlant.speciesId,
+                storedPlant.pointsInvested,
+                storedPlant.growthProgress,
+            );
+            storedPlant.stage = stage.id;
+            storedPlant.updatedAt = this.now();
+        });
         const state = this.storage.getSnapshot();
         const updated = state.sessions.find((candidate) => candidate.id === session.id);
         const plant = state.plants.find((candidate) => candidate.id === session.plantId);
@@ -240,7 +322,7 @@ export class ReadingSessionManager {
         if (plant && plant.stage !== previousStage) {
             this.eventBus?.emit(EVENTS.PLANT_STAGE_CHANGED, {
                 plant,
-                stage: getPlantStage(plant.speciesId, plant.pointsInvested),
+                stage: getPlantStage(plant.speciesId, plant.pointsInvested, plant.growthProgress),
             });
         }
         this.eventBus?.emit(EVENTS.READING_SESSION_PROGRESS, {
@@ -249,11 +331,12 @@ export class ReadingSessionManager {
         });
     }
 
-    async _setState(sessionId, stateName) {
+    async _setState(sessionId, stateName, changes = {}) {
         await this.storage.transaction((state) => {
             const session = state.sessions.find((candidate) => candidate.id === sessionId);
             if (!session) return;
             session.state = stateName;
+            Object.assign(session, changes);
             session.updatedAt = this.now();
             state.currentSession = { ...session };
         });
@@ -263,7 +346,7 @@ export class ReadingSessionManager {
         const session = this.getCurrentSession();
         if (!session || session.state !== SESSION_STATES.ACTIVE) return;
         this.lifecycleState = SESSION_STATES.IDLE_TIMEOUT;
-        this._setState(session.id, SESSION_STATES.IDLE_TIMEOUT)
+        this._setState(session.id, SESSION_STATES.IDLE_TIMEOUT, { pauseReason: "idle" })
             .then(() => this.eventBus?.emit(EVENTS.READING_SESSION_IDLE, this.getCurrentSession()))
             .catch((error) => console.error("[ReadingSessionManager] Idle checkpoint failed", error));
     }
@@ -272,7 +355,7 @@ export class ReadingSessionManager {
         const session = this.getCurrentSession();
         if (!session || session.state !== SESSION_STATES.IDLE_TIMEOUT) return;
         this.lifecycleState = SESSION_STATES.ACTIVE;
-        this._setState(session.id, SESSION_STATES.ACTIVE)
+        this._setState(session.id, SESSION_STATES.ACTIVE, { pauseReason: null })
             .then(() => this.eventBus?.emit(EVENTS.READING_SESSION_RESUMED, this.getCurrentSession()))
             .catch((error) => console.error("[ReadingSessionManager] Idle resume failed", error));
     }

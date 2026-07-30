@@ -11,9 +11,7 @@ import { StreakManager } from "./streakManager.js";
 import { GardenDialog } from "../ui/gardenDialog.js";
 import { ReflectionDialog } from "../ui/reflectionDialog.js";
 import { RewardsPanel } from "../ui/rewardsPanel.js";
-import { SessionProgressWidget } from "../ui/sessionProgressWidget.js";
-import { SessionSetupDialog } from "../ui/sessionSetupDialog.js";
-import { getPlantStage } from "./plantDefinitions.js";
+import { getPlantDefinition, getPlantStage } from "./plantDefinitions.js";
 
 /** Application composition root and public reward UI/sync facade. */
 export class RewardsController {
@@ -53,6 +51,10 @@ export class RewardsController {
         this.unsubscribers = [];
         this.syncTimer = null;
         this.lastCheckpointAt = 0;
+        this.automaticStartPromise = null;
+        this.automaticCompletionPromise = null;
+        this.pendingTreeNotifications = [];
+        this.notifiedTreeIds = new Set();
     }
 
     async initialize() {
@@ -86,39 +88,15 @@ export class RewardsController {
                 return plot;
             },
         });
-        this.setupDialog = new SessionSetupDialog({
-            config: this.config,
-            onStart: async (options) => {
-                try {
-                    await this.sessions.start(options);
-                    this._refresh();
-                } catch (error) {
-                    this.app.ui.showInfo(error.message);
-                }
-            },
-        });
         this.reflectionDialog = new ReflectionDialog({
             minimumCharacters: this.config.reflectionMinimumCharacters,
             onSave: (session, text) => this.saveReflection(session, text),
         });
-        this.widget = new SessionProgressWidget({
-            onPause: () => this.sessions.pause(),
-            onResume: () => this.sessions.resume().catch((error) => this.app.ui.showInfo(error.message)),
-            onFinish: () => this.finishSession(),
-            onQuestion: () => this.createQuestion(),
-        });
         this.panel = new RewardsPanel({
-            onSetup: () => this.openSetup(),
             onGarden: () => this.openGarden(),
         });
-        this.widget.setGardenHandler(() => this.openGarden());
-        for (const dialog of [
-            this.setupDialog.dialog,
-            this.reflectionDialog.dialog,
-            this.gardenDialog.dialog,
-        ]) {
+        for (const dialog of [this.gardenDialog.dialog]) {
             dialog.addEventListener("close", () => {
-                if (dialog === this.setupDialog.dialog) this.sessions.cancelPreparing();
                 this.adapter._updateReadingScreen();
             });
         }
@@ -153,9 +131,14 @@ export class RewardsController {
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_RESUMED, () => {
             this.app.ui.showInfo("Activity resumed.");
         }));
-        this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_GOAL_REACHED, (session) => {
-            this.app.ui.showInfo("Session goal reached.");
-            this.panel.announce(`goal:${session?.id}`, "Session goal reached.");
+        this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_DOCUMENT_OPENED, () => {
+            this._ensureAutomaticTree();
+        }));
+        this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_ACTIVITY, () => {
+            if (!this.sessions.getCurrentSession()) this._ensureAutomaticTree();
+        }));
+        this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_GOAL_REACHED, () => {
+            this._completeAutomaticTree();
         }));
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.PLANT_STAGE_CHANGED, ({ plant, stage }) => {
             if (stage.percent >= 25) this.panel.announce(
@@ -166,6 +149,14 @@ export class RewardsController {
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.HIGHLIGHT_ADDED, (payload) => {
             if (payload?.comment && payload?.annotationId) this.rewardAnnotation(payload);
         }));
+        this.unsubscribers.push(this.app.eventBus.on(EVENTS.PLANT_MATURED, (plant) => {
+            if (!plant?.id || this.notifiedTreeIds.has(plant.id)) return;
+            this.notifiedTreeIds.add(plant.id);
+            this.pendingTreeNotifications.push(plant);
+        }));
+        for (const eventName of [EVENTS.SENTENCE_CHANGED, EVENTS.AUDIO_PLAYBACK_END]) {
+            this.unsubscribers.push(this.app.eventBus.on(eventName, () => this._flushTreeNotification()));
+        }
         const checkpoint = () => {
             this.tracker.checkpoint();
             this._queueSync(true);
@@ -175,22 +166,6 @@ export class RewardsController {
         this._checkpointHandler = checkpoint;
     }
 
-    openSetup() {
-        const descriptor = this.adapter.getDocumentDescriptor();
-        if (!descriptor) {
-            this.app.ui.showInfo("Open a PDF or EPUB first.");
-            return;
-        }
-        const state = this.storage.getSnapshot();
-        this.sessions.prepare();
-        this.tracker.setReadingScreen(false);
-        this.setupDialog.open({
-            totalPoints: sumLedger(state.rewardLedger),
-            unlocks: state.plantUnlocks,
-            preferredSpeciesId: state.plants.find((plant) => plant.id === state.currentGrowingPlantId)?.speciesId,
-        });
-    }
-
     openGarden() {
         const state = this.storage.getSnapshot();
         this.tracker.checkpoint();
@@ -198,26 +173,59 @@ export class RewardsController {
         this.gardenDialog.open(state, this.rewardEngine.getSummary(state));
     }
 
-    async finishSession() {
-        const session = this.sessions.getCurrentSession();
-        if (!session) return;
-        if (session.activeReadingMs < session.goalMs) {
-            await this.sessions.abandon();
-            this.app.ui.showInfo("Session ended. Active reading rewards were kept.");
-            return;
+    async _ensureAutomaticTree() {
+        if (this.automaticStartPromise) return this.automaticStartPromise;
+        this.automaticStartPromise = this.sessions.ensureAutomatic()
+            .then((session) => {
+                this._refresh();
+                return session;
+            })
+            .catch((error) => {
+                console.error("[RewardsController] Automatic tree start failed", error);
+                this.app.ui.showInfo(error.message);
+                return null;
+            })
+            .finally(() => {
+                this.automaticStartPromise = null;
+            });
+        return this.automaticStartPromise;
+    }
+
+    async _completeAutomaticTree() {
+        if (this.automaticCompletionPromise) return this.automaticCompletionPromise;
+        this.automaticCompletionPromise = (async () => {
+            const session = this.sessions.getCurrentSession();
+            if (!session?.automatic || session.activeReadingMs < session.goalMs) return null;
+            const result = await this.sessions.complete();
+            await this.sessions.ensureAutomatic();
+            this._refresh();
+            return result;
+        })().catch((error) => {
+            console.error("[RewardsController] Automatic tree completion failed", error);
+            this.app.ui.showInfo("Your reading time was saved; the next tree will resume automatically.");
+            return null;
+        }).finally(() => {
+            this.automaticCompletionPromise = null;
+        });
+        return this.automaticCompletionPromise;
+    }
+
+    _flushTreeNotification() {
+        if (this.reflectionDialog?.isOpen()) return;
+        const plant = this.pendingTreeNotifications.shift();
+        if (!plant) return;
+        const definition = getPlantDefinition(plant.speciesId);
+        const message = `You earned one Reading Tree — ${definition.name}.`;
+        this.panel.announce(`tree-earned:${plant.id}`, message);
+        const state = this.storage.getSnapshot();
+        const session = state.sessions.find((candidate) => candidate.id === plant.sessionId);
+        const alreadyReflected = state.reflections.some((entry) => entry.sessionId === plant.sessionId);
+        if (session && !alreadyReflected) {
+            this.reflectionDialog?.open(
+                session,
+                `${definition.name} was added to your garden.`,
+            );
         }
-        const result = await this.sessions.complete();
-        if (!result) return;
-        const points = sumLedger(this.storage.getSnapshot().rewardLedger, (entry) => entry.sessionId === session.id);
-        const placementMessage = result.placement?.reason === "garden-full"
-            ? " Your garden is full; the mature plant is safely kept until you add a plot."
-            : "";
-        this.app.ui.showInfo(`Session complete. ${points} growth points earned.${placementMessage}`);
-        this.tracker.setReadingScreen(false);
-        this.reflectionDialog.open(
-            result.session,
-            `${points} growth points earned · ${Math.round(result.session.activeReadingMs / 60000)} active minutes.${placementMessage}`,
-        );
     }
 
     async saveReflection(session, text) {
@@ -317,12 +325,13 @@ export class RewardsController {
         const state = this.storage.getSnapshot();
         const session = state.currentSession;
         const plant = session ? state.plants.find((candidate) => candidate.id === session.plantId) : null;
-        const stage = plant ? getPlantStage(plant.speciesId, plant.pointsInvested) : null;
+        const stage = plant
+            ? getPlantStage(plant.speciesId, plant.pointsInvested, plant.growthProgress)
+            : null;
         const summary = this.rewardEngine.getSummary(state);
         this.app.state.rewards.session = session;
         this.app.state.rewards.garden = { plots: state.gardenPlots, plants: state.plants };
         this.app.state.rewards.summary = summary;
-        this.widget?.update(session, plant);
         this.panel?.update({
             documentOpen: !!this.adapter.getDocumentDescriptor(),
             session,
@@ -343,7 +352,7 @@ export class RewardsController {
     async closeDocument() {
         const session = this.sessions.getCurrentSession();
         if (session?.state === "active" || session?.state === "idle-timeout") {
-            await this.sessions.pause();
+            await this.sessions.pause({ reason: "document-closed" });
         }
         this.adapter.documentClosed();
     }

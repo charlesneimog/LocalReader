@@ -26,7 +26,7 @@ export function createInitialRewardState(config = {}, now = Date.now()) {
         }],
         plants: [],
         currentGrowingPlantId: null,
-        plantUnlocks: ["daisy-patch"],
+        plantUnlocks: ["minute-sprout", "reading-sapling", "daisy-patch"],
         weeklyConsistency: {},
         reflections: [],
         unallocatedGrowthPoints: 0,

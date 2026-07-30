@@ -10,6 +10,7 @@ import { StreakManager } from "../src/modules/rewards/streakManager.js";
 
 const config = {
     defaultGardenRows: 2, defaultGardenColumns: 2,
+    automaticTreesEnabled: true,
     sessionGoalsMinutes: [10], timeRewardIntervalMinutes: 5, timeRewardPoints: 1,
     dailyTimeRewardCap: 12, dailyEngagementRewardCap: 10, sessionCompletionPoints: 4,
     reflectionPoints: 5, annotationWithNotePoints: 3, questionPoints: 3,
@@ -77,6 +78,39 @@ test("application restart restores an unfinished active session as paused", asyn
     const second = await fixture(first.backing);
     const restored = await second.manager.restore();
     assert.equal(restored.state, "paused");
+    assert.equal(restored.pauseReason, "restore");
+});
+
+test("an explicit pause remains paused during automatic checks and records no time", async () => {
+    const item = await fixture();
+    const session = await item.manager.ensureAutomatic();
+    await item.manager.pause();
+    const pausedAt = item.manager.getCurrentSession().activeReadingMs;
+
+    item.tracker.onDelta(60000);
+    await item.manager.deltaQueue;
+    const automaticCheck = await item.manager.ensureAutomatic();
+
+    assert.equal(automaticCheck.id, session.id);
+    assert.equal(automaticCheck.state, "paused");
+    assert.equal(automaticCheck.pauseReason, "explicit");
+    assert.equal(automaticCheck.activeReadingMs, pausedAt);
+    assert.equal(item.tracker.paused, true);
+});
+
+test("an explicit pause survives application restart until Resume is selected", async () => {
+    const first = await fixture();
+    await first.manager.ensureAutomatic();
+    await first.manager.pause();
+
+    const second = await fixture(first.backing);
+    const restored = await second.manager.restore();
+    const automaticCheck = await second.manager.ensureAutomatic();
+
+    assert.equal(restored.pauseReason, "explicit");
+    assert.equal(automaticCheck.state, "paused");
+    assert.equal(automaticCheck.pauseReason, "explicit");
+    assert.equal(second.tracker.paused, true);
 });
 
 test("cross-tab storage lock excludes another owner until release", () => {
@@ -93,4 +127,61 @@ test("cross-tab storage lock excludes another owner until release", () => {
     assert.equal(second.acquire("session-two"), false);
     first.release();
     assert.equal(second.acquire("session-two"), true);
+});
+
+test("cross-tab lock keeps native timer functions bound to the global timer host", () => {
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    const receivers = [];
+    try {
+        globalThis.setInterval = function () {
+            receivers.push(this);
+            return 42;
+        };
+        globalThis.clearInterval = function () {
+            receivers.push(this);
+        };
+        const lock = new CrossTabSessionLock({
+            storage: new MemoryStorage(),
+            BroadcastChannelClass: null,
+            ownerId: "timer-owner",
+        });
+        assert.equal(lock.acquire("timer-session"), true);
+        lock.release();
+        assert.deepEqual(receivers, [globalThis, globalThis]);
+    } finally {
+        globalThis.setInterval = originalSetInterval;
+        globalThis.clearInterval = originalClearInterval;
+    }
+});
+
+test("automatic reading starts a one-minute tree without setup and matures it at the goal", async () => {
+    const item = await fixture();
+    const session = await item.manager.ensureAutomatic();
+    assert.equal(session.automatic, true);
+    assert.equal(session.goalMs, 60000);
+    const initialPlant = item.storage.getSnapshot().plants.find((plant) => plant.id === session.plantId);
+    assert.equal(initialPlant.speciesId, "minute-sprout");
+
+    await item.engine.recordActiveReading({
+        milliseconds: session.goalMs,
+        sessionId: session.id,
+        documentId: "doc",
+    });
+    const completed = await item.manager.complete();
+    assert.equal(completed.plant.stage, "mature");
+    assert.equal(completed.placement.placed, true);
+});
+
+test("automatic sessions adopt catalog changes without manual reset", async () => {
+    const item = await fixture();
+    await item.manager.start({
+        goalMinutes: 5,
+        speciesId: "minute-sprout",
+        automatic: true,
+    });
+
+    const synchronized = await item.manager.ensureAutomatic();
+    assert.equal(synchronized.plantId, item.manager.getCurrentSession().plantId);
+    assert.equal(synchronized.goalMs, 60000);
 });

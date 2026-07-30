@@ -29,8 +29,10 @@ export class GardenManager {
             speciesId: definition.id,
             rarity: definition.rarity,
             requiredPoints: definition.requiredPoints,
+            durationMinutes: Number(definition.durationMinutes) || null,
             stage: "seed",
             pointsInvested: 0,
+            growthProgress: definition.automatic ? 0 : null,
             plotId: null,
             cell: null,
             plantedAt: timestamp,
@@ -49,7 +51,7 @@ export class GardenManager {
         const invested = Math.min(capacity, Math.max(0, Number(points) || 0));
         plant.pointsInvested += invested;
         const previousStage = plant.stage;
-        const stage = getPlantStage(plant.speciesId, plant.pointsInvested);
+        const stage = getPlantStage(plant.speciesId, plant.pointsInvested, plant.growthProgress);
         plant.stage = stage.id;
         plant.updatedAt = timestamp;
         if (stage.id === "mature" && !plant.completedAt) plant.completedAt = timestamp;

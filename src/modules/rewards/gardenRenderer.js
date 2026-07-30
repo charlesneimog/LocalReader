@@ -9,6 +9,7 @@ export class GardenRenderer {
         this.data = null;
         this.selectedIndex = 0;
         this.hitAreas = [];
+        this.imageCache = new Map();
         this.resizeObserver = typeof ResizeObserver === "function"
             ? new ResizeObserver(() => this.render(this.data))
             : null;
@@ -28,7 +29,12 @@ export class GardenRenderer {
         const cssWidth = Math.max(320, rect.width || 640);
         const tileWidth = Math.max(44, Math.min(86, cssWidth / (data.plot.columns + data.plot.rows)));
         const tileHeight = tileWidth * 0.52;
-        const cssHeight = Math.max(280, (data.plot.columns + data.plot.rows) * tileHeight / 2 + 150);
+        const originY = 112;
+        const maximumDepth = Math.max(0, data.plot.columns + data.plot.rows - 2);
+        const cssHeight = Math.max(
+            260,
+            originY + maximumDepth * tileHeight / 2 + tileHeight / 2 + 32,
+        );
         const ratio = Math.max(1, globalThis.devicePixelRatio || 1);
         canvas.width = Math.round(cssWidth * ratio);
         canvas.height = Math.round(cssHeight * ratio);
@@ -37,7 +43,6 @@ export class GardenRenderer {
         context.clearRect(0, 0, cssWidth, cssHeight);
 
         const originX = cssWidth / 2;
-        const originY = 58;
         this.hitAreas = [];
         const plantsByCell = new Map(
             data.plants.filter((plant) => plant.cell).map((plant) => [`${plant.cell.x}:${plant.cell.y}`, plant]),
@@ -95,9 +100,12 @@ export class GardenRenderer {
     _drawPlant(x, y, tileWidth, tileHeight, plant) {
         const context = this.context;
         const definition = getPlantDefinition(plant.speciesId);
-        const stage = getPlantStage(plant.speciesId, plant.pointsInvested);
+        const stage = getPlantStage(plant.speciesId, plant.pointsInvested, plant.growthProgress);
         const scale = 0.3 + stage.progress * 0.7;
-        const baseY = y + tileHeight * 0.15;
+        // Keep the planting point just below the cell center. SVGs include
+        // padding below their shadow, so the configured shadow line—not the
+        // image bounding box—is aligned to this subtle offset.
+        const baseY = y + tileHeight * 0.18;
         context.save();
         context.translate(x, baseY);
         context.scale(scale, scale);
@@ -107,6 +115,24 @@ export class GardenRenderer {
             context.beginPath();
             context.ellipse(0, -4, 5, 3, -0.35, 0, Math.PI * 2);
             context.fill();
+            context.restore();
+            return;
+        }
+        const treeImage = this._getTreeImage(definition.image);
+        if (treeImage?.complete && treeImage.naturalWidth > 0) {
+            const drawWidth = 90;
+            const drawHeight = 105;
+            const groundAnchor = Math.max(
+                0.5,
+                Math.min(1, Number(definition.groundAnchor) || 0.92),
+            );
+            context.drawImage(
+                treeImage,
+                -drawWidth / 2,
+                -drawHeight * groundAnchor,
+                drawWidth,
+                drawHeight,
+            );
             context.restore();
             return;
         }
@@ -135,6 +161,18 @@ export class GardenRenderer {
             }
         }
         context.restore();
+    }
+
+    _getTreeImage(source) {
+        if (!source || typeof Image !== "function") return null;
+        if (this.imageCache.has(source)) return this.imageCache.get(source);
+        const image = new Image();
+        image.decoding = "async";
+        image.onload = () => this.render(this.data);
+        image.onerror = () => console.warn("[GardenRenderer] Unable to load tree image", source);
+        image.src = source;
+        this.imageCache.set(source, image);
+        return image;
     }
 
     _drawBlossom(x, y, petal, center) {
@@ -198,7 +236,11 @@ export class GardenRenderer {
     _label(area) {
         if (!area?.plant) return `Empty garden cell, column ${area.cell.x + 1}, row ${area.cell.y + 1}`;
         const definition = getPlantDefinition(area.plant.speciesId);
-        const stage = getPlantStage(area.plant.speciesId, area.plant.pointsInvested);
-        return `${definition.name}, ${stage.label}, ${stage.percent}% grown, column ${area.cell.x + 1}, row ${area.cell.y + 1}`;
+        const stage = getPlantStage(
+            area.plant.speciesId,
+            area.plant.pointsInvested,
+            area.plant.growthProgress,
+        );
+        return `${definition.name}, ${stage.label}, column ${area.cell.x + 1}, row ${area.cell.y + 1}`;
     }
 }

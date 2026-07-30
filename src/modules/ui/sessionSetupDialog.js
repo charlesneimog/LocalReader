@@ -8,11 +8,11 @@ export class SessionSetupDialog {
         this.dialog.className =
             "rewards-dialog w-[94vw] max-w-xl max-h-[88vh] p-0 rounded-xl border border-slate-200 " +
             "dark:border-slate-700 bg-background-light dark:bg-background-dark text-slate-800 " +
-            "dark:text-slate-200 shadow-2xl";
+            "dark:text-slate-200 text-center shadow-2xl";
         this.dialog.innerHTML = `
             <form method="dialog" class="grid gap-4 p-4 sm:p-6 overflow-y-auto max-h-[88vh]">
                 <header class="flex items-start justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-700">
-                    <div>
+                    <div class="flex-1 text-center">
                         <h2 class="text-xl font-bold text-slate-900 dark:text-slate-100">Grow while you read</h2>
                         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Choose a focus goal and a plant.</p>
                     </div>
@@ -22,7 +22,7 @@ export class SessionSetupDialog {
                     </button>
                 </header>
                 <p class="text-sm text-slate-600 dark:text-slate-300">Only active, focused reading time counts toward growth.</p>
-                <label class="grid gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                <label class="grid gap-2 text-left text-sm font-medium text-slate-700 dark:text-slate-200">
                     Reading goal
                     <select data-goal class="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-900 px-3 py-2 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-primary"></select>
                 </label>

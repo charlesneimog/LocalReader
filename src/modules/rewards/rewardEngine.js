@@ -7,7 +7,11 @@ import {
     sumLedger,
     uuid,
 } from "./rewardDefinitions.js";
-import { availablePlantDefinitions, PLANT_DEFINITIONS } from "./plantDefinitions.js";
+import {
+    availablePlantDefinitions,
+    getAutomaticTreeTier,
+    PLANT_DEFINITIONS,
+} from "./plantDefinitions.js";
 
 /**
  * Idempotent reward ledger and plant allocation service. UI and reader events
@@ -181,6 +185,13 @@ export class RewardEngine {
             session.completedAt = timestamp;
             session.updatedAt = timestamp;
             session.goalReachedAt ||= timestamp;
+            const plant = state.plants.find((candidate) => candidate.id === session.plantId);
+            if (session.automatic && plant) {
+                plant.growthProgress = 1;
+                plant.stage = "mature";
+                plant.completedAt ||= timestamp;
+                plant.updatedAt = timestamp;
+            }
             const completion = this._grantInDraft(state, {
                 rewardType: REWARD_TYPES.SESSION_COMPLETION,
                 points: this.config.sessionCompletionPoints,
@@ -191,7 +202,6 @@ export class RewardEngine {
                 metadata: { goalMs: session.goalMs, activeReadingMs: session.activeReadingMs },
             });
             if (completion) granted.push(completion);
-            const plant = state.plants.find((candidate) => candidate.id === session.plantId);
             const placement = plant?.stage === "mature"
                 ? this.gardenManager.placeMaturePlant(state, plant, timestamp)
                 : { placed: false, reason: "not-mature" };
@@ -214,13 +224,20 @@ export class RewardEngine {
         );
         const week = this.streakManager.current(state, timestamp);
         const definitions = availablePlantDefinitions(totalPoints, state.plantUnlocks);
+        const treeTier = getAutomaticTreeTier(state.plants);
         return {
             totalPoints,
             unallocatedGrowthPoints: state.unallocatedGrowthPoints,
             maturePlantCount: state.plants.filter((plant) => plant.stage === "mature").length,
             currentPlant,
             weeklyReadingDays: week.days.length,
-            nextUnlock: definitions.find((definition) => definition.locked) || null,
+            nextUnlock: treeTier.next
+                ? {
+                    ...treeTier.next,
+                    remainingTrees: treeTier.remaining,
+                }
+                : definitions.find((definition) => definition.locked) || null,
+            treeTier,
             gardenOccupancy: { occupied, capacity },
         };
     }

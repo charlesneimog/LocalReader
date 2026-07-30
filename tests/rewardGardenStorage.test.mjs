@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deterministicAvailableCell, GardenManager } from "../src/modules/rewards/gardenManager.js";
-import { getPlantStage } from "../src/modules/rewards/plantDefinitions.js";
+import {
+    getAutomaticTreeTier,
+    getPlantStage,
+} from "../src/modules/rewards/plantDefinitions.js";
 import { migrateRewardState } from "../src/modules/rewards/rewardMigrations.js";
 import { mergeRewardStates, relocateGardenConflicts } from "../src/modules/rewards/rewardStorage.js";
 
@@ -70,4 +73,22 @@ test("schema migration repairs malformed persisted collections", () => {
     assert.deepEqual(migrated.rewardLedger, []);
     assert.deepEqual(migrated.plants, []);
     assert.equal(migrated.unallocatedGrowthPoints, 0);
+});
+
+test("automatic tree catalog advances from one minute through the five and seven minute tiers", () => {
+    const minuteTree = {
+        id: "minute-1",
+        speciesId: "minute-sprout",
+        stage: "mature",
+    };
+    const saplings = Array.from({ length: 5 }, (_, index) => ({
+        id: `sapling-${index}`,
+        speciesId: "reading-sapling",
+        stage: "mature",
+    }));
+    assert.equal(getAutomaticTreeTier([]).definition.durationMinutes, 1);
+    assert.equal(getAutomaticTreeTier([minuteTree]).definition.durationMinutes, 5);
+    const nextTier = getAutomaticTreeTier([minuteTree, ...saplings]);
+    assert.equal(nextTier.definition.id, "violet-blossom");
+    assert.equal(nextTier.definition.durationMinutes, 7);
 });

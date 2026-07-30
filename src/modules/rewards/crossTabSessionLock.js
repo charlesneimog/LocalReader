@@ -19,8 +19,10 @@ export class CrossTabSessionLock {
         storage = globalThis.localStorage,
         BroadcastChannelClass = globalThis.BroadcastChannel,
         now = Date.now,
-        setIntervalFn = globalThis.setInterval,
-        clearIntervalFn = globalThis.clearInterval,
+        // Keep Window timer methods attached to their native receiver. Firefox
+        // rejects `object.savedSetInterval()` because `this` becomes `object`.
+        setIntervalFn = (...args) => globalThis.setInterval(...args),
+        clearIntervalFn = (...args) => globalThis.clearInterval(...args),
         key = "localreader.readingSessionLock",
         leaseMs = 15000,
         ownerId,

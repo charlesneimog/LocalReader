@@ -74,6 +74,14 @@ test("delayed callbacks are clamped and TTS keeps one shared clock eligible", ()
     assert.equal(item.advance(1000), 1000);
 });
 
+test("TTS cannot bypass an explicit pause", () => {
+    const item = fixture();
+    item.tracker.setTtsPlaying(true);
+    item.tracker.setPaused(true);
+    assert.equal(item.advance(1000), 0);
+    assert.deepEqual(item.deltas, []);
+});
+
 test("closed documents and non-reading screens do not count", () => {
     const item = fixture();
     item.tracker.setReadingScreen(false);
@@ -81,4 +89,30 @@ test("closed documents and non-reading screens do not count", () => {
     item.tracker.setReadingScreen(true);
     item.tracker.setDocumentOpen(false);
     assert.equal(item.advance(1000), 0);
+});
+
+test("default reading-clock timers keep the native global receiver", () => {
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    const receivers = [];
+    try {
+        globalThis.setInterval = function () {
+            receivers.push(this);
+            return 7;
+        };
+        globalThis.clearInterval = function () {
+            receivers.push(this);
+        };
+        const tracker = new ActiveReadingTracker({
+            config,
+            performanceNow: () => 0,
+            documentObject: null,
+        });
+        tracker.start();
+        tracker.stop();
+        assert.deepEqual(receivers, [globalThis, globalThis]);
+    } finally {
+        globalThis.setInterval = originalSetInterval;
+        globalThis.clearInterval = originalClearInterval;
+    }
 });

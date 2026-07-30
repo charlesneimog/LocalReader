@@ -1,3 +1,5 @@
+import treeCatalog from "../../../assets/rewards/trees/catalog.json" with { type: "json" };
+
 /**
  * @typedef {Object} GardenPlant
  * @property {string} id
@@ -34,27 +36,74 @@ const STAGES = Object.freeze([
 
 const plant = (definition) => Object.freeze({ ...definition, stages: STAGES });
 
-export const PLANT_DEFINITIONS = Object.freeze([
+export const AUTOMATIC_TREE_DEFINITIONS = Object.freeze(
+    treeCatalog.trees.map((definition) => plant({
+        ...definition,
+        automatic: true,
+        requiredPoints: Number(definition.requiredPoints) || 15,
+        unlockPoints: 0,
+    })),
+);
+
+const LEGACY_PLANT_DEFINITIONS = [
     plant({ id: "daisy-patch", name: "Daisy Patch", rarity: "common", requiredPoints: 15, unlockPoints: 0, palette: ["#fffaf0", "#f6b93b", "#4d9b62"] }),
     plant({ id: "lavender", name: "Lavender", rarity: "common", requiredPoints: 18, unlockPoints: 20, palette: ["#9b87db", "#6554a4", "#4f8d64"] }),
     plant({ id: "fern", name: "Silver Fern", rarity: "uncommon", requiredPoints: 20, unlockPoints: 45, palette: ["#9ed49a", "#3f8158", "#285b45"] }),
     plant({ id: "sunflower", name: "Sunwheel", rarity: "uncommon", requiredPoints: 24, unlockPoints: 75, palette: ["#f8c74f", "#7d532a", "#4c9660"] }),
     plant({ id: "hydrangea", name: "Cloud Hydrangea", rarity: "rare", requiredPoints: 28, unlockPoints: 120, palette: ["#77a9dd", "#a683cc", "#477957"] }),
     plant({ id: "flowering-tree", name: "Blossom Lantern Tree", rarity: "rare", requiredPoints: 34, unlockPoints: 180, palette: ["#f3a7ba", "#815b45", "#39704c"] }),
+];
+
+export const PLANT_DEFINITIONS = Object.freeze([
+    ...AUTOMATIC_TREE_DEFINITIONS,
+    ...LEGACY_PLANT_DEFINITIONS,
 ]);
 
 export function getPlantDefinition(speciesId) {
     return PLANT_DEFINITIONS.find((definition) => definition.id === speciesId) || PLANT_DEFINITIONS[0];
 }
 
-export function getPlantStage(speciesId, pointsInvested) {
+export function getPlantStage(speciesId, pointsInvested, progressOverride = null) {
     const definition = getPlantDefinition(speciesId);
-    const progress = Math.max(0, Math.min(1, (Number(pointsInvested) || 0) / definition.requiredPoints));
+    const hasProgressOverride =
+        progressOverride !== null &&
+        progressOverride !== undefined &&
+        Number.isFinite(Number(progressOverride));
+    const rawProgress = hasProgressOverride
+        ? Number(progressOverride)
+        : (Number(pointsInvested) || 0) / definition.requiredPoints;
+    const progress = Math.max(0, Math.min(1, rawProgress));
     let stage = definition.stages[0];
     for (const candidate of definition.stages) {
         if (progress >= candidate.threshold) stage = candidate;
     }
     return { ...stage, progress, percent: Math.floor(progress * 100) };
+}
+
+/**
+ * Select the first tree tier whose configured completion requirement has not
+ * yet been met. The last tier repeats indefinitely when its requirement is null.
+ */
+export function getAutomaticTreeTier(plants = []) {
+    for (let index = 0; index < AUTOMATIC_TREE_DEFINITIONS.length; index++) {
+        const definition = AUTOMATIC_TREE_DEFINITIONS[index];
+        const completed = plants.filter(
+            (candidate) => candidate.speciesId === definition.id && candidate.stage === "mature",
+        ).length;
+        const required = Number(definition.requiredCompletions);
+        if (!Number.isFinite(required) || required <= 0 || completed < required) {
+            return {
+                definition,
+                index,
+                completed,
+                required: Number.isFinite(required) && required > 0 ? required : null,
+                remaining: Number.isFinite(required) && required > 0 ? Math.max(0, required - completed) : null,
+                next: AUTOMATIC_TREE_DEFINITIONS[index + 1] || null,
+            };
+        }
+    }
+    const definition = AUTOMATIC_TREE_DEFINITIONS.at(-1);
+    return { definition, index: AUTOMATIC_TREE_DEFINITIONS.length - 1, completed: 0, required: null, remaining: null, next: null };
 }
 
 export function availablePlantDefinitions(totalEarnedPoints, unlocks = []) {

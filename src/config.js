@@ -5,7 +5,7 @@ export const CONFIG = {
     VERSION_LABEL: "0.38.7+16",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 40,
-    VERSION_PATCH: 0,
+    VERSION_PATCH: 2,
     VERSION_BUILD: 0,
 
     // Rendering
@@ -102,6 +102,7 @@ export const CONFIG = {
     // point values or timing policy in UI code.
     REWARDS: Object.freeze({
         enabled: true,
+        automaticTreesEnabled: true,
         schemaVersion: 1,
         tickIntervalMs: 1000,
         idleTimeoutMs: 240000,

@@ -7,13 +7,13 @@ export class GardenDialog {
         this.selectedPlotId = null;
         this.dialog = document.createElement("dialog");
         this.dialog.className =
-            "rewards-dialog garden-dialog w-[94vw] max-w-2xl max-h-[88vh] p-0 rounded-xl " +
+            "rewards-dialog garden-dialog w-[94vw] max-w-xl max-h-[88vh] p-0 rounded-xl " +
             "border border-slate-200 dark:border-slate-700 bg-background-light dark:bg-background-dark " +
-            "text-slate-800 dark:text-slate-200 shadow-2xl";
+            "text-slate-800 dark:text-slate-200 text-center shadow-2xl";
         this.dialog.innerHTML = `
-            <section class="grid gap-4 p-4 sm:p-6 overflow-y-auto max-h-[88vh]">
+            <section class="grid gap-3 p-4 overflow-y-auto max-h-[88vh]">
                 <header class="flex items-start justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-700">
-                    <div>
+                    <div class="flex-1 text-center">
                         <h2 class="text-xl font-bold text-slate-900 dark:text-slate-100">Reading garden</h2>
                         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">A garden shaped by focused reading.</p>
                     </div>
@@ -87,8 +87,10 @@ export class GardenDialog {
         const plotPlants = state.plants.filter((plant) => plant.plotId === plot.id);
         const occupied = plotPlants.filter((plant) => plant.cell).length;
         const unplaced = state.plants.filter((plant) => plant.stage === "mature" && !plant.cell).length;
+        const matureLabel = `${summary.maturePlantCount} mature ${summary.maturePlantCount === 1 ? "plant" : "plants"}`;
+        const weekLabel = `${summary.weeklyReadingDays} reading ${summary.weeklyReadingDays === 1 ? "day" : "days"} this week`;
         this.dialog.querySelector("[data-summary]").textContent =
-            `${summary.maturePlantCount} mature plants · ${occupied} of ${plot.rows * plot.columns} cells occupied · ${summary.weeklyReadingDays} reading days this week${unplaced ? ` · ${unplaced} mature plant${unplaced === 1 ? "" : "s"} waiting for space` : ""}`;
+            `${matureLabel} · ${occupied} of ${plot.rows * plot.columns} cells occupied · ${weekLabel}${unplaced ? ` · ${unplaced} mature plant${unplaced === 1 ? "" : "s"} waiting for space` : ""}`;
         this.renderer.render({ plot, plants: plotPlants });
         const list = this.dialog.querySelector("[data-list]");
         list.replaceChildren();
@@ -111,7 +113,7 @@ export class GardenDialog {
 
     _plantLabel(plant) {
         const definition = getPlantDefinition(plant.speciesId);
-        const stage = getPlantStage(plant.speciesId, plant.pointsInvested);
-        return `${definition.name}, ${stage.label}, ${stage.percent}% grown`;
+        const stage = getPlantStage(plant.speciesId, plant.pointsInvested, plant.growthProgress);
+        return `${definition.name}, ${stage.label}`;
     }
 }

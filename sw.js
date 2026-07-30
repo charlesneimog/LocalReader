@@ -1,4 +1,4 @@
-const APP_VERSION = "0.40.0+0";
+const APP_VERSION = "0.40.2+0";
 const IDB_VERSION = 1;
 const cacheName = `PocketReader-v${APP_VERSION}`;
 const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;
@@ -43,6 +43,12 @@ const staticFiles = [
     "/assets/icons/mask-512.png",
     "/assets/icons/mask.svg",
     "/assets/images/default-user.png",
+    "/assets/rewards/trees/catalog.json",
+    "/assets/rewards/trees/minute-sprout.svg",
+    "/assets/rewards/trees/reading-sapling.svg",
+    "/assets/rewards/trees/violet-blossom.svg",
+    "/assets/rewards/trees/sunset-maple.svg",
+    "/assets/rewards/trees/moonlit-oak.svg",
     "/assets/screenshots/screenshot1.png",
     "/assets/screenshots/screenshot2.png",
 
@@ -465,6 +471,7 @@ const isAppShellRequest = (urlObj) => {
     if (path === "/" || path.endsWith("/index.html")) return true;
     if (path.endsWith("/sw.js") || path.endsWith("/threads.js") || path.endsWith("/manifest.webmanifest")) return true;
     if (path.includes("/src/")) return true;
+    if (path.endsWith("/assets/rewards/trees/catalog.json")) return true;
     return false;
 };
 

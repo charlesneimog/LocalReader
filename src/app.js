@@ -34,6 +34,7 @@ import { HighlightsStorage } from "./modules/storage/highlightsStorage.js";
 import { ExportManager } from "./modules/storage/exportManager.js";
 import { PDFThumbnailCache } from "./modules/storage/pdfThumbnailCache.js";
 import { SyncManager } from "./modules/storage/syncManager.js";
+import { initializeRewards } from "./modules/rewards/index.js";
 
 export class PDFTTSApp {
     constructor() {
@@ -1051,6 +1052,7 @@ export class PDFTTSApp {
         this.viewportManager.start();
         this._handleViewportHeightChange(this.viewportManager.getCurrentHeight());
         await this._ensureAriaRegions();
+        await initializeRewards(this);
         await this._loadInitialPDF();
     }
 
@@ -1219,6 +1221,12 @@ export class PDFTTSApp {
     async closeCurrentDocument() {
         const { state } = this;
         this._setReaderScrollbarsHidden(false);
+
+        try {
+            await this.rewards?.closeDocument?.();
+        } catch (err) {
+            console.warn("closeCurrentDocument: reward checkpoint failed", err);
+        }
 
         try {
             // Stop server sync

@@ -1,0 +1,279 @@
+import { EVENTS } from "../../constants/events.js";
+import { availablePlantDefinitions, getPlantStage } from "./plantDefinitions.js";
+import { SESSION_STATES, sumLedger, uuid } from "./rewardDefinitions.js";
+
+/** Persistent reading-session lifecycle facade. */
+export class ReadingSessionManager {
+    constructor({
+        storage,
+        rewardEngine,
+        gardenManager,
+        tracker,
+        lock,
+        eventBus,
+        config,
+        getDocument,
+        now = Date.now,
+        randomUUID,
+    } = {}) {
+        this.storage = storage;
+        this.rewardEngine = rewardEngine;
+        this.gardenManager = gardenManager;
+        this.tracker = tracker;
+        this.lock = lock;
+        this.eventBus = eventBus;
+        this.config = config;
+        this.getDocument = getDocument;
+        this.now = now;
+        this.randomUUID = randomUUID;
+        this.deltaQueue = Promise.resolve();
+        this.lifecycleState = SESSION_STATES.IDLE;
+        this.tracker.onDelta = (milliseconds) => {
+            this.deltaQueue = this.deltaQueue
+                .then(() => this._recordDelta(milliseconds))
+                .catch((error) => console.error("[ReadingSessionManager] Active time checkpoint failed", error));
+        };
+        this.tracker.onIdle = () => this._transitionIdle();
+        this.tracker.onActivityResumed = () => this._resumeFromIdle();
+    }
+
+    async restore() {
+        const state = this.storage.getSnapshot();
+        if (!state.currentSession) return null;
+        const session = state.sessions.find((candidate) => candidate.id === state.currentSession.id);
+        if (!session || [SESSION_STATES.COMPLETED, SESSION_STATES.ABANDONED].includes(session.state)) return null;
+        await this.storage.transaction((draft) => {
+            const stored = draft.sessions.find((candidate) => candidate.id === session.id);
+            stored.state = SESSION_STATES.PAUSED;
+            stored.updatedAt = this.now();
+            draft.currentSession = { ...stored };
+        });
+        this.tracker.setPaused(true);
+        this.lifecycleState = SESSION_STATES.PAUSED;
+        return this.getCurrentSession();
+    }
+
+    prepare() {
+        if (!this.getCurrentSession()) this.lifecycleState = SESSION_STATES.PREPARING;
+        return this.lifecycleState;
+    }
+
+    cancelPreparing() {
+        if (!this.getCurrentSession() && this.lifecycleState === SESSION_STATES.PREPARING) {
+            this.lifecycleState = SESSION_STATES.IDLE;
+        }
+    }
+
+    async start({ goalMinutes, speciesId }) {
+        const document = this.getDocument?.();
+        if (!document?.id || !["pdf", "epub"].includes(document.type)) {
+            throw new Error("Open a PDF or EPUB before starting a reading session.");
+        }
+        const goal = Number(goalMinutes);
+        if (!this.config.sessionGoalsMinutes.includes(goal)) throw new Error("Unsupported session goal.");
+        const state = this.storage.getSnapshot();
+        if (state.currentSession) throw new Error("A reading session is already in progress.");
+        const totalPoints = sumLedger(state.rewardLedger);
+        const selected = availablePlantDefinitions(totalPoints, state.plantUnlocks)
+            .find((definition) => definition.id === speciesId);
+        if (!selected || selected.locked) throw new Error("That plant species is still locked.");
+        const sessionId = uuid(this.randomUUID);
+        if (!this.lock.acquire(sessionId)) throw new Error("Another tab already has an active reading session.");
+        const timestamp = this.now();
+        const previousTimestamp = state.lastValidReadingTimestamp;
+        let session;
+        try {
+            await this.storage.transaction((draft) => {
+                let plant = draft.plants.find(
+                    (candidate) =>
+                        candidate.id === draft.currentGrowingPlantId &&
+                        candidate.speciesId === speciesId &&
+                        candidate.stage !== "mature",
+                );
+                if (!plant) {
+                    plant = this.gardenManager.createPlant({
+                        speciesId,
+                        sessionId,
+                        document,
+                        timestamp,
+                    });
+                    draft.plants.push(plant);
+                }
+                session = {
+                    id: sessionId,
+                    state: SESSION_STATES.ACTIVE,
+                    goalMs: goal * 60000,
+                    activeReadingMs: 0,
+                    pointsEarned: 0,
+                    document,
+                    plantId: plant.id,
+                    startedAt: timestamp,
+                    goalReachedAt: null,
+                    completedAt: null,
+                    abandonedAt: null,
+                    updatedAt: timestamp,
+                };
+                draft.currentGrowingPlantId = plant.id;
+                draft.sessions.push(session);
+                draft.currentSession = { ...session };
+            });
+        } catch (error) {
+            this.lock.release();
+            throw error;
+        }
+        this.tracker.setPaused(false);
+        this.tracker.start();
+        this.lifecycleState = SESSION_STATES.ACTIVE;
+        this.eventBus?.emit(EVENTS.PLANT_SELECTED, { speciesId, sessionId });
+        this.eventBus?.emit(EVENTS.READING_SESSION_STARTED, { ...session });
+        await this.rewardEngine.grantRecoveryIfEligible({
+            sessionId,
+            documentId: document.id,
+            previousTimestamp,
+            timestamp,
+        });
+        return this.getCurrentSession();
+    }
+
+    async pause() {
+        const session = this.getCurrentSession();
+        if (!session || ![SESSION_STATES.ACTIVE, SESSION_STATES.IDLE_TIMEOUT].includes(session.state)) return null;
+        this.tracker.checkpoint();
+        this.tracker.setPaused(true);
+        await this.deltaQueue;
+        await this._setState(session.id, SESSION_STATES.PAUSED);
+        this.lifecycleState = SESSION_STATES.PAUSED;
+        this.eventBus?.emit(EVENTS.READING_SESSION_PAUSED, this.getCurrentSession());
+        return this.getCurrentSession();
+    }
+
+    async resume() {
+        const session = this.getCurrentSession();
+        if (!session || ![SESSION_STATES.PAUSED, SESSION_STATES.IDLE_TIMEOUT].includes(session.state)) return null;
+        if (!this.lock.sessionId && !this.lock.acquire(session.id)) {
+            throw new Error("Another tab already has an active reading session.");
+        }
+        await this._setState(session.id, SESSION_STATES.ACTIVE);
+        this.lifecycleState = SESSION_STATES.ACTIVE;
+        this.tracker.setPaused(false);
+        this.tracker.start();
+        this.eventBus?.emit(EVENTS.READING_SESSION_RESUMED, this.getCurrentSession());
+        return this.getCurrentSession();
+    }
+
+    async complete() {
+        const session = this.getCurrentSession();
+        if (!session || session.activeReadingMs < session.goalMs) throw new Error("The session goal has not been reached.");
+        this.tracker.checkpoint();
+        this.tracker.setPaused(true);
+        await this.deltaQueue;
+        const result = await this.rewardEngine.completeSession(session.id, this.now());
+        this.tracker.stop();
+        this.lock.release();
+        this.lifecycleState = SESSION_STATES.IDLE;
+        if (result) {
+            this.eventBus?.emit(EVENTS.READING_SESSION_COMPLETED, result);
+            if (result.plant?.stage === "mature") this.eventBus?.emit(EVENTS.PLANT_MATURED, result.plant);
+            this.eventBus?.emit(EVENTS.GARDEN_UPDATED, result);
+            if (result.plant?.stage === "mature") {
+                await this.storage.transaction((state) => {
+                    if (state.currentGrowingPlantId === result.plant.id) state.currentGrowingPlantId = null;
+                });
+            }
+        }
+        return result;
+    }
+
+    async abandon() {
+        const session = this.getCurrentSession();
+        if (!session) return null;
+        this.tracker.checkpoint();
+        this.tracker.setPaused(true);
+        await this.deltaQueue;
+        const timestamp = this.now();
+        await this.storage.transaction((state) => {
+            const stored = state.sessions.find((candidate) => candidate.id === session.id);
+            stored.state = SESSION_STATES.ABANDONED;
+            stored.abandonedAt = timestamp;
+            stored.updatedAt = timestamp;
+            stored.pointsEarned = sumLedger(state.rewardLedger, (entry) => entry.sessionId === stored.id);
+            state.currentSession = null;
+        });
+        this.tracker.stop();
+        this.lock.release();
+        this.lifecycleState = SESSION_STATES.IDLE;
+        const abandoned = this.storage.getSnapshot().sessions.find((candidate) => candidate.id === session.id);
+        this.eventBus?.emit(EVENTS.READING_SESSION_ABANDONED, abandoned);
+        return abandoned;
+    }
+
+    getCurrentSession() {
+        return this.storage.getSnapshot().currentSession;
+    }
+
+    async _recordDelta(milliseconds) {
+        const session = this.getCurrentSession();
+        if (!session || session.state !== SESSION_STATES.ACTIVE) return;
+        const before = this.storage.getSnapshot();
+        const previousPlant = before.plants.find((plant) => plant.id === session.plantId);
+        const previousStage = previousPlant?.stage;
+        await this.rewardEngine.recordActiveReading({
+            milliseconds,
+            sessionId: session.id,
+            documentId: session.document.id,
+            timestamp: this.now(),
+        });
+        const state = this.storage.getSnapshot();
+        const updated = state.sessions.find((candidate) => candidate.id === session.id);
+        const plant = state.plants.find((candidate) => candidate.id === session.plantId);
+        if (!updated) return;
+        if (!updated.goalReachedAt && updated.activeReadingMs >= updated.goalMs) {
+            const timestamp = this.now();
+            await this.storage.transaction((draft) => {
+                const stored = draft.sessions.find((candidate) => candidate.id === session.id);
+                stored.goalReachedAt ||= timestamp;
+                stored.updatedAt = timestamp;
+                draft.currentSession = { ...stored };
+            });
+            this.eventBus?.emit(EVENTS.READING_SESSION_GOAL_REACHED, this.getCurrentSession());
+        }
+        if (plant && plant.stage !== previousStage) {
+            this.eventBus?.emit(EVENTS.PLANT_STAGE_CHANGED, {
+                plant,
+                stage: getPlantStage(plant.speciesId, plant.pointsInvested),
+            });
+        }
+        this.eventBus?.emit(EVENTS.READING_SESSION_PROGRESS, {
+            session: this.getCurrentSession(),
+            plant,
+        });
+    }
+
+    async _setState(sessionId, stateName) {
+        await this.storage.transaction((state) => {
+            const session = state.sessions.find((candidate) => candidate.id === sessionId);
+            if (!session) return;
+            session.state = stateName;
+            session.updatedAt = this.now();
+            state.currentSession = { ...session };
+        });
+    }
+
+    _transitionIdle() {
+        const session = this.getCurrentSession();
+        if (!session || session.state !== SESSION_STATES.ACTIVE) return;
+        this.lifecycleState = SESSION_STATES.IDLE_TIMEOUT;
+        this._setState(session.id, SESSION_STATES.IDLE_TIMEOUT)
+            .then(() => this.eventBus?.emit(EVENTS.READING_SESSION_IDLE, this.getCurrentSession()))
+            .catch((error) => console.error("[ReadingSessionManager] Idle checkpoint failed", error));
+    }
+
+    _resumeFromIdle() {
+        const session = this.getCurrentSession();
+        if (!session || session.state !== SESSION_STATES.IDLE_TIMEOUT) return;
+        this.lifecycleState = SESSION_STATES.ACTIVE;
+        this._setState(session.id, SESSION_STATES.ACTIVE)
+            .then(() => this.eventBus?.emit(EVENTS.READING_SESSION_RESUMED, this.getCurrentSession()))
+            .catch((error) => console.error("[ReadingSessionManager] Idle resume failed", error));
+    }
+}

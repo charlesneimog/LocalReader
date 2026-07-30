@@ -28,6 +28,9 @@ export class SyncManager {
     syncVoice(...args) { return this.active.syncVoice(...args); }
     syncHighlights(...args) { return this.active.syncHighlights(...args); }
     syncTranslationSettings(...args) { return this.active.syncTranslationSettings(...args); }
+    queueRewardsSync(...args) { return this.active.queueRewardsSync?.(...args); }
+    syncRewards(...args) { return this.active.syncRewards?.(...args); }
+    pullRewards(...args) { return this.active.pullRewards?.(...args); }
     loadPositionAndHighlightsFromServer(...args) { return this.active.loadPositionAndHighlightsFromServer(...args); }
     ensureFileOnServer(...args) { return this.active.ensureFileOnServer(...args); }
     pullServerStateUpdates(...args) { return this.active.pullServerStateUpdates(...args); }

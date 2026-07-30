@@ -3,6 +3,7 @@ import {
     LEGACY_PHRASE_SPLIT_VERSION,
     normalizePhraseSplitVersion,
 } from "../phrases/phraseSplitVersions.js";
+import { EVENTS } from "../../constants/events.js";
 
 export class HighlightsStorage {
     constructor(app) {
@@ -266,6 +267,15 @@ export class HighlightsStorage {
             return;
         }
 
+        // A document/sentence anchor is stable across deletion and recreation,
+        // preventing a note from minting engagement rewards repeatedly.
+        for (const [sentenceIndex, data] of state.savedHighlights.entries()) {
+            if (!data || typeof data !== "object") continue;
+            if (!data.annotationId) {
+                data.annotationId = `${state.currentDocumentType}:${key}:${sentenceIndex}`;
+            }
+        }
+
         if (state.currentDocumentType === "pdf") {
             this._stampPdfWordAnchors(state.savedHighlights);
         } else {
@@ -286,6 +296,16 @@ export class HighlightsStorage {
 
         all[key] = pdfHighlights;
         this.setHighlightsMap(all);
+
+        for (const [sentenceIndex, data] of state.savedHighlights.entries()) {
+            this.app.eventBus?.emit?.(EVENTS.HIGHLIGHT_ADDED, {
+                documentId: key,
+                documentType: state.currentDocumentType,
+                sentenceIndex,
+                annotationId: data.annotationId,
+                comment: typeof data.comment === "string" ? data.comment.trim() : "",
+            });
+        }
 
         //console.log("[HighlightsStorage] Saved highlights locally", {
         //    key,

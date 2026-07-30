@@ -556,6 +556,11 @@ class APIHandler(BaseHTTPRequestHandler):
             return
         
         # GET /api/files - List all files
+        if path == "/api/rewards":
+            self._send_json(200, {"snapshot": app.get_reward_state(user_email)})
+            return
+
+        # GET /api/files - List all files
         if path == "/api/files":
             files = app.get_files(owner_email=user_email)
             deleted = app.get_deleted_files(owner_email=user_email)
@@ -1068,6 +1073,20 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_error(400, f"Invalid JSON: {str(e)}")
             return
         
+        # PUT /api/files/{file_id}/position
+        if path == "/api/rewards":
+            snapshot = data.get("snapshot")
+            if not isinstance(snapshot, dict):
+                self._send_error(400, "Missing or invalid 'snapshot' field")
+                return
+            try:
+                app.update_reward_state(user_email, snapshot)
+            except ValueError as error:
+                self._send_error(413, str(error))
+                return
+            self._send_json(200, {"success": True})
+            return
+
         # PUT /api/files/{file_id}/position
         match = re.match(r'^/api/files/(.+)/position$', path)
         if match:

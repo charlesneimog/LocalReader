@@ -1,5 +1,6 @@
 import "./../../../thirdparty/foliate-js/view.js";
 import { Overlayer } from "./../../../thirdparty/foliate-js/overlayer.js";
+import { EVENTS } from "../../constants/events.js";
 
 const ACTIVE_SENTENCE_COLOR = "rgb(120, 190, 255)";
 const HOVER_SENTENCE_COLOR = "rgb(148, 206, 255)";
@@ -175,6 +176,7 @@ export class EPUBRenderer {
             if (this.app?.state) {
                 this.app.state.epubProgress = detail;
             }
+            this.app?.eventBus?.emit?.(EVENTS.EPUB_LOCATION_CHANGED, detail);
         };
         this._boundHighlight = (event) => {
             console.debug("foliate highlight", event?.detail);
@@ -474,6 +476,7 @@ export class EPUBRenderer {
         }
 
         this.app.progressManager.saveProgress();
+        this.app.eventBus?.emit?.(EVENTS.SENTENCE_CHANGED, { index: idx, sentence });
 
         return sentence;
     }

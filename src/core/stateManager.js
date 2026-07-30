@@ -62,6 +62,16 @@ export class StateManager {
         this.autoHighlightEnabled = false;
         this.selectedHighlightColor = "#fff8b0";
 
+        // Reward state is a serializable projection maintained by the rewards
+        // controller. Persistent entities remain owned by RewardStorage.
+        this.rewards = {
+            ready: false,
+            document: null,
+            session: null,
+            garden: null,
+            summary: null,
+        };
+
         // Translation
         this.autoTranslateEnabled = false;
         this.readTranslationEnabled = false;

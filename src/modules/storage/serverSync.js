@@ -25,6 +25,7 @@ export class ServerSync {
         this._pendingVoiceByFile = new Map();
         this._positionSyncTimers = new Map();
         this._voiceSyncTimers = new Map();
+        this._rewardsSyncTimer = null;
 
         // Throttle server -> client state pulls (position/highlights/voice)
         this.serverPullIntervalMs = 30000; // Check every 30 seconds
@@ -257,6 +258,46 @@ export class ServerSync {
         this._voiceSyncTimers.clear();
         this._pendingPositionByFile.clear();
         this._pendingVoiceByFile.clear();
+        if (this._rewardsSyncTimer) clearTimeout(this._rewardsSyncTimer);
+        this._rewardsSyncTimer = null;
+    }
+
+    queueRewardsSync(snapshot, { debounceMs = 1000 } = {}) {
+        if (!this.isEnabled() || !snapshot) return;
+        if (this._rewardsSyncTimer) clearTimeout(this._rewardsSyncTimer);
+        this._rewardsSyncTimer = setTimeout(() => {
+            this._rewardsSyncTimer = null;
+            this.syncRewards(snapshot).catch((error) => {
+                this._logServerError("[ServerSync] Reward sync failed:", error);
+            });
+        }, debounceMs);
+    }
+
+    async pullRewards() {
+        if (!this.isEnabled()) return null;
+        const data = await this.apiFetch("/api/rewards", { method: "GET", withAuth: true });
+        if (data?.snapshot) return await this.app.rewards?.mergeRemote?.(data.snapshot);
+        return null;
+    }
+
+    async syncRewards(snapshot = this.app.rewards?.getSyncSnapshot?.()) {
+        if (!this.isEnabled() || !snapshot) return false;
+        let merged = snapshot;
+        try {
+            const remote = await this.apiFetch("/api/rewards", { method: "GET", withAuth: true });
+            if (remote?.snapshot) {
+                await this.app.rewards?.mergeRemote?.(remote.snapshot);
+                merged = this.app.rewards?.getSyncSnapshot?.() || snapshot;
+            }
+        } catch (error) {
+            if (!/404/.test(String(error?.message))) throw error;
+        }
+        await this.apiFetch("/api/rewards", {
+            method: "PUT",
+            body: { snapshot: merged },
+            withAuth: true,
+        });
+        return true;
     }
 
     getServerUrl() {
@@ -552,6 +593,7 @@ export class ServerSync {
                                             color: h.color,
                                             text: h.text || "",
                                             comment: typeof h.comment === "string" ? h.comment : "",
+                                            annotationId: h.annotation_id ?? h.annotationId,
                                             phraseSplitVersion:
                                                 h.phrase_split_version ?? h.phraseSplitVersion,
                                         });
@@ -990,6 +1032,7 @@ export class ServerSync {
                     color: data.color || "#ffda76",
                     text: data.text || data.sentenceText || "",
                     comment: typeof data.comment === "string" ? data.comment : "",
+                    annotationId: data.annotationId,
                     phraseSplitVersion: data.phraseSplitVersion,
                 });
             }
@@ -1098,6 +1141,7 @@ export class ServerSync {
                             color: h?.color,
                             text: h?.text || "",
                             comment: typeof h?.comment === "string" ? h.comment : "",
+                            annotationId: h?.annotation_id ?? h?.annotationId,
                             phraseSplitVersion: h?.phrase_split_version ?? h?.phraseSplitVersion,
                         });
                     });
@@ -1337,6 +1381,7 @@ export class ServerSync {
             if (state.savedHighlights && state.savedHighlights.size > 0) {
                 await this.syncHighlights(fileId, state.savedHighlights);
             }
+            await this.syncRewards();
 
             this.lastSyncTime = Date.now();
         } catch (error) {
@@ -1358,6 +1403,7 @@ export class ServerSync {
         const onWake = async () => {
             if (!this._autoSyncEnabled) return;
             await this._maybePullServerStateUpdates();
+            await this.pullRewards();
             // Keep downloads up to date when the app regains focus/network.
             await this.syncFromServer();
         };
@@ -1382,6 +1428,7 @@ export class ServerSync {
             if (serverAvailable) {
                 // console.log("[ServerSync] Server is accessible, downloading books...");
                 await this.pullServerStateUpdates();
+                await this.pullRewards();
                 await this.syncFromServer();
             } else {
                 console.warn("[ServerSync] Server is not accessible");
@@ -1402,6 +1449,7 @@ export class ServerSync {
     async manualSync() {
         this.app.ui?.showInfo?.("Syncing to server...");
         await this.syncAll();
+        await this.pullRewards();
         if (this.lastSyncTime > 0) {
             this.app.ui?.showInfo?.("Sync complete");
         }
@@ -1654,6 +1702,7 @@ export class ServerSync {
                                 color: h.color,
                                 text: h.text || "",
                                 comment: typeof h.comment === "string" ? h.comment : "",
+                                annotationId: h.annotation_id ?? h.annotationId,
                                 phraseSplitVersion: h.phrase_split_version ?? h.phraseSplitVersion,
                             });
                         }

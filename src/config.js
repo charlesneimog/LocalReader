@@ -4,7 +4,7 @@ import { CURRENT_PHRASE_SPLIT_VERSION, PHRASE_SPLIT_HISTORY } from "./modules/ph
 export const CONFIG = {
     VERSION_LABEL: "0.38.7+16",
     VERSION_MAJOR: 0,
-    VERSION_MINOR: 39,
+    VERSION_MINOR: 40,
     VERSION_PATCH: 0,
     VERSION_BUILD: 0,
 
@@ -79,6 +79,7 @@ export const CONFIG = {
     VIEW_MODE_STORAGE_KEY: "pdfViewMode",
     PROGRESS_STORAGE_KEY: "charlesneimog.github.io/pdfReaderProgressMap",
     HIGHLIGHTS_STORAGE_KEY: "charlesneimog.github.io/pdfReaderHighlightsMap",
+    REWARDS_STORAGE_KEY: "charlesneimog.github.io/readingRewards",
     // Public OAuth web client ID owned by the PocketReader deployment.
     // See assets/GOOGLE_DRIVE_SETUP.md. Never place a client secret here.
     GOOGLE_DRIVE_CLIENT_ID: "529564700634-tajs7foa2f241jhil10r3phq3e96smi9.apps.googleusercontent.com",
@@ -96,4 +97,32 @@ export const CONFIG = {
 
     // Header detection
     TOLERANCE: 50, // pixels around detection boxes to tolerate small misalignments
+
+    // Reading rewards. Domain modules receive this object rather than embedding
+    // point values or timing policy in UI code.
+    REWARDS: Object.freeze({
+        enabled: true,
+        schemaVersion: 1,
+        tickIntervalMs: 1000,
+        idleTimeoutMs: 240000,
+        maxAcceptedDeltaMs: 5000,
+        checkpointIntervalMs: 15000,
+        syncDebounceMs: 30000,
+        timeRewardIntervalMinutes: 5,
+        timeRewardPoints: 1,
+        dailyTimeRewardCap: 12,
+        dailyEngagementRewardCap: 10,
+        sessionCompletionPoints: 4,
+        reflectionPoints: 5,
+        reflectionMinimumCharacters: 20,
+        annotationWithNotePoints: 3,
+        questionPoints: 3,
+        recoveryAfterDays: 7,
+        recoveryPoints: 5,
+        weekStartsOn: 1,
+        sessionGoalsMinutes: Object.freeze([10, 15, 20, 30, 45, 60]),
+        defaultSessionGoalMinutes: 20,
+        defaultGardenRows: 5,
+        defaultGardenColumns: 5,
+    }),
 };

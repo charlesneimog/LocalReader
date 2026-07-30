@@ -1,4 +1,4 @@
-const APP_VERSION = "0.39.0+0";
+const APP_VERSION = "0.40.0+0";
 const IDB_VERSION = 1;
 const cacheName = `PocketReader-v${APP_VERSION}`;
 const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;
@@ -51,6 +51,7 @@ const staticFiles = [
     "/src/css/epub.css",
     "/src/css/input.css",
     "/src/css/output.css",
+    "/src/css/rewards.css",
 
     // JS principais
     "/src/app.js",
@@ -77,6 +78,19 @@ const staticFiles = [
     "/src/modules/storage/exportManager.js",
     "/src/modules/storage/highlightsStorage.js",
     "/src/modules/storage/progressManager.js",
+    "/src/modules/rewards/activeReadingTracker.js",
+    "/src/modules/rewards/crossTabSessionLock.js",
+    "/src/modules/rewards/gardenManager.js",
+    "/src/modules/rewards/gardenRenderer.js",
+    "/src/modules/rewards/index.js",
+    "/src/modules/rewards/plantDefinitions.js",
+    "/src/modules/rewards/readingEventAdapter.js",
+    "/src/modules/rewards/readingSessionManager.js",
+    "/src/modules/rewards/rewardDefinitions.js",
+    "/src/modules/rewards/rewardEngine.js",
+    "/src/modules/rewards/rewardMigrations.js",
+    "/src/modules/rewards/rewardStorage.js",
+    "/src/modules/rewards/streakManager.js",
     "/src/modules/tts/audioManager.js",
     "/src/modules/tts/piper-client.js",
     "/src/modules/tts/piper.worker.js",
@@ -88,6 +102,11 @@ const staticFiles = [
     "/src/modules/ui/highlightManager.js",
     "/src/modules/ui/interactionHandler.js",
     "/src/modules/ui/uiService.js",
+    "/src/modules/ui/gardenDialog.js",
+    "/src/modules/ui/reflectionDialog.js",
+    "/src/modules/ui/rewardsPanel.js",
+    "/src/modules/ui/sessionProgressWidget.js",
+    "/src/modules/ui/sessionSetupDialog.js",
     "/src/modules/utils/ariaManager.js",
     "/src/modules/utils/coordinates.js",
     "/src/modules/utils/helpers.js",

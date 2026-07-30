@@ -3,6 +3,7 @@ const DRIVE_API = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
 const FOLDER_NAME = "PocketReader";
 const SESSION_TOKEN_KEY = "pocketreader.googleDriveSession";
+const REWARDS_RECORD_ID = "__reading_rewards__";
 
 export class GoogleDriveSync {
     constructor(app) {
@@ -19,6 +20,7 @@ export class GoogleDriveSync {
         this.positionTimers = new Map();
         this.voiceTimers = new Map();
         this.mutationQueue = Promise.resolve();
+        this.rewardsTimer = null;
         this._restoreSessionToken();
     }
 
@@ -470,15 +472,55 @@ export class GoogleDriveSync {
     syncTranslationSettings(fileId, { target, mode } = {}) { return this._updateRecord(fileId, { translationTarget: target || "pt", translationMode: mode || "off", translationUpdatedAt: new Date().toISOString() }); }
     syncHighlights(fileId, highlights) {
         const values = [];
-        for (const [sentenceIndex, data] of highlights.entries()) values.push({ sentenceIndex, pageIndex: data.pageIndex, wordStart: data.wordStart, words: data.words, color: data.color || "#ffda76", text: data.text || data.sentenceText || "", comment: data.comment || "", phraseSplitVersion: data.phraseSplitVersion });
+        for (const [sentenceIndex, data] of highlights.entries()) values.push({ sentenceIndex, pageIndex: data.pageIndex, wordStart: data.wordStart, words: data.words, color: data.color || "#ffda76", text: data.text || data.sentenceText || "", comment: data.comment || "", annotationId: data.annotationId, phraseSplitVersion: data.phraseSplitVersion });
         return this._updateRecord(fileId, { highlights: values, highlightsUpdatedAt: new Date().toISOString() });
+    }
+
+    queueRewardsSync(snapshot, { debounceMs = 1000 } = {}) {
+        if (!this.isEnabled() || !snapshot) return;
+        clearTimeout(this.rewardsTimer);
+        this.rewardsTimer = setTimeout(() => this.syncRewards(snapshot).catch((error) => {
+            console.warn("[GoogleDriveSync] Reward sync failed", error);
+        }), debounceMs);
+    }
+
+    async pullRewards() {
+        if (!this.isEnabled()) return null;
+        await this._loadIndex({ force: true });
+        const record = this.records.get(REWARDS_RECORD_ID);
+        if (record?.rewardSnapshot) return await this.app.rewards?.mergeRemote?.(record.rewardSnapshot);
+        return null;
+    }
+
+    async syncRewards(snapshot = this.app.rewards?.getSyncSnapshot?.()) {
+        if (!this.isEnabled() || !snapshot) return false;
+        await this._loadIndex({ force: true });
+        let record = this.records.get(REWARDS_RECORD_ID);
+        if (record?.rewardSnapshot) {
+            await this.app.rewards?.mergeRemote?.(record.rewardSnapshot);
+            snapshot = this.app.rewards?.getSyncSnapshot?.() || snapshot;
+        }
+        const now = new Date().toISOString();
+        record = {
+            ...(record || {}),
+            version: 1,
+            fileId: REWARDS_RECORD_ID,
+            actualFilename: "reading-rewards",
+            format: "rewards",
+            title: "Reading rewards",
+            rewardSnapshot: snapshot,
+            createdAt: record?.createdAt || now,
+            updatedAt: now,
+        };
+        await this._saveRecord(record);
+        return true;
     }
 
     async loadPositionAndHighlightsFromServer(fileId) {
         const record = await this._record(fileId);
         if (!record || record.deleted) return { position: null, voice: null, highlights: null, translationTarget: null, translationMode: null };
         const highlights = new Map();
-        for (const item of record.highlights || []) highlights.set(Number(item.sentenceIndex), { pageIndex: item.pageIndex, wordStart: item.wordStart, words: item.words, color: item.color, text: item.text || "", comment: item.comment || "", phraseSplitVersion: item.phraseSplitVersion });
+        for (const item of record.highlights || []) highlights.set(Number(item.sentenceIndex), { pageIndex: item.pageIndex, wordStart: item.wordStart, words: item.words, color: item.color, text: item.text || "", comment: item.comment || "", annotationId: item.annotationId, phraseSplitVersion: item.phraseSplitVersion });
         return { position: Number.isFinite(Number(record.position)) ? Number(record.position) : null, voice: record.voice || null, highlights, translationTarget: record.translationTarget || null, translationMode: record.translationMode || null };
     }
 
@@ -515,6 +557,10 @@ export class GoogleDriveSync {
             this.app.ui?.showInfo?.(`Google Drive: syncing ${records.length} ${label}...`);
         }
         for (const [index, record] of records.entries()) {
+            if (record.fileId === REWARDS_RECORD_ID || record.format === "rewards") {
+                if (record.rewardSnapshot) await this.app.rewards?.mergeRemote?.(record.rewardSnapshot);
+                continue;
+            }
             const fileId = record.fileId;
             const format = record.format === "epub" ? "epub" : "pdf";
             const name = record.actualFilename || this._actualFilename(fileId);
@@ -558,7 +604,7 @@ export class GoogleDriveSync {
             entry.docType = format;
             entry.updated = Date.parse(record.updatedAt) || Date.now();
             progressMap[compoundKey] = entry;
-            const highlights = new Map((record.highlights || []).map((h) => [Number(h.sentenceIndex), { pageIndex: h.pageIndex, wordStart: h.wordStart, words: h.words, color: h.color, text: h.text || "", comment: h.comment || "", phraseSplitVersion: h.phraseSplitVersion }]));
+            const highlights = new Map((record.highlights || []).map((h) => [Number(h.sentenceIndex), { pageIndex: h.pageIndex, wordStart: h.wordStart, words: h.words, color: h.color, text: h.text || "", comment: h.comment || "", annotationId: h.annotationId, phraseSplitVersion: h.phraseSplitVersion }]));
             this.app.highlightsStorage?.saveHighlights?.(fileId, highlights);
         }
         this.app.progressManager.setProgressMap(progressMap);
@@ -586,6 +632,7 @@ export class GoogleDriveSync {
             if (state.currentSentenceIndex >= 0) await this.syncPosition(fileId, state.currentSentenceIndex);
             if (state.currentPiperVoice) await this.syncVoice(fileId, state.currentPiperVoice);
             await this.syncHighlights(fileId, state.savedHighlights || new Map());
+            await this.syncRewards();
             this.lastSyncTime = Date.now();
             return true;
         } finally { this.isSyncing = false; }
@@ -595,6 +642,7 @@ export class GoogleDriveSync {
         this.app.ui?.showInfo?.("Syncing with Google Drive...");
         await this.syncFromServer({ showProgress: true });
         await this.syncAll();
+        await this.pullRewards();
         this.app.ui?.showInfo?.("Google Drive sync complete");
     }
     startAutoSync() {
@@ -607,5 +655,7 @@ export class GoogleDriveSync {
     stopAutoSync() {
         for (const [target, event, listener] of this.autoSyncListeners) target.removeEventListener(event, listener);
         this.autoSyncListeners = [];
+        clearTimeout(this.rewardsTimer);
+        this.rewardsTimer = null;
     }
 }

@@ -198,6 +198,16 @@ def init_db():
         )
         """
     )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reward_state (
+            owner_email TEXT PRIMARY KEY,
+            snapshot_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
     
     conn.commit()
 
@@ -225,6 +235,7 @@ def init_db():
     _ensure_column("highlights", "page_index", "INTEGER")
     _ensure_column("highlights", "word_start", "INTEGER")
     _ensure_column("highlights", "words", "TEXT")
+    _ensure_column("highlights", "annotation_id", "TEXT")
 
     cursor.execute(
         """
@@ -1268,6 +1279,7 @@ def update_highlights(file_id, highlights, owner_email=None):
                         page_index = None
                         word_start = None
                         words = None
+                        annotation_id = None
                         if isinstance(highlight, dict):
                             color = highlight.get("color", color)
                             text = highlight.get("text", text)
@@ -1294,20 +1306,21 @@ def update_highlights(file_id, highlights, owner_email=None):
                             raw_words = highlight.get("words")
                             if isinstance(raw_words, list):
                                 words = json.dumps([str(word) for word in raw_words])
+                            annotation_id = highlight.get("annotationId", highlight.get("annotation_id"))
 
                         cursor.execute(
                             """
                             INSERT INTO highlights (
                                 file_id, sentence_index, color, text, comment,
                                 phrase_split_version, page_index, word_start, words,
-                                created_at, owner_email
+                                annotation_id, created_at, owner_email
                             )
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 scoped_file_id, sentence_index, color, text, comment,
                                 phrase_split_version, page_index, word_start, words,
-                                created_at, owner_n,
+                                annotation_id, created_at, owner_n,
                             ),
                         )
                         count += 1
@@ -1366,7 +1379,7 @@ def get_highlights(file_id, owner_email=None):
         cursor.execute(
             """
             SELECT sentence_index, color, text, comment, phrase_split_version,
-                   page_index, word_start, words
+                   page_index, word_start, words, annotation_id
             FROM highlights
             WHERE file_id = ? AND owner_email = ?
             ORDER BY sentence_index
@@ -1377,7 +1390,7 @@ def get_highlights(file_id, owner_email=None):
         cursor.execute(
             """
             SELECT sentence_index, color, text, comment, phrase_split_version,
-                   page_index, word_start, words
+                   page_index, word_start, words, annotation_id
             FROM highlights
             WHERE file_id = ?
             ORDER BY sentence_index
@@ -1405,6 +1418,49 @@ def get_highlights(file_id, owner_email=None):
         len(out),
     )
     return out
+
+
+def get_reward_state(owner_email):
+    """Return the account-scoped mergeable reward snapshot."""
+    owner_n = _normalize_email(owner_email)
+    if not owner_n:
+        return None
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        row = conn.execute(
+            "SELECT snapshot_json FROM reward_state WHERE owner_email = ?",
+            (owner_n,),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        value = json.loads(row[0])
+        return value if isinstance(value, dict) else None
+    except (TypeError, ValueError, json.JSONDecodeError):
+        logger.warning("Malformed reward snapshot for owner=%s", owner_n)
+        return None
+
+
+def update_reward_state(owner_email, snapshot):
+    """Store an account-scoped snapshot after client-side ID-based merging."""
+    owner_n = _normalize_email(owner_email)
+    if not owner_n or not isinstance(snapshot, dict):
+        return False
+    serialized = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
+    if len(serialized.encode("utf-8")) > 5 * 1024 * 1024:
+        raise ValueError("Reward snapshot exceeds 5 MiB")
+    now = datetime.utcnow().isoformat()
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.execute(
+            """
+            INSERT INTO reward_state (owner_email, snapshot_json, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(owner_email) DO UPDATE SET
+                snapshot_json = excluded.snapshot_json,
+                updated_at = excluded.updated_at
+            """,
+            (owner_n, serialized, now),
+        )
+    return True
 
 
 if __name__ == "__main__":

@@ -28,6 +28,8 @@ export class ControlsManager {
         this.speedSelectValue = document.getElementById("reading-speed-value");
         this.btnDecreaseSpeed = document.getElementById("btn-speed-decrease");
         this.btnIncreaseSpeed = document.getElementById("btn-speed-increase");
+        this.readingDigestEmailToggle = document.getElementById("reading-digest-email");
+        this.readingDigestEmailStatus = document.getElementById("reading-digest-email-status");
 
         this.btnNextSentence = document.getElementById("next-sentence");
         this.btnPrevSentence = document.getElementById("prev-sentence");
@@ -445,6 +447,74 @@ export class ControlsManager {
                     localStorage.removeItem("config.serverLink");
                 }
             });
+        }
+
+        this.readingDigestEmailToggle?.addEventListener("change", () => {
+            this._saveReadingDigestPreference(this.readingDigestEmailToggle.checked);
+        });
+    }
+
+    _getBrowserTimezone() {
+        try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+        } catch {
+            return "UTC";
+        }
+    }
+
+    async refreshReadingDigestPreference() {
+        const toggle = this.readingDigestEmailToggle;
+        const status = this.readingDigestEmailStatus;
+        if (!toggle || !status) return;
+        const hasServer = !!this.app.serverSync?.getServerUrl?.();
+        const authenticated = hasServer && !!localStorage.getItem("localreaderAuthToken");
+        if (!authenticated) {
+            toggle.disabled = true;
+            status.textContent = hasServer
+                ? "Sign in to configure email summaries."
+                : "Set a self-hosted server link to configure email summaries.";
+            return;
+        }
+
+        toggle.disabled = true;
+        status.textContent = "Loading email preference…";
+        try {
+            const preference = await this.app.serverSync.getReadingDigestPreference();
+            toggle.checked = preference?.enabled !== false;
+            const timezone = this._getBrowserTimezone();
+            if (preference?.timezone !== timezone) {
+                await this.app.serverSync.updateReadingDigestPreference(toggle.checked, timezone);
+            }
+            status.textContent = toggle.checked
+                ? "Reading summary emails are enabled."
+                : "Reading summary emails are turned off.";
+            toggle.disabled = false;
+        } catch (error) {
+            toggle.disabled = true;
+            status.textContent = "Email preference is unavailable.";
+            console.warn("[ReadingDigest] Unable to load preference", error);
+        }
+    }
+
+    async _saveReadingDigestPreference(enabled) {
+        const toggle = this.readingDigestEmailToggle;
+        const status = this.readingDigestEmailStatus;
+        if (!toggle || !status) return;
+        toggle.disabled = true;
+        status.textContent = "Saving email preference…";
+        try {
+            await this.app.serverSync.updateReadingDigestPreference(enabled, this._getBrowserTimezone());
+            toggle.checked = !!enabled;
+            status.textContent = enabled
+                ? "Reading summary emails are enabled."
+                : "Reading summary emails are turned off.";
+            this.showInfo(enabled ? "Reading emails enabled" : "Reading emails turned off");
+        } catch (error) {
+            toggle.checked = !enabled;
+            status.textContent = "Unable to save email preference.";
+            console.warn("[ReadingDigest] Unable to save preference", error);
+        } finally {
+            toggle.disabled = false;
         }
     }
 

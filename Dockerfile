@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY app.py ./
 COPY server.py ./
+COPY reading_digest_service.py ./
 
 # Web UI
 COPY index.html ./

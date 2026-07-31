@@ -66,6 +66,8 @@ export class SyncManager {
     authSignup(...args) { return this.server.authSignup(...args); }
     requestPasswordReset(...args) { return this.server.requestPasswordReset(...args); }
     resetPassword(...args) { return this.server.resetPassword(...args); }
+    getReadingDigestPreference(...args) { return this.server.getReadingDigestPreference(...args); }
+    updateReadingDigestPreference(...args) { return this.server.updateReadingDigestPreference(...args); }
     clearAuthToken(...args) { return this.server.clearAuthToken(...args); }
     pingServer(...args) { return this.server.pingServer(...args); }
     translateText(...args) { return this.server.translateText(...args); }

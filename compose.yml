@@ -8,5 +8,10 @@ services:
             - ./data:/app/data
         env_file:
             - .env
+        environment:
+            READING_DIGEST_ENABLED: "${READING_DIGEST_ENABLED:-true}"
+            READING_DIGEST_POLL_SECONDS: "${READING_DIGEST_POLL_SECONDS:-900}"
+            READING_DIGEST_WEEKLY_HOUR: "${READING_DIGEST_WEEKLY_HOUR:-18}"
+            READING_DIGEST_MONTHLY_HOUR: "${READING_DIGEST_MONTHLY_HOUR:-9}"
+            READING_DIGEST_YEARLY_HOUR: "${READING_DIGEST_YEARLY_HOUR:-18}"
         restart: unless-stopped
-

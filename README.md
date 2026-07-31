@@ -122,6 +122,18 @@ Put the domain where the selfhost will be accessible in the `Server Link` in the
 
 To enable browser-to-Drive sync, follow [the Google Drive registration guide](assets/GOOGLE_DRIVE_SETUP.md). Users can then choose **Continue with Google** in the cloud configuration panel.
 
+### Reading summary emails
+
+Self-hosted accounts receive reading summaries through the same SMTP configuration used for password recovery:
+
+- weekly on Saturday at 18:00, covering Monday through Saturday;
+- monthly on the first day at 09:00, covering the previous calendar month;
+- yearly on December 31 at 18:00, covering the current calendar year.
+
+The schedule is evaluated in the IANA timezone reported by the user's browser. Delivery is idempotent, so restarting the scheduler does not send the same period twice. Users can turn all reading summary emails off in **Settings → Reading summary emails**.
+
+Required SMTP variables are `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_TLS`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`. The optional `READING_DIGEST_*` variables in `.env.default` control scheduler polling and local delivery hours. Set `READING_DIGEST_ENABLED=false` to disable the service for the entire deployment.
+
 ---
 
 ### Credits

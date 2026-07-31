@@ -18,8 +18,10 @@ from email.parser import BytesParser
 from email.policy import default
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote, quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import unicodedata
 import app
+from reading_digest_service import ReadingDigestService
 
 HOST = "0.0.0.0"
 PORT = 8000
@@ -343,6 +345,13 @@ def _send_email_smtp(to_email: str, subject: str, body: str) -> None:
         smtp.send_message(msg)
 
 
+def _smtp_is_configured() -> bool:
+    return all(
+        (os.environ.get(name) or "").strip()
+        for name in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS")
+    ) and bool((os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER") or "").strip())
+
+
 class APIHandler(BaseHTTPRequestHandler):
     # Read allowed origins from environment variable, fallback to defaults
     ALLOWED_ORIGINS = [
@@ -553,6 +562,10 @@ class APIHandler(BaseHTTPRequestHandler):
         # All other API routes require auth
         user_email = self._require_auth()
         if not user_email:
+            return
+
+        if path == "/api/reading-digest-preferences":
+            self._send_json(200, app.get_email_digest_preference(user_email))
             return
         
         # GET /api/files - List all files
@@ -1072,6 +1085,26 @@ class APIHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_error(400, f"Invalid JSON: {str(e)}")
             return
+
+        if path == "/api/reading-digest-preferences":
+            enabled = data.get("enabled")
+            timezone_name = str(data.get("timezone") or "UTC").strip()
+            if not isinstance(enabled, bool):
+                self._send_error(400, "Missing or invalid 'enabled' field")
+                return
+            try:
+                ZoneInfo(timezone_name)
+            except (ZoneInfoNotFoundError, ValueError):
+                self._send_error(400, "Unknown IANA timezone")
+                return
+            if not app.update_email_digest_preference(user_email, enabled, timezone_name):
+                self._send_error(400, "Unable to save reading email preference")
+                return
+            self._send_json(
+                200,
+                {"success": True, "enabled": enabled, "timezone": timezone_name},
+            )
+            return
         
         # PUT /api/files/{file_id}/position
         if path == "/api/rewards":
@@ -1227,12 +1260,34 @@ def main():
     logger.info("CORS allow any origin: %s", APIHandler.ALLOW_ANY_ORIGIN)
     logger.debug("API endpoints: GET /api/files, GET /api/files/{file_id}, GET /api/files/{file_id}/download, GET /api/files/{file_id}/highlights")
     logger.debug("API endpoints: POST /api/files, DELETE /api/files/{file_id}, PUT /api/files/{file_id}/position|voice|highlights")
+    logger.debug("API endpoints: GET|PUT /api/reading-digest-preferences")
+
+    digest_service = None
+    if _env_truthy(os.environ.get("READING_DIGEST_ENABLED", "true")):
+        if _smtp_is_configured():
+            digest_service = ReadingDigestService(
+                repository=app,
+                send_email=_send_email_smtp,
+                app_name=os.environ.get("APP_NAME", "PocketReader"),
+                public_app_url=PUBLIC_APP_URL,
+                poll_interval_seconds=int(os.environ.get("READING_DIGEST_POLL_SECONDS", "900")),
+                weekly_hour=int(os.environ.get("READING_DIGEST_WEEKLY_HOUR", "18")),
+                monthly_hour=int(os.environ.get("READING_DIGEST_MONTHLY_HOUR", "9")),
+                yearly_hour=int(os.environ.get("READING_DIGEST_YEARLY_HOUR", "18")),
+            )
+            digest_service.start()
+            logger.info("Reading email digest scheduler started")
+        else:
+            logger.warning("Reading email digests enabled but SMTP is not configured")
     
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         logger.info("Shutting down server...")
         server.shutdown()
+    finally:
+        if digest_service:
+            digest_service.stop()
 
 
 if __name__ == "__main__":

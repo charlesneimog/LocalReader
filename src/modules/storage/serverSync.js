@@ -147,6 +147,21 @@ export class ServerSync {
         return data;
     }
 
+    async getReadingDigestPreference() {
+        return await this.apiFetch("/api/reading-digest-preferences", {
+            method: "GET",
+            withAuth: true,
+        });
+    }
+
+    async updateReadingDigestPreference(enabled, timezone) {
+        return await this.apiFetch("/api/reading-digest-preferences", {
+            method: "PUT",
+            body: { enabled: !!enabled, timezone: timezone || "UTC" },
+            withAuth: true,
+        });
+    }
+
     _getAuthToken() {
         try {
             return localStorage.getItem("localreaderAuthToken") || "";

@@ -435,7 +435,7 @@
         <!-- Config Menu -->
         <div
             id="config-menu"
-            class="fixed hidden bottom-24 w-96 left-1/2 -translate-x-1/2 sm:translate-x-0 bg-gray-100 dark:bg-gray-800 rounded-lg p-4 z-20 shadow-2xl"
+            class="fixed hidden bottom-24 w-96 max-h-[88vh] overflow-y-auto left-1/2 -translate-x-1/2 sm:translate-x-0 bg-gray-100 dark:bg-gray-800 rounded-lg p-4 z-20 shadow-2xl"
         >
             <div class="flex items-center justify-between mb-6">
                 <h2 class="text-xl font-bold text-slate-800 dark:text-slate-200">Settings</h2>
@@ -494,6 +494,35 @@
                     <div id="reading-speed-value" class="text-center text-sm text-gray-500 dark:text-gray-400 mt-2">
                         1.0x
                     </div>
+                </div>
+
+                <div
+                    class="rounded-lg border border-slate-300 bg-white/50 p-3 dark:border-slate-700 dark:bg-black/30"
+                >
+                    <label class="flex items-start gap-3">
+                        <input
+                            id="reading-digest-email"
+                            type="checkbox"
+                            checked
+                            disabled
+                            class="mt-1 h-5 w-5"
+                        />
+                        <span class="min-w-0">
+                            <span class="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                                Reading summary emails
+                            </span>
+                            <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                                Weekly on Saturday, monthly on day 1, and yearly on December 31.
+                            </span>
+                        </span>
+                    </label>
+                    <p
+                        id="reading-digest-email-status"
+                        class="mt-2 text-xs text-slate-500 dark:text-slate-400"
+                        aria-live="polite"
+                    >
+                        Sign in to configure email summaries.
+                    </p>
                 </div>
 
                 <!--
@@ -1248,6 +1277,7 @@
                             signupForm.classList.add("hidden");
                             resetForm.classList.add("hidden");
                             authStatus.textContent = "Authenticated";
+                            app.controlsManager?.refreshReadingDigestPreference?.();
                             return { authenticated: true, email: me.email };
                         }
                     } catch (err) {
@@ -1462,6 +1492,9 @@
                 // Toggle settings modal
                 settingsBtn.addEventListener("click", () => {
                     settingsMenu.classList.toggle("hidden");
+                    if (!settingsMenu.classList.contains("hidden")) {
+                        app.controlsManager?.refreshReadingDigestPreference?.();
+                    }
                 });
 
                 configMenuClose.addEventListener("click", () => {

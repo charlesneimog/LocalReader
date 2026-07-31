@@ -87,14 +87,6 @@ export class GardenDialog {
                     <canvas class="garden-canvas block w-full max-w-full bg-transparent" aria-label="Reading garden grid"></canvas>
                 </div>
                 <p class="rounded-lg bg-slate-100 dark:bg-slate-800 p-3 text-sm text-slate-600 dark:text-slate-300" data-tooltip aria-live="polite">Select a garden cell for details.</p>
-                <details class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 text-sm">
-                    <summary class="font-semibold text-slate-700 dark:text-slate-200">Accessible garden list</summary>
-                    <ol data-list class="mt-2 space-y-1 text-slate-600 dark:text-slate-300"></ol>
-                </details>
-                <details class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 text-sm">
-                    <summary class="font-semibold text-slate-700 dark:text-slate-200">Reward history</summary>
-                    <div class="mt-2 overflow-y-auto font-mono text-xs text-slate-600 dark:text-slate-300" data-history></div>
-                </details>
             </section>`;
         document.body.appendChild(this.dialog);
         this.dialog.querySelector("[data-close]").addEventListener("click", () => this.dialog.close());
@@ -142,31 +134,6 @@ export class GardenDialog {
             `${summary.maturePlantCount} total · ${occupied} of ${plot.rows * plot.columns} cells occupied` +
             `${unplaced ? ` · ${unplaced} waiting for space` : ""}`;
         this.renderer.render(projection);
-
-        const list = this.dialog.querySelector("[data-list]");
-        list.replaceChildren();
-        for (const plant of projection.plants) {
-            const item = document.createElement("li");
-            item.textContent =
-                `${this._plantLabel(plant)} · ${new Date(plant.completedAt || plant.plantedAt).toLocaleDateString()}`;
-            list.appendChild(item);
-        }
-        if (!list.children.length) {
-            const item = document.createElement("li");
-            item.textContent = `No trees completed ${periodLabel}.`;
-            list.appendChild(item);
-        }
-
-        const history = this.dialog.querySelector("[data-history]");
-        history.replaceChildren();
-        for (const transaction of [...state.rewardLedger].reverse()) {
-            const row = document.createElement("div");
-            row.className = "border-b border-slate-200 dark:border-slate-700 py-1";
-            row.textContent =
-                `${new Date(transaction.timestamp).toLocaleString()} · ${transaction.rewardType} · +${transaction.points}`;
-            history.appendChild(row);
-        }
-        if (!history.children.length) history.textContent = "No reward transactions yet.";
     }
 
     _updatePeriodButtons() {

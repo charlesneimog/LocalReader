@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import time
 import hashlib
@@ -205,6 +205,31 @@ def init_db():
             owner_email TEXT PRIMARY KEY,
             snapshot_json TEXT NOT NULL,
             updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS email_digest_preferences (
+            owner_email TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            timezone TEXT NOT NULL DEFAULT 'UTC',
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS email_digest_deliveries (
+            owner_email TEXT NOT NULL,
+            digest_type TEXT NOT NULL,
+            period_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            sent_at TEXT,
+            PRIMARY KEY (owner_email, digest_type, period_key)
         )
         """
     )
@@ -1461,6 +1486,126 @@ def update_reward_state(owner_email, snapshot):
             (owner_n, serialized, now),
         )
     return True
+
+
+def get_email_digest_preference(owner_email):
+    """Return account-scoped digest settings, defaulting to enabled in UTC."""
+    owner_n = _normalize_email(owner_email)
+    if not owner_n:
+        return None
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        row = conn.execute(
+            """
+            SELECT enabled, timezone, updated_at
+            FROM email_digest_preferences
+            WHERE owner_email = ?
+            """,
+            (owner_n,),
+        ).fetchone()
+    if not row:
+        return {"enabled": True, "timezone": "UTC", "updated_at": None}
+    return {
+        "enabled": bool(row[0]),
+        "timezone": row[1] or "UTC",
+        "updated_at": row[2],
+    }
+
+
+def update_email_digest_preference(owner_email, enabled, timezone_name):
+    """Persist the single opt-out and the browser's IANA timezone."""
+    owner_n = _normalize_email(owner_email)
+    timezone_n = str(timezone_name or "UTC").strip()[:128] or "UTC"
+    if not owner_n or not isinstance(enabled, bool):
+        return False
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.execute(
+            """
+            INSERT INTO email_digest_preferences (owner_email, enabled, timezone, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(owner_email) DO UPDATE SET
+                enabled = excluded.enabled,
+                timezone = excluded.timezone,
+                updated_at = excluded.updated_at
+            """,
+            (owner_n, 1 if enabled else 0, timezone_n, now),
+        )
+    return True
+
+
+def list_email_digest_recipients():
+    """List registered accounts and their effective digest preferences."""
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                users.email,
+                COALESCE(email_digest_preferences.enabled, 1),
+                COALESCE(email_digest_preferences.timezone, 'UTC')
+            FROM users
+            LEFT JOIN email_digest_preferences
+                ON email_digest_preferences.owner_email = users.email
+            ORDER BY users.email
+            """
+        ).fetchall()
+    return [
+        {"email": row[0], "enabled": bool(row[1]), "timezone": row[2] or "UTC"}
+        for row in rows
+    ]
+
+
+def claim_email_digest_delivery(owner_email, digest_type, period_key):
+    """Atomically reserve one digest period so schedulers cannot double-send."""
+    owner_n = _normalize_email(owner_email)
+    if not owner_n or digest_type not in {"weekly", "monthly", "yearly"} or not period_key:
+        return False
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        with sqlite3.connect(DB_PATH, timeout=30) as conn:
+            conn.execute(
+                """
+                INSERT INTO email_digest_deliveries
+                    (owner_email, digest_type, period_key, status, created_at, sent_at)
+                VALUES (?, ?, ?, 'sending', ?, NULL)
+                """,
+                (owner_n, digest_type, str(period_key), now),
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def complete_email_digest_delivery(owner_email, digest_type, period_key):
+    owner_n = _normalize_email(owner_email)
+    if not owner_n:
+        return False
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE email_digest_deliveries
+            SET status = 'sent', sent_at = ?
+            WHERE owner_email = ? AND digest_type = ? AND period_key = ?
+            """,
+            (now, owner_n, digest_type, str(period_key)),
+        )
+        return cursor.rowcount > 0
+
+
+def release_email_digest_delivery(owner_email, digest_type, period_key):
+    """Release a failed send so a later scheduler pass can retry it."""
+    owner_n = _normalize_email(owner_email)
+    if not owner_n:
+        return False
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM email_digest_deliveries
+            WHERE owner_email = ? AND digest_type = ? AND period_key = ? AND status = 'sending'
+            """,
+            (owner_n, digest_type, str(period_key)),
+        )
+        return cursor.rowcount > 0
 
 
 if __name__ == "__main__":

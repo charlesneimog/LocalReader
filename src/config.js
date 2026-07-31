@@ -103,7 +103,7 @@ export const CONFIG = {
     REWARDS: Object.freeze({
         enabled: true,
         automaticTreesEnabled: true,
-        schemaVersion: 1,
+        schemaVersion: 2,
         tickIntervalMs: 1000,
         idleTimeoutMs: 240000,
         maxAcceptedDeltaMs: 5000,

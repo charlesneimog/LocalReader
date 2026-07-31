@@ -39,7 +39,9 @@ export function consolidateGardenPlots(state, config = {}, now = Date.now()) {
         rows,
         columns,
         createdAt: Number(preferred?.createdAt) || now,
-        updatedAt: Math.max(now, ...candidates.map((plot) => Number(plot.updatedAt) || 0)),
+        updatedAt: candidates.length > 1
+            ? now
+            : Number(preferred?.updatedAt) || now,
     };
     state.gardenPlots = [garden];
 

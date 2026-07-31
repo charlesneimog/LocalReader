@@ -5,7 +5,7 @@ export class ReflectionDialog {
         this.session = null;
         this.dialog = document.createElement("aside");
         this.dialog.className =
-            "hidden fixed bottom-4 right-4 z-40 w-[94vw] max-w-sm rounded-xl border " +
+            "hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[94vw] max-w-sm rounded-xl border " +
             "border-slate-200 dark:border-slate-700 bg-background-light dark:bg-background-dark " +
             "p-4 text-left text-slate-800 dark:text-slate-200 shadow-lg";
         this.dialog.setAttribute("role", "dialog");

@@ -1,19 +1,43 @@
 import { getPlantDefinition, getPlantStage } from "./plantDefinitions.js";
 import { uuid } from "./rewardDefinitions.js";
 
-export function deterministicAvailableCell(plot, plants) {
+function stableHash(value) {
+    let hash = 2166136261;
+    for (const character of String(value || "")) {
+        hash ^= character.codePointAt(0);
+        hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+}
+
+/**
+ * Selects an available cell from a stable shuffled order.
+ *
+ * A plant ID is used as the seed so newly completed trees are visually
+ * distributed around the garden while placement remains reproducible after
+ * reloads and synchronization.
+ */
+export function deterministicAvailableCell(plot, plants, seed = "") {
     const occupied = new Set(
         plants
             .filter((plant) => plant.plotId === plot.id && plant.cell)
             .map((plant) => `${plant.cell.x}:${plant.cell.y}`),
     );
+    const available = [];
     for (let diagonal = 0; diagonal <= plot.rows + plot.columns - 2; diagonal++) {
         for (let y = 0; y < plot.rows; y++) {
             const x = diagonal - y;
-            if (x >= 0 && x < plot.columns && !occupied.has(`${x}:${y}`)) return { x, y };
+            if (x >= 0 && x < plot.columns && !occupied.has(`${x}:${y}`)) available.push({ x, y });
         }
     }
-    return null;
+    if (!available.length) return null;
+    if (!seed) return available[0];
+    available.sort((left, right) => {
+        const leftOrder = stableHash(`${seed}:${left.x}:${left.y}`);
+        const rightOrder = stableHash(`${seed}:${right.x}:${right.y}`);
+        return leftOrder - rightOrder || left.y - right.y || left.x - right.x;
+    });
+    return available[0];
 }
 
 /** Pure garden entity creation, investment, and deterministic placement API. */
@@ -68,7 +92,7 @@ export class GardenManager {
         if (plant.stage !== "mature") return { placed: false, reason: "not-mature" };
         if (plant.cell) return { placed: true, plotId: plant.plotId, cell: plant.cell };
         const plot = state.gardenPlots[0];
-        const cell = plot ? deterministicAvailableCell(plot, state.plants) : null;
+        const cell = plot ? deterministicAvailableCell(plot, state.plants, plant.id) : null;
         if (cell) {
             plant.plotId = plot.id;
             plant.cell = cell;

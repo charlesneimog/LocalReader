@@ -43,6 +43,18 @@ test("deterministic placement never overwrites and reports a full garden", () =>
     assert.equal(deterministicAvailableCell(plot, plants), null);
 });
 
+test("new trees use stable scattered garden positions", () => {
+    const plot = { id: "garden", rows: 5, columns: 5 };
+    const positions = Array.from({ length: 8 }, (_, index) =>
+        deterministicAvailableCell(plot, [], `plant-${index}`),
+    );
+    assert.deepEqual(
+        deterministicAvailableCell(plot, [], "plant-3"),
+        deterministicAvailableCell(plot, [], "plant-3"),
+    );
+    assert.ok(new Set(positions.map((cell) => `${cell.x}:${cell.y}`)).size > 1);
+});
+
 test("sync cell conflicts relocate deterministically", () => {
     const plants = [
         { id: "a", plotId: "garden", cell: { x: 0, y: 0 }, completedAt: 1 },

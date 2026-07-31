@@ -33,7 +33,7 @@ export function gardenPlantsForPeriod(
         );
 }
 
-function projectPlantsIntoGarden(plants, plot) {
+export function projectPlantsIntoGarden(plants, plot) {
     const columns = Math.max(1, Number(plot.columns) || 1);
     const rows = Math.max(
         1,
@@ -55,9 +55,18 @@ function projectPlantsIntoGarden(plants, plot) {
     };
 }
 
+export function reflectionTextForPlant(plant, reflections) {
+    const reflection = (Array.isArray(reflections) ? reflections : []).find((entry) =>
+        (plant?.reflectionId && entry.id === plant.reflectionId) ||
+        (!plant?.reflectionId && plant?.sessionId && entry.sessionId === plant.sessionId),
+    );
+    return typeof reflection?.text === "string" ? reflection.text.trim() : "";
+}
+
 export class GardenDialog {
-    constructor({ weekStartsOn = 1, now = Date.now } = {}) {
+    constructor({ weekStartsOn = 1, minimumRows = 5, now = Date.now } = {}) {
         this.weekStartsOn = weekStartsOn;
+        this.minimumRows = Math.max(1, Number(minimumRows) || 5);
         this.now = now;
         this.period = "week";
         this.dialog = document.createElement("dialog");
@@ -86,27 +95,31 @@ export class GardenDialog {
                 <div class="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-black/20">
                     <canvas class="garden-canvas block w-full max-w-full bg-transparent" aria-label="Reading garden grid"></canvas>
                 </div>
-                <p class="rounded-lg bg-slate-100 dark:bg-slate-800 p-3 text-sm text-slate-600 dark:text-slate-300" data-tooltip aria-live="polite">Select a garden cell for details.</p>
+                <div class="rounded-lg bg-slate-100 dark:bg-slate-800 p-3 text-sm text-slate-600 dark:text-slate-300" aria-live="polite">
+                    <p data-tooltip>Select a tree for details.</p>
+                    <blockquote data-comment class="hidden mt-2 border-l-2 border-primary/50 pl-3 text-left italic whitespace-pre-wrap"></blockquote>
+                </div>
             </section>`;
         document.body.appendChild(this.dialog);
         this.dialog.querySelector("[data-close]").addEventListener("click", () => this.dialog.close());
         this.dialog.querySelectorAll("[data-period]").forEach((button) => {
             button.addEventListener("click", () => {
                 this.period = button.dataset.period;
-                this.renderer.selectedIndex = 0;
+                this.renderer.selectedIndex = -1;
+                this._resetDetails();
                 this.update(this.state, this.summary);
             });
         });
         this.renderer = new GardenRenderer(this.dialog.querySelector("canvas"), {
             onSelect: (area) => {
-                this.dialog.querySelector("[data-tooltip]").textContent = area.plant
-                    ? this._plantLabel(area.plant)
-                    : `Cell ${area.cell.x + 1}, ${area.cell.y + 1} is available.`;
+                this._showDetails(area);
             },
         });
     }
 
     open(state, summary) {
+        this.renderer.selectedIndex = -1;
+        this._resetDetails();
         this.update(state, summary);
         this.dialog.showModal();
     }
@@ -125,7 +138,14 @@ export class GardenDialog {
             timestamp,
             this.weekStartsOn,
         );
-        const projection = projectPlantsIntoGarden(periodPlants, plot);
+        const projection = projectPlantsIntoGarden(periodPlants, {
+            ...plot,
+            rows: this.minimumRows,
+        });
+        projection.plants = projection.plants.map((plant) => ({
+            ...plant,
+            reflectionText: reflectionTextForPlant(plant, state.reflections),
+        }));
         const occupied = state.plants.filter((plant) => plant.stage === "mature" && plant.cell).length;
         const unplaced = state.plants.filter((plant) => plant.stage === "mature" && !plant.cell).length;
         const periodLabel = PERIOD_LABELS[this.period];
@@ -134,6 +154,28 @@ export class GardenDialog {
             `${summary.maturePlantCount} total · ${occupied} of ${plot.rows * plot.columns} cells occupied` +
             `${unplaced ? ` · ${unplaced} waiting for space` : ""}`;
         this.renderer.render(projection);
+    }
+
+    _showDetails(area) {
+        const tooltip = this.dialog.querySelector("[data-tooltip]");
+        const comment = this.dialog.querySelector("[data-comment]");
+        if (!area.plant) {
+            tooltip.textContent = `Cell ${area.cell.x + 1}, ${area.cell.y + 1} is available.`;
+            comment.textContent = "";
+            comment.classList.add("hidden");
+            return;
+        }
+        tooltip.textContent = this._plantLabel(area.plant);
+        comment.textContent = area.plant.reflectionText || "No reading note was saved for this tree.";
+        comment.classList.remove("hidden");
+    }
+
+    _resetDetails() {
+        const tooltip = this.dialog.querySelector("[data-tooltip]");
+        const comment = this.dialog.querySelector("[data-comment]");
+        tooltip.textContent = "Select a tree for details.";
+        comment.textContent = "";
+        comment.classList.add("hidden");
     }
 
     _updatePeriodButtons() {

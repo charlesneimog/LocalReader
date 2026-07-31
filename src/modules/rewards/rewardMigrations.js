@@ -27,40 +27,38 @@ export function consolidateGardenPlots(state, config = {}, now = Date.now()) {
         fallbackColumns,
         ...candidates.map((plot) => Math.max(1, Number(plot.columns) || 1)),
     );
-    const previouslyPlaced = state.plants.filter((plant) => plant?.stage === "mature" && plant.cell);
+    const maturePlants = state.plants.filter((plant) => plant?.stage === "mature");
     const rows = Math.max(
         fallbackRows,
         ...candidates.map((plot) => Math.max(1, Number(plot.rows) || 1)),
-        Math.ceil(previouslyPlaced.length / columns),
+        Math.ceil(maturePlants.length / columns),
     );
+    const expanded = rows > Math.max(0, Number(preferred?.rows) || 0);
     const garden = {
         id: preferred?.id || "garden-1",
         name: "Reading Garden",
         rows,
         columns,
         createdAt: Number(preferred?.createdAt) || now,
-        updatedAt: candidates.length > 1
+        updatedAt: candidates.length > 1 || expanded
             ? now
             : Number(preferred?.updatedAt) || now,
     };
     state.gardenPlots = [garden];
 
     const occupied = new Set();
-    const placedIds = new Set(previouslyPlaced.map((plant) => plant.id));
+    const matureIds = new Set(maturePlants.map((plant) => plant.id));
+    const placedIds = new Set();
     const sorted = [...state.plants].sort(
         (left, right) =>
             Number(left.completedAt || left.plantedAt || 0) -
                 Number(right.completedAt || right.plantedAt || 0) ||
             String(left.id).localeCompare(String(right.id)),
     );
+    // Reserve every valid existing position first so expanding the garden
+    // never moves an established tree merely because an unplaced tree is older.
     for (const plant of sorted) {
-        if (!placedIds.has(plant.id)) {
-            if (plant.plotId !== garden.id) {
-                plant.plotId = null;
-                plant.cell = null;
-            }
-            continue;
-        }
+        if (!matureIds.has(plant.id) || !plant.cell) continue;
         const requested = plant.cell;
         const key = `${requested?.x}:${requested?.y}`;
         const valid =
@@ -71,7 +69,21 @@ export function consolidateGardenPlots(state, config = {}, now = Date.now()) {
             requested.x < garden.columns &&
             requested.y < garden.rows &&
             !occupied.has(key);
-        const cell = valid ? requested : firstAvailableCell(garden, occupied);
+        if (!valid) continue;
+        plant.plotId = garden.id;
+        occupied.add(key);
+        placedIds.add(plant.id);
+    }
+    for (const plant of sorted) {
+        if (!matureIds.has(plant.id)) {
+            if (plant.plotId !== garden.id) {
+                plant.plotId = null;
+                plant.cell = null;
+            }
+            continue;
+        }
+        if (placedIds.has(plant.id)) continue;
+        const cell = firstAvailableCell(garden, occupied);
         plant.plotId = cell ? garden.id : null;
         plant.cell = cell || null;
         if (cell) occupied.add(`${cell.x}:${cell.y}`);

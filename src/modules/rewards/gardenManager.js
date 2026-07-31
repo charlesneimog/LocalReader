@@ -92,12 +92,23 @@ export class GardenManager {
         if (plant.stage !== "mature") return { placed: false, reason: "not-mature" };
         if (plant.cell) return { placed: true, plotId: plant.plotId, cell: plant.cell };
         const plot = state.gardenPlots[0];
-        const cell = plot ? deterministicAvailableCell(plot, state.plants, plant.id) : null;
+        if (!plot) return { placed: false, reason: "missing-garden" };
+        let cell = deterministicAvailableCell(plot, state.plants, plant.id);
+        let expanded = false;
+        if (!cell) {
+            // Preserve the garden width and add the smallest useful unit: one
+            // row. This keeps every mature tree visible without imposing a
+            // fixed maximum capacity.
+            plot.rows = Math.max(1, Number(plot.rows) || 1) + 1;
+            plot.updatedAt = timestamp;
+            expanded = true;
+            cell = deterministicAvailableCell(plot, state.plants, plant.id);
+        }
         if (cell) {
             plant.plotId = plot.id;
             plant.cell = cell;
             plant.updatedAt = timestamp;
-            return { placed: true, plotId: plot.id, cell };
+            return { placed: true, plotId: plot.id, cell, expanded };
         }
         return { placed: false, reason: "garden-full" };
     }

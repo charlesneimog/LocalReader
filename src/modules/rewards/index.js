@@ -72,6 +72,7 @@ export class RewardsController {
     _createUi() {
         this.gardenDialog = new GardenDialog({
             weekStartsOn: this.config.weekStartsOn,
+            minimumRows: this.config.defaultGardenRows,
         });
         this.reflectionDialog = new ReflectionDialog({
             minimumCharacters: this.config.reflectionMinimumCharacters,

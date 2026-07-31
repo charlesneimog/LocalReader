@@ -6,9 +6,9 @@ export class RewardsPanel {
         this.element.className = "fixed top-2 right-1 z-30 flex items-center gap-2";
         this.element.innerHTML = `
             <button type="button" data-garden aria-label="Open reading garden"
-                class="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-background-light/80 dark:bg-background-dark/80 px-3 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 shadow-lg backdrop-blur-md hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors">
+                class="flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-background-light/80 dark:bg-background-dark/80 p-2 text-sm font-semibold text-slate-700 dark:text-slate-200 shadow-lg backdrop-blur-md hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors">
                 <img data-current-tree class="hidden h-8" alt="">
-                <span data-progress>Garden</span>
+                <span data-progress class="reward-visually-hidden">Garden</span>
             </button>
             <div class="reward-visually-hidden" data-accessible></div>
             <div class="reward-visually-hidden" aria-live="polite" aria-atomic="true"></div>`;

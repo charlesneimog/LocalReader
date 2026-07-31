@@ -114,7 +114,8 @@ utilities: visually-hidden content, the dialog backdrop/centering rule, Canvas
 filter reset, and radio accent color. Reward dialogs use native modal semantics
 and are centered with `position: fixed`, `inset: 0`, and automatic margins.
 
-The quiet top-right garden button shows only the current tree image and name.
+The quiet top-right garden button shows only the current tree image. Its name
+remains available to assistive technology.
 There is no ticking timer, moving progress bar, percentage, or second reward
 toolbar over the reader controls. The garden dialog includes the isometric
 Canvas, a keyboard-accessible textual list, weekly status, occupancy, and the
@@ -123,7 +124,12 @@ append-only reward history.
 Each user has exactly one Reading Garden. The garden dialog has Week, Month,
 and Year views derived from each tree's local completion date. These views are
 projections of the same garden rather than separate plots, and changing the
-view does not mutate stored tree positions.
+view does not mutate stored tree positions. Trees have separate pointer targets,
+using their visible pixels rather than their transparent image rectangles, and
+selecting one shows the reading note saved when that tree was completed. The
+isometric garden is rendered as a raised grass-and-soil plot. It starts at 25
+blocks (5 by 5) and automatically adds rows as needed; period views likewise
+include enough blocks to show every Week, Month, or Year tree.
 
 After a tree is planted, the next sentence boundary may show a small non-modal
 note card. The note is optional, does not take focus automatically, and can be

@@ -11,7 +11,12 @@ import {
     REWARD_SCHEMA_VERSION,
 } from "../src/modules/rewards/rewardMigrations.js";
 import { mergeRewardStates, relocateGardenConflicts } from "../src/modules/rewards/rewardStorage.js";
-import { gardenPlantsForPeriod } from "../src/modules/ui/gardenDialog.js";
+import {
+    gardenPlantsForPeriod,
+    projectPlantsIntoGarden,
+    reflectionTextForPlant,
+} from "../src/modules/ui/gardenDialog.js";
+import { findGardenHitArea } from "../src/modules/rewards/gardenRenderer.js";
 
 const config = { defaultGardenRows: 2, defaultGardenColumns: 2 };
 
@@ -42,6 +47,27 @@ test("deterministic placement never overwrites and reports a full garden", () =>
     assert.deepEqual(deterministicAvailableCell(plot, plants), { x: 1, y: 1 });
     plants.push({ plotId: "garden", cell: { x: 1, y: 1 } });
     assert.equal(deterministicAvailableCell(plot, plants), null);
+});
+
+test("placing a tree expands a full garden by one row", () => {
+    const manager = new GardenManager();
+    const existing = {
+        id: "existing", speciesId: "reading-sapling", stage: "mature",
+        plotId: "garden", cell: { x: 0, y: 0 },
+    };
+    const newcomer = {
+        id: "newcomer", speciesId: "reading-sapling", stage: "mature",
+        plotId: null, cell: null,
+    };
+    const state = {
+        gardenPlots: [{ id: "garden", rows: 1, columns: 1, updatedAt: 1 }],
+        plants: [existing, newcomer],
+    };
+    const result = manager.placeMaturePlant(state, newcomer, 2);
+    assert.equal(result.placed, true);
+    assert.equal(result.expanded, true);
+    assert.equal(state.gardenPlots[0].rows, 2);
+    assert.deepEqual(newcomer.cell, { x: 0, y: 1 });
 });
 
 test("new trees use stable scattered garden positions", () => {
@@ -140,6 +166,25 @@ test("schema migration consolidates old plots into one garden without losing pla
     assert.equal(new Set(migrated.plants.map((plant) => `${plant.cell.x}:${plant.cell.y}`)).size, 2);
 });
 
+test("schema migration expands beyond 25 blocks and places waiting trees", () => {
+    const plants = Array.from({ length: 26 }, (_, index) => ({
+        id: `tree-${index}`,
+        speciesId: "reading-sapling",
+        stage: "mature",
+        plotId: index < 25 ? "garden-1" : null,
+        cell: index < 25 ? { x: index % 5, y: Math.floor(index / 5) } : null,
+        completedAt: index + 1,
+    }));
+    const migrated = migrateRewardState({
+        gardenPlots: [{ id: "garden-1", rows: 5, columns: 5, createdAt: 1 }],
+        plants,
+    }, { defaultGardenRows: 5, defaultGardenColumns: 5 }, 100);
+    assert.equal(migrated.gardenPlots[0].rows, 6);
+    assert.equal(migrated.gardenPlots[0].columns, 5);
+    assert.equal(migrated.plants.every((plant) => plant.cell), true);
+    assert.equal(new Set(migrated.plants.map((plant) => `${plant.cell.x}:${plant.cell.y}`)).size, 26);
+});
+
 test("garden manager never creates a second user garden", () => {
     const manager = new GardenManager({ randomUUID: () => "garden-new" });
     const state = migrateRewardState(null, config, 1);
@@ -165,6 +210,63 @@ test("garden period views use local week, month, and year boundaries", () => {
     assert.deepEqual(gardenPlantsForPeriod(plants, "week", now, 1).map((plant) => plant.id), ["week"]);
     assert.deepEqual(gardenPlantsForPeriod(plants, "month", now, 1).map((plant) => plant.id), ["month", "week"]);
     assert.deepEqual(gardenPlantsForPeriod(plants, "year", now, 1).map((plant) => plant.id), ["year", "month", "week"]);
+});
+
+test("period projections add enough blocks for every visible tree", () => {
+    const trees = Array.from({ length: 26 }, (_, index) => ({ id: `tree-${index}` }));
+    const projection = projectPlantsIntoGarden(trees, {
+        id: "garden-1", rows: 5, columns: 5,
+    });
+    assert.equal(projection.plot.rows, 6);
+    assert.equal(projection.plot.columns, 5);
+    assert.equal(projection.plants.length, 26);
+    assert.equal(projection.plants.every((plant) => plant.cell), true);
+});
+
+test("garden hit testing prefers the front tree and uses diamond cells", () => {
+    const back = {
+        cell: { x: 0, y: 0 }, plant: { id: "back" },
+        centerX: 100, centerY: 100, width: 80, height: 40,
+        plantBounds: { left: 70, right: 130, top: 30, bottom: 105 },
+    };
+    const front = {
+        cell: { x: 1, y: 0 }, plant: { id: "front" },
+        centerX: 140, centerY: 120, width: 80, height: 40,
+        plantBounds: { left: 110, right: 170, top: 50, bottom: 125 },
+    };
+    assert.equal(findGardenHitArea([back, front], 120, 80).plant.id, "front");
+    assert.equal(findGardenHitArea([back, front], 100, 100).plant.id, "back");
+    assert.equal(findGardenHitArea([back, front], 65, 80), null);
+});
+
+test("garden hit testing ignores transparent SVG pixels", () => {
+    const back = {
+        cell: { x: 0, y: 0 }, plant: { id: "visible-back" },
+        centerX: 100, centerY: 100, width: 80, height: 40,
+        plantBounds: { left: 70, right: 130, top: 30, bottom: 105 },
+    };
+    const transparentMask = new Uint8ClampedArray(2 * 2 * 4);
+    const front = {
+        cell: { x: 1, y: 0 }, plant: { id: "transparent-front" },
+        centerX: 140, centerY: 120, width: 80, height: 40,
+        plantBounds: { left: 110, right: 170, top: 50, bottom: 125 },
+        plantMask: { width: 2, height: 2, data: transparentMask },
+    };
+    assert.equal(findGardenHitArea([back, front], 120, 80).plant.id, "visible-back");
+});
+
+test("a garden tree resolves its saved reading note", () => {
+    const reflections = [
+        { id: "note-1", sessionId: "session-1", text: "  A useful insight.  " },
+    ];
+    assert.equal(
+        reflectionTextForPlant({ reflectionId: "note-1" }, reflections),
+        "A useful insight.",
+    );
+    assert.equal(
+        reflectionTextForPlant({ sessionId: "session-1" }, reflections),
+        "A useful insight.",
+    );
 });
 
 test("automatic tree catalog advances once per tree through consecutive minute goals", () => {

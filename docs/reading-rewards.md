@@ -4,7 +4,8 @@ Reading Trees starts automatically whenever a PDF or EPUB is open. There is no
 setup step and no Start button. Only active reading time accepted by
 `ActiveReadingTracker` grows the current tree: the document must be open, the
 reader screen visible, the tab visible, the window focused, and the session not
-paused or idle for more than four minutes.
+paused or idle for more than four minutes. Tree growth is a continuous focus
+streak: an interruption resets the current tree to zero.
 
 ## Default tree ladder
 
@@ -15,20 +16,42 @@ deterministically:
 | Tier | Active reading per tree | Trees before next tier |
 | --- | ---: | ---: |
 | Minute Sprout | 1 minute | 1 |
-| Reading Sapling | 5 minutes | 5 |
-| Violet Blossom Tree | 7 minutes | 5 |
-| Sunset Maple | 10 minutes | 5 |
-| Moonlit Oak | 15 minutes | Repeats |
+| Reading Sapling | 5 minutes | 1 |
+| Aurora Pine | 6 minutes | 1 |
+| Violet Blossom Tree | 7 minutes | 1 |
+| Coral Canopy | 8 minutes | 1 |
+| Crystal Willow | 9 minutes | 1 |
+| Sunset Maple | 10 minutes | 1 |
+| Ember Bonsai | 11 minutes | 1 |
+| Firefly Fig | 12 minutes | 1 |
+| Geometric Cypress | 13 minutes | 1 |
+| Rainbow Baobab | 14 minutes | 1 |
+| Moonlit Oak | 15 minutes | 1 |
+| Starlight Birch | 16 minutes | 1 |
+| Tea Cloud Tree | 17 minutes | 1 |
+| Wind Song Tree | 18 minutes | 1 |
+| Ancient Jequitibá | 19 minutes | 1 |
+| Golden Ipê | 20 minutes | 1 |
+| Twilight Ipê-roxo | 21 minutes | 1 |
+| Araucária-do-Paraná | 22 minutes | 1 |
+| Pau-brasil Red Heart | 23 minutes | 1 |
+| Jabuticaba Night Orchard | 24 minutes | 1 |
+| Silver Embaúba | 25 minutes | 1 |
+| Mangue-vermelho Tide Tree | 26 minutes | 1 |
+| Amazon Castanheira | 27 minutes | 1 |
+| Buriti Sun Palm | 28, then 29, then 30 minutes | Repeats at 30 |
 
-Growth is based on verified active milliseconds, so partial time is retained
-across timer ticks and application restarts. At 20%, 45%, 75%, and 100%, the
-tree advances through its visual stages. When a tree reaches 100%, it is
-completed and placed automatically, and the next tier starts without
-interrupting reading.
+Growth is based on consecutive verified active milliseconds. Timer ticks retain
+partial progress, but pausing, hiding or leaving the tab, losing window focus,
+leaving the reader, changing or closing the document, becoming idle, or
+reloading the application resets the current tree. Navigating normally inside
+the same PDF or EPUB does not reset it. At 20%, 45%, 75%, and 100%, the tree
+advances through its visual stages. When a tree reaches 100%, it is completed
+and placed automatically, and the next tier starts without interrupting
+reading.
 
-When a session is explicitly paused, the active-reading clock freezes
-immediately. Reading interactions, TTS playback, automatic startup checks,
-document changes, and application reloads cannot silently restart it.
+Already accumulated reading totals and earned rewards are retained when a
+focus streak resets; only the unfinished tree returns to zero.
 
 The completion notice is queued until the reader reaches the next sentence
 boundary or TTS playback finishes. The neutral notification reads:
@@ -40,6 +63,8 @@ Edit `assets/rewards/trees/catalog.json` to change the order, reading duration,
 number of completions needed to advance, display name, rarity, palette, or image
 path. Tree IDs must remain unique. `requiredCompletions: null` makes a tier
 repeat indefinitely, so it is normally used on the last entry.
+`repeatDurationIncrementMinutes` increases that repeating tier's duration after
+each completion. `maximumDurationMinutes` caps that increase.
 
 `groundAnchor` is the vertical position of the image's ground shadow as a
 fraction of its SVG height. For example, `0.92` means the shadow is 92% down the
@@ -50,9 +75,29 @@ Original SVG placeholders live beside the catalog:
 
 - `assets/rewards/trees/minute-sprout.svg`
 - `assets/rewards/trees/reading-sapling.svg`
+- `assets/rewards/trees/aurora-pine.svg`
 - `assets/rewards/trees/violet-blossom.svg`
+- `assets/rewards/trees/coral-canopy.svg`
+- `assets/rewards/trees/crystal-willow.svg`
 - `assets/rewards/trees/sunset-maple.svg`
+- `assets/rewards/trees/ember-bonsai.svg`
+- `assets/rewards/trees/firefly-fig.svg`
+- `assets/rewards/trees/geometric-cypress.svg`
+- `assets/rewards/trees/rainbow-baobab.svg`
 - `assets/rewards/trees/moonlit-oak.svg`
+- `assets/rewards/trees/starlight-birch.svg`
+- `assets/rewards/trees/tea-cloud-tree.svg`
+- `assets/rewards/trees/wind-song-tree.svg`
+- `assets/rewards/trees/jequitiba-ancient.svg`
+- `assets/rewards/trees/ipe-amarelo-golden-rain.svg`
+- `assets/rewards/trees/ipe-roxo-twilight.svg`
+- `assets/rewards/trees/araucaria-parana.svg`
+- `assets/rewards/trees/pau-brasil-red-heart.svg`
+- `assets/rewards/trees/jabuticaba-night-orchard.svg`
+- `assets/rewards/trees/embauba-silver-fan.svg`
+- `assets/rewards/trees/mangue-vermelho-tide.svg`
+- `assets/rewards/trees/castanheira-amazonia.svg`
+- `assets/rewards/trees/buriti-sun-palm.svg`
 
 An image can be replaced in place or a new SVG/PNG can be added to that folder
 and referenced by its page-relative path, for example
@@ -88,7 +133,8 @@ dismissed while reading continues.
 
 Tree growth and points are related but deliberately separate:
 
-- Tree growth is the active-reading fraction `activeReadingMs / goalMs`.
+- Tree growth is the uninterrupted active-reading fraction
+  `activeReadingMs / goalMs`; interruptions reset this value to zero.
 - Time rewards remain one growth point per complete five active minutes, up to
   the configured daily cap. A partial five-minute interval is never rounded up.
 - Completing an automatic tree commits the configured completion reward once.
@@ -121,14 +167,14 @@ relocates garden-cell conflicts.
    clicking Start.
 2. Navigate/read normally and confirm the quiet top-right tree indicator stays
    visually static.
-3. Hide the tab, blur the window, open a non-reading dialog, close the document,
-   and exceed idle timeout; confirm those intervals do not count.
+3. Partially grow a tree, then hide the tab, blur the window, open a non-reading
+   dialog, close the document, pause, and exceed idle timeout; confirm each
+   interruption resets the unfinished tree to zero.
 4. Reach one active minute and confirm the debug tree is placed automatically.
 5. Finish or navigate to the next sentence and confirm one earned-tree notice.
-6. Reload midway through a tree and confirm the saved session resumes without
-   losing partial time.
-7. After the Minute Sprout, earn five Reading Saplings and confirm the next tree requires seven active
-   minutes.
+6. Reload midway through a tree and confirm its focus streak restarts at zero.
+7. After the Minute Sprout, confirm each completed tree advances the goal from
+   five to six, seven, and then one minute at a time until it repeats at 30.
 8. Open the garden in light and dark modes and at narrow/mobile widths; confirm
    the modal remains centered and keyboard cell selection works.
 9. Switch between Week, Month, and Year and confirm only trees completed in the

@@ -12,11 +12,13 @@ function fixture() {
     let now = 0;
     const deltas = [];
     let idleCount = 0;
+    const interruptions = [];
     const documentObject = { visibilityState: "visible", hasFocus: () => true };
     const tracker = new ActiveReadingTracker({
         config,
         onDelta: (delta) => deltas.push(delta),
         onIdle: () => idleCount++,
+        onInterrupted: (interruption) => interruptions.push(interruption),
         performanceNow: () => now,
         documentObject,
         setIntervalFn: () => 1,
@@ -30,6 +32,7 @@ function fixture() {
         tracker,
         documentObject,
         deltas,
+        interruptions,
         get idleCount() { return idleCount; },
         advance(milliseconds) { now += milliseconds; return tracker.tick(now); },
     };
@@ -54,6 +57,7 @@ test("hidden tabs and unfocused windows do not count", () => {
     assert.equal(item.advance(1000), 0);
     item.documentObject.hasFocus = () => true;
     assert.equal(item.advance(1000), 1000);
+    assert.deepEqual(item.interruptions, [{ reason: "tab-hidden" }]);
 });
 
 test("idle timeout permits normal reading pauses then stops", () => {
@@ -85,9 +89,11 @@ test("TTS cannot bypass an explicit pause", () => {
 test("closed documents and non-reading screens do not count", () => {
     const item = fixture();
     item.tracker.setReadingScreen(false);
+    assert.equal(item.interruptions.at(-1).reason, "left-reader");
     assert.equal(item.advance(1000), 0);
     item.tracker.setReadingScreen(true);
     item.tracker.setDocumentOpen(false);
+    assert.equal(item.interruptions.at(-1).reason, "document-closed");
     assert.equal(item.advance(1000), 0);
 });
 

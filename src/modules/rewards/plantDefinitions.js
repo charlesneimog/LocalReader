@@ -92,8 +92,22 @@ export function getAutomaticTreeTier(plants = []) {
         ).length;
         const required = Number(definition.requiredCompletions);
         if (!Number.isFinite(required) || required <= 0 || completed < required) {
+            const repeatIncrement = Math.max(0, Number(definition.repeatDurationIncrementMinutes) || 0);
+            const configuredMaximum = Number(definition.maximumDurationMinutes);
+            const maximumDuration = Number.isFinite(configuredMaximum) && configuredMaximum > 0
+                ? Math.max(Number(definition.durationMinutes) || 0, configuredMaximum)
+                : Number.POSITIVE_INFINITY;
+            const activeDefinition = repeatIncrement > 0 && completed > 0
+                ? Object.freeze({
+                    ...definition,
+                    durationMinutes: Math.min(
+                        maximumDuration,
+                        definition.durationMinutes + (completed * repeatIncrement),
+                    ),
+                })
+                : definition;
             return {
-                definition,
+                definition: activeDefinition,
                 index,
                 completed,
                 required: Number.isFinite(required) && required > 0 ? required : null,

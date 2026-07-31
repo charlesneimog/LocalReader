@@ -8,6 +8,7 @@ export class ActiveReadingTracker {
         onDelta,
         onIdle,
         onActivityResumed,
+        onInterrupted,
         performanceNow = () => performance.now(),
         documentObject = globalThis.document,
         windowObject = globalThis.window,
@@ -20,6 +21,7 @@ export class ActiveReadingTracker {
         this.onDelta = onDelta;
         this.onIdle = onIdle;
         this.onActivityResumed = onActivityResumed;
+        this.onInterrupted = onInterrupted;
         this.performanceNow = performanceNow;
         this.documentObject = documentObject;
         this.windowObject = windowObject;
@@ -33,6 +35,8 @@ export class ActiveReadingTracker {
         this.lastTickAt = null;
         this.idle = false;
         this.timer = null;
+        this.continuityBroken = true;
+        this.focusListenersBound = false;
     }
 
     start() {
@@ -40,6 +44,8 @@ export class ActiveReadingTracker {
         const now = this.performanceNow();
         this.lastTickAt = now;
         this.lastActivityAt = now;
+        this.continuityBroken = !this.isEligible(now);
+        this._bindFocusListeners();
         this.timer = this.setIntervalFn(() => this.tick(), this.config.tickIntervalMs);
     }
 
@@ -47,21 +53,31 @@ export class ActiveReadingTracker {
         if (this.timer) this.clearIntervalFn(this.timer);
         this.timer = null;
         this.lastTickAt = null;
+        this._unbindFocusListeners();
     }
 
     setDocumentOpen(open) {
+        const wasOpen = this.documentOpen;
         this.documentOpen = !!open;
         if (open) this.recordActivity("document-opened");
+        else if (wasOpen) this._interrupt("document-closed");
     }
 
     setReadingScreen(reading) {
+        const wasReading = this.readingScreen;
         this.readingScreen = !!reading;
+        if (!reading && wasReading) this._interrupt("left-reader");
+        else if (reading && this.isEligible()) this.continuityBroken = false;
     }
 
     setPaused(paused) {
         this.explicitlyPaused = !!paused;
         this.lastTickAt = this.performanceNow();
-        if (!paused) this.recordActivity("session-resumed");
+        if (paused) this.continuityBroken = true;
+        else {
+            this.recordActivity("session-resumed");
+            if (this.isEligible()) this.continuityBroken = false;
+        }
     }
 
     setTtsPlaying(playing) {
@@ -73,6 +89,7 @@ export class ActiveReadingTracker {
         const wasIdle = this.idle;
         this.lastActivityAt = this.performanceNow();
         this.idle = false;
+        if (this.isEligible()) this.continuityBroken = false;
         if (wasIdle && !this.explicitlyPaused) this.onActivityResumed?.({ source });
     }
 
@@ -100,9 +117,16 @@ export class ActiveReadingTracker {
         const inactiveFromIdle = !this.ttsPlaying && now - this.lastActivityAt > this.config.idleTimeoutMs;
         if (inactiveFromIdle && !this.idle && !this.explicitlyPaused) {
             this.idle = true;
+            this.continuityBroken = true;
             this.onIdle?.();
         }
-        if (!this.isEligible(now)) return 0;
+        if (!this.isEligible(now)) {
+            if (!inactiveFromIdle && !this.explicitlyPaused) {
+                this._interrupt(this._ineligibilityReason(now));
+            }
+            return 0;
+        }
+        this.continuityBroken = false;
         const acceptedDelta = Math.min(rawDelta, this.config.maxAcceptedDeltaMs);
         if (acceptedDelta > 0) this.onDelta?.(acceptedDelta);
         return acceptedDelta;
@@ -110,5 +134,51 @@ export class ActiveReadingTracker {
 
     checkpoint() {
         this.tick(this.performanceNow());
+    }
+
+    _ineligibilityReason(now = this.performanceNow()) {
+        if (!this.documentOpen) return "document-closed";
+        if (!this.readingScreen) return "left-reader";
+        if (this.documentObject?.visibilityState === "hidden") return "tab-hidden";
+        if (this.documentObject?.hasFocus && !this.documentObject.hasFocus()) return "focus-lost";
+        if (!this.ttsPlaying && now - this.lastActivityAt > this.config.idleTimeoutMs) return "idle";
+        return "interrupted";
+    }
+
+    _interrupt(reason) {
+        if (this.continuityBroken) return;
+        this.continuityBroken = true;
+        this.lastTickAt = this.performanceNow();
+        this.onInterrupted?.({ reason });
+    }
+
+    _bindFocusListeners() {
+        if (this.focusListenersBound) return;
+        this.visibilityHandler = () => {
+            if (this.documentObject?.visibilityState === "hidden") this._interrupt("tab-hidden");
+            else this._restartContinuityClock();
+        };
+        this.blurHandler = () => this._interrupt("focus-lost");
+        this.focusHandler = () => this._restartContinuityClock();
+        this.pageHideHandler = () => this._interrupt("page-left");
+        this.documentObject?.addEventListener?.("visibilitychange", this.visibilityHandler);
+        this.windowObject?.addEventListener?.("blur", this.blurHandler);
+        this.windowObject?.addEventListener?.("focus", this.focusHandler);
+        this.windowObject?.addEventListener?.("pagehide", this.pageHideHandler);
+        this.focusListenersBound = true;
+    }
+
+    _unbindFocusListeners() {
+        if (!this.focusListenersBound) return;
+        this.documentObject?.removeEventListener?.("visibilitychange", this.visibilityHandler);
+        this.windowObject?.removeEventListener?.("blur", this.blurHandler);
+        this.windowObject?.removeEventListener?.("focus", this.focusHandler);
+        this.windowObject?.removeEventListener?.("pagehide", this.pageHideHandler);
+        this.focusListenersBound = false;
+    }
+
+    _restartContinuityClock() {
+        this.lastTickAt = this.performanceNow();
+        if (this.isEligible()) this.continuityBroken = false;
     }
 }

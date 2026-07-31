@@ -95,6 +95,7 @@ export class RewardsController {
             EVENTS.READING_SESSION_PAUSED,
             EVENTS.READING_SESSION_RESUMED,
             EVENTS.READING_SESSION_IDLE,
+            EVENTS.READING_SESSION_RESET,
             EVENTS.READING_SESSION_PROGRESS,
             EVENTS.READING_SESSION_GOAL_REACHED,
             EVENTS.READING_SESSION_COMPLETED,
@@ -115,6 +116,22 @@ export class RewardsController {
         }));
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_RESUMED, () => {
             this.app.ui.showInfo("Activity resumed.");
+        }));
+        this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_RESET, ({ reason }) => {
+            const labels = {
+                "document-changed": "changing documents",
+                "document-closed": "closing the document",
+                "focus-lost": "losing window focus",
+                "left-reader": "leaving the reader",
+                "page-left": "leaving the page",
+                "tab-hidden": "hiding the tab",
+                "idle": "becoming idle",
+                "explicit": "pausing",
+            };
+            const cause = labels[reason] || "an interruption";
+            const message = `Focus streak reset after ${cause}.`;
+            this.app.ui.showInfo(message);
+            this.panel.announce(`focus-reset:${Date.now()}`, message);
         }));
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_DOCUMENT_OPENED, () => {
             this._ensureAutomaticTree();

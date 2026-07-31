@@ -39,6 +39,9 @@ export class ReadingSessionManager {
         };
         this.tracker.onIdle = () => this._transitionIdle();
         this.tracker.onActivityResumed = () => this._resumeFromIdle();
+        this.tracker.onInterrupted = ({ reason } = {}) =>
+            this.resetContinuousProgress({ reason })
+                .catch((error) => console.error("[ReadingSessionManager] Focus streak reset failed", error));
     }
 
     async restore() {
@@ -53,8 +56,16 @@ export class ReadingSessionManager {
                 (!session.pauseReason || session.pauseReason === "explicit");
             stored.state = SESSION_STATES.PAUSED;
             stored.pauseReason = wasExplicitlyPaused ? "explicit" : "restore";
+            stored.activeReadingMs = 0;
+            stored.goalReachedAt = null;
             stored.updatedAt = this.now();
             draft.currentSession = { ...stored };
+            const plant = draft.plants.find((candidate) => candidate.id === stored.plantId);
+            if (plant && plant.stage !== "mature") {
+                plant.growthProgress = 0;
+                plant.stage = "seed";
+                plant.updatedAt = this.now();
+            }
         });
         this.tracker.setPaused(true);
         this.lifecycleState = SESSION_STATES.PAUSED;
@@ -173,6 +184,9 @@ export class ReadingSessionManager {
                     await this.abandon();
                     current = null;
                 } else {
+                    if (current.document?.id !== document.id || current.document?.type !== document.type) {
+                        await this.resetContinuousProgress({ reason: "document-changed" });
+                    }
                     const expectedGoalMs = Number(tier.definition.durationMinutes) * 60000;
                     await this.storage.transaction((draft) => {
                         const stored = draft.sessions.find((candidate) => candidate.id === current.id);
@@ -208,6 +222,7 @@ export class ReadingSessionManager {
         this.tracker.checkpoint();
         this.tracker.setPaused(true);
         await this.deltaQueue;
+        await this.resetContinuousProgress({ reason });
         await this._setState(session.id, SESSION_STATES.PAUSED, { pauseReason: reason });
         this.lifecycleState = SESSION_STATES.PAUSED;
         this.eventBus?.emit(EVENTS.READING_SESSION_PAUSED, this.getCurrentSession());
@@ -275,6 +290,47 @@ export class ReadingSessionManager {
 
     getCurrentSession() {
         return this.storage.getSnapshot().currentSession;
+    }
+
+    async resetContinuousProgress({ reason = "interrupted" } = {}) {
+        await this.deltaQueue;
+        const timestamp = this.now();
+        let reset = null;
+        await this.storage.transaction((state) => {
+            const current = state.currentSession;
+            if (!current) return;
+            const session = state.sessions.find((candidate) => candidate.id === current.id);
+            if (!session || [SESSION_STATES.COMPLETED, SESSION_STATES.ABANDONED].includes(session.state)) return;
+            const previousActiveReadingMs = Math.max(0, Number(session.activeReadingMs) || 0);
+            const plant = state.plants.find((candidate) => candidate.id === session.plantId);
+            const hadPlantProgress = plant && plant.stage !== "mature" &&
+                (Number(plant.growthProgress) > 0 || plant.stage !== "seed");
+            if (!previousActiveReadingMs && !hadPlantProgress) return;
+            session.activeReadingMs = 0;
+            session.goalReachedAt = null;
+            session.lastInterruptionReason = reason;
+            session.lastInterruptedAt = timestamp;
+            session.updatedAt = timestamp;
+            state.currentSession = { ...session };
+            if (plant && plant.stage !== "mature") {
+                plant.growthProgress = 0;
+                plant.stage = "seed";
+                plant.updatedAt = timestamp;
+            }
+            reset = {
+                reason,
+                previousActiveReadingMs,
+                session: { ...session },
+                plant: plant ? { ...plant } : null,
+            };
+        });
+        if (!reset) return this.getCurrentSession();
+        this.eventBus?.emit(EVENTS.READING_SESSION_RESET, reset);
+        this.eventBus?.emit(EVENTS.READING_SESSION_PROGRESS, {
+            session: reset.session,
+            plant: reset.plant,
+        });
+        return reset.session;
     }
 
     async _recordDelta(milliseconds) {
@@ -346,7 +402,8 @@ export class ReadingSessionManager {
         const session = this.getCurrentSession();
         if (!session || session.state !== SESSION_STATES.ACTIVE) return;
         this.lifecycleState = SESSION_STATES.IDLE_TIMEOUT;
-        this._setState(session.id, SESSION_STATES.IDLE_TIMEOUT, { pauseReason: "idle" })
+        this.resetContinuousProgress({ reason: "idle" })
+            .then(() => this._setState(session.id, SESSION_STATES.IDLE_TIMEOUT, { pauseReason: "idle" }))
             .then(() => this.eventBus?.emit(EVENTS.READING_SESSION_IDLE, this.getCurrentSession()))
             .catch((error) => console.error("[ReadingSessionManager] Idle checkpoint failed", error));
     }

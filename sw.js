@@ -1,4 +1,4 @@
-const APP_VERSION = "0.40.5+0";
+const APP_VERSION = "0.40.6+0";
 const IDB_VERSION = 1;
 const cacheName = `PocketReader-v${APP_VERSION}`;
 const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;
@@ -46,9 +46,29 @@ const staticFiles = [
     "/assets/rewards/trees/catalog.json",
     "/assets/rewards/trees/minute-sprout.svg",
     "/assets/rewards/trees/reading-sapling.svg",
+    "/assets/rewards/trees/aurora-pine.svg",
     "/assets/rewards/trees/violet-blossom.svg",
+    "/assets/rewards/trees/coral-canopy.svg",
+    "/assets/rewards/trees/crystal-willow.svg",
     "/assets/rewards/trees/sunset-maple.svg",
+    "/assets/rewards/trees/ember-bonsai.svg",
+    "/assets/rewards/trees/firefly-fig.svg",
+    "/assets/rewards/trees/geometric-cypress.svg",
+    "/assets/rewards/trees/rainbow-baobab.svg",
     "/assets/rewards/trees/moonlit-oak.svg",
+    "/assets/rewards/trees/starlight-birch.svg",
+    "/assets/rewards/trees/tea-cloud-tree.svg",
+    "/assets/rewards/trees/wind-song-tree.svg",
+    "/assets/rewards/trees/jequitiba-ancient.svg",
+    "/assets/rewards/trees/ipe-amarelo-golden-rain.svg",
+    "/assets/rewards/trees/ipe-roxo-twilight.svg",
+    "/assets/rewards/trees/araucaria-parana.svg",
+    "/assets/rewards/trees/pau-brasil-red-heart.svg",
+    "/assets/rewards/trees/jabuticaba-night-orchard.svg",
+    "/assets/rewards/trees/embauba-silver-fan.svg",
+    "/assets/rewards/trees/mangue-vermelho-tide.svg",
+    "/assets/rewards/trees/castanheira-amazonia.svg",
+    "/assets/rewards/trees/buriti-sun-palm.svg",
     "/assets/screenshots/screenshot1.png",
     "/assets/screenshots/screenshot2.png",
 

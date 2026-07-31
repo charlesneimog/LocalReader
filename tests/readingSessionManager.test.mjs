@@ -74,16 +74,20 @@ test("abandoned sessions retain active rewards but receive no completion bonus",
 
 test("application restart restores an unfinished active session as paused", async () => {
     const first = await fixture();
-    await first.manager.start({ goalMinutes: 10, speciesId: "daisy-patch" });
+    const session = await first.manager.start({ goalMinutes: 10, speciesId: "daisy-patch" });
+    await first.engine.recordActiveReading({ milliseconds: 60000, sessionId: session.id, documentId: "doc" });
     const second = await fixture(first.backing);
     const restored = await second.manager.restore();
     assert.equal(restored.state, "paused");
     assert.equal(restored.pauseReason, "restore");
+    assert.equal(restored.activeReadingMs, 0);
 });
 
 test("an explicit pause remains paused during automatic checks and records no time", async () => {
     const item = await fixture();
     const session = await item.manager.ensureAutomatic();
+    item.tracker.onDelta(30000);
+    await item.manager.deltaQueue;
     await item.manager.pause();
     const pausedAt = item.manager.getCurrentSession().activeReadingMs;
 
@@ -95,7 +99,25 @@ test("an explicit pause remains paused during automatic checks and records no ti
     assert.equal(automaticCheck.state, "paused");
     assert.equal(automaticCheck.pauseReason, "explicit");
     assert.equal(automaticCheck.activeReadingMs, pausedAt);
+    assert.equal(pausedAt, 0);
     assert.equal(item.tracker.paused, true);
+});
+
+test("focus interruptions reset automatic tree progress but preserve reading totals", async () => {
+    const item = await fixture();
+    const session = await item.manager.ensureAutomatic();
+    item.tracker.onDelta(30000);
+    await item.manager.deltaQueue;
+    assert.equal(item.manager.getCurrentSession().activeReadingMs, 30000);
+
+    await item.tracker.onInterrupted({ reason: "focus-lost" });
+
+    const state = item.storage.getSnapshot();
+    const plant = state.plants.find((candidate) => candidate.id === session.plantId);
+    assert.equal(state.currentSession.activeReadingMs, 0);
+    assert.equal(plant.growthProgress, 0);
+    assert.equal(plant.stage, "seed");
+    assert.equal(state.totalActiveReadingMs, 30000);
 });
 
 test("an explicit pause survives application restart until Resume is selected", async () => {

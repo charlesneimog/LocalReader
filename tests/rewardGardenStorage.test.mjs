@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deterministicAvailableCell, GardenManager } from "../src/modules/rewards/gardenManager.js";
 import {
+    AUTOMATIC_TREE_DEFINITIONS,
     getAutomaticTreeTier,
     getPlantStage,
 } from "../src/modules/rewards/plantDefinitions.js";
@@ -166,20 +167,47 @@ test("garden period views use local week, month, and year boundaries", () => {
     assert.deepEqual(gardenPlantsForPeriod(plants, "year", now, 1).map((plant) => plant.id), ["year", "month", "week"]);
 });
 
-test("automatic tree catalog advances from one minute through the five and seven minute tiers", () => {
+test("automatic tree catalog advances once per tree through consecutive minute goals", () => {
     const minuteTree = {
         id: "minute-1",
         speciesId: "minute-sprout",
         stage: "mature",
     };
-    const saplings = Array.from({ length: 5 }, (_, index) => ({
-        id: `sapling-${index}`,
+    const sapling = {
+        id: "sapling-1",
         speciesId: "reading-sapling",
         stage: "mature",
-    }));
+    };
     assert.equal(getAutomaticTreeTier([]).definition.durationMinutes, 1);
     assert.equal(getAutomaticTreeTier([minuteTree]).definition.durationMinutes, 5);
-    const nextTier = getAutomaticTreeTier([minuteTree, ...saplings]);
-    assert.equal(nextTier.definition.id, "violet-blossom");
-    assert.equal(nextTier.definition.durationMinutes, 7);
+    const nextTier = getAutomaticTreeTier([minuteTree, sapling]);
+    assert.equal(nextTier.definition.id, "aurora-pine");
+    assert.equal(nextTier.definition.durationMinutes, 6);
+    assert.deepEqual(
+        AUTOMATIC_TREE_DEFINITIONS.slice(1).map((definition) => definition.durationMinutes),
+        Array.from({ length: 24 }, (_, index) => index + 5),
+    );
+});
+
+test("the final automatic tree keeps increasing its reading goal", () => {
+    const completedEarlierTiers = AUTOMATIC_TREE_DEFINITIONS.slice(0, -1).map((definition, index) => ({
+        id: `tree-${index}`,
+        speciesId: definition.id,
+        stage: "mature",
+    }));
+    const buriti = {
+        id: "buriti-1",
+        speciesId: "buriti-sun-palm",
+        stage: "mature",
+    };
+    const secondBuriti = { ...buriti, id: "buriti-2" };
+    const thirdBuriti = { ...buriti, id: "buriti-3" };
+
+    assert.equal(getAutomaticTreeTier(completedEarlierTiers).definition.durationMinutes, 28);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti]).definition.durationMinutes, 29);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti]).definition.durationMinutes, 30);
+    assert.equal(
+        getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti, thirdBuriti]).definition.durationMinutes,
+        30,
+    );
 });

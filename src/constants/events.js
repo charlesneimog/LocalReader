@@ -31,6 +31,7 @@ export const EVENTS = {
     READING_SESSION_PAUSED: "reading:session:paused",
     READING_SESSION_RESUMED: "reading:session:resumed",
     READING_SESSION_IDLE: "reading:session:idle",
+    READING_SESSION_RESET: "reading:session:reset",
     READING_SESSION_PROGRESS: "reading:session:progress",
     READING_SESSION_GOAL_REACHED: "reading:session:goal-reached",
     READING_SESSION_COMPLETED: "reading:session:completed",

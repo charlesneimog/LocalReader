@@ -21,16 +21,14 @@ export class AudioManager {
             return;
         }
 
-        this.app.ui.beginPlaybackPreparation(
-            state.currentDocumentType === "pdf" ? "Checking page layout…" : "Preparing the text for reading…",
-        );
-        state.stopRequested = false;
-
         const context = {
             id: this._playbackContextId++,
             sentenceIndex: state.currentSentenceIndex,
             continuesReading: !!state.autoAdvanceActive,
         };
+        this._beginPlaybackPreparationForStart(context);
+        state.stopRequested = false;
+
         this._playbackContext = context;
         this._clearWaitingForAudio();
 
@@ -374,6 +372,14 @@ export class AudioManager {
 
     _finishPlaybackPreparationForStart(context) {
         this.app.ui.finishPlaybackPreparation(context?.continuesReading ? "" : "Reading started.");
+    }
+
+    _beginPlaybackPreparationForStart(context) {
+        if (context?.continuesReading) return;
+        const documentType = this.app.state.currentDocumentType;
+        this.app.ui.beginPlaybackPreparation(
+            documentType === "pdf" ? "Checking page layout…" : "Preparing the text for reading…",
+        );
     }
 
     _updatePlaybackPreparationForStart(context) {

@@ -61,6 +61,9 @@ export function calculateHorizontalTextFit(
         scale,
         pageWidth: viewportWidth * scale,
         offsetLeft: safePadding - left * scale,
+        fittedTextLeft: left * scale,
+        fittedTextRight: right * scale,
+        fittedTextWidth: textWidth * scale,
         padding: safePadding,
     };
 }

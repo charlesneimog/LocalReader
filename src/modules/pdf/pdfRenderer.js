@@ -247,6 +247,8 @@ export class PDFRenderer {
         const pageNumber = Number.parseInt(wrapper.dataset.pageNumber, 10);
         const viewportDisplay = this.app.state.viewportDisplayByPage.get(pageNumber);
         delete wrapper.dataset.textWidthFit;
+        delete wrapper.dataset.textWidthFitLeft;
+        delete wrapper.dataset.textWidthFitRight;
         wrapper.style.marginLeft = "auto";
         wrapper.style.marginRight = "auto";
         if (viewportDisplay) this.applyPageScale(wrapper, viewportDisplay);
@@ -296,6 +298,8 @@ export class PDFRenderer {
         wrapper.dataset.scale = String(fit.scale);
         wrapper.dataset.textWidthFit = "1";
         wrapper.dataset.textWidthFitBlock = focusBlockKey || "page";
+        wrapper.dataset.textWidthFitLeft = String(fit.fittedTextLeft);
+        wrapper.dataset.textWidthFitRight = String(fit.fittedTextRight);
         wrapper.style.width = `${fit.pageWidth}px`;
         wrapper.style.height = `${scaledHeight}px`;
         wrapper.style.minHeight = `${scaledHeight}px`;
@@ -932,6 +936,8 @@ export class PDFRenderer {
         wrapper.dataset.scale = String(scale);
         delete wrapper.dataset.textWidthFit;
         delete wrapper.dataset.textWidthFitBlock;
+        delete wrapper.dataset.textWidthFitLeft;
+        delete wrapper.dataset.textWidthFitRight;
         wrapper.style.width = scaledWidth + "px";
         wrapper.style.height = scaledHeight + "px";
         wrapper.style.minHeight = scaledHeight + "px";
@@ -1470,9 +1476,24 @@ export class PDFRenderer {
         panel.addEventListener("dblclick", stopToolbarPointerEvent);
         wrapper.appendChild(panel);
         const pageWidth = Math.max(1, wrapper.clientWidth || 0);
-        const panelWidth = panel.offsetWidth || 0;
-        const maxLeft = Math.max(6, pageWidth - panelWidth - 6);
-        panel.style.left = `${Math.min(Math.max(6, left), maxLeft)}px`;
+        const fittedLeft = Number(wrapper.dataset.textWidthFitLeft);
+        const fittedRight = Number(wrapper.dataset.textWidthFitRight);
+        const hasFittedBounds =
+            wrapper.dataset.textWidthFit === "1" &&
+            Number.isFinite(fittedLeft) &&
+            Number.isFinite(fittedRight) &&
+            fittedRight > fittedLeft;
+        const minLeft = hasFittedBounds ? fittedLeft : 6;
+        const maxRight = hasFittedBounds ? fittedRight : pageWidth - 6;
+        const availableWidth = Math.max(1, maxRight - minLeft);
+        panel.style.maxWidth = `${availableWidth}px`;
+        if ((panel.offsetWidth || 0) > availableWidth) {
+            panel.style.width = `${availableWidth}px`;
+            panel.style.overflowX = "auto";
+        }
+        const panelWidth = Math.min(panel.offsetWidth || 0, availableWidth);
+        const maxLeft = Math.max(minLeft, maxRight - panelWidth);
+        panel.style.left = `${Math.min(Math.max(minLeft, left), maxLeft)}px`;
         this._activePhraseActionsEl = panel;
     }
 

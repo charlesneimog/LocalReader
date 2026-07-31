@@ -536,6 +536,7 @@ html.reader-scrollbars-hidden #viewer-wrapper::-webkit-scrollbar {
 
 .pdf-active-phrase-actions {
     position: absolute;
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     gap: 6px;

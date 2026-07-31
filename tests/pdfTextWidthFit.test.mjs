@@ -20,6 +20,9 @@ test("fits readable word extrema to exactly five pixels on each side", () => {
     assert.equal(fit.padding, 5);
     assert.equal(fit.offsetLeft + fit.left * fit.scale, 5);
     assert.equal(fit.offsetLeft + fit.right * fit.scale, 795);
+    assert.equal(fit.fittedTextLeft, fit.left * fit.scale);
+    assert.equal(fit.fittedTextRight, fit.right * fit.scale);
+    assert.equal(fit.fittedTextWidth, fit.fittedTextRight - fit.fittedTextLeft);
 });
 
 test("focus block excludes readable words in other columns and all unreadable words", () => {

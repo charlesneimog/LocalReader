@@ -230,9 +230,7 @@ export class PDFRenderer {
             state.currentDocumentType === "pdf" &&
             state.viewMode === "full" &&
             state.textWidthFitEnabled &&
-            state.generationEnabled &&
-            !state.autoTranslateEnabled &&
-            !state.readTranslationEnabled
+            state.generationEnabled
         );
     }
 

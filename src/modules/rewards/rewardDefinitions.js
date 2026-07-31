@@ -81,6 +81,42 @@ export function startOfLocalWeek(timestamp = Date.now(), weekStartsOn = 1) {
     return localDateKey(date.getTime());
 }
 
+export function localCalendarPeriodBounds(period, timestamp = Date.now(), weekStartsOn = 1) {
+    const current = new Date(timestamp);
+    const start = new Date(
+        current.getFullYear(),
+        current.getMonth(),
+        current.getDate(),
+    );
+    if (period === "week") {
+        const offset = (start.getDay() - weekStartsOn + 7) % 7;
+        start.setDate(start.getDate() - offset);
+    } else if (period === "month") {
+        start.setDate(1);
+    } else if (period === "year") {
+        start.setMonth(0, 1);
+    } else {
+        throw new Error(`Unsupported local calendar period: ${period}`);
+    }
+    const end = new Date(start);
+    if (period === "week") end.setDate(end.getDate() + 7);
+    if (period === "month") end.setMonth(end.getMonth() + 1, 1);
+    if (period === "year") end.setFullYear(end.getFullYear() + 1, 0, 1);
+    return { start: start.getTime(), end: end.getTime() };
+}
+
+export function isTimestampInLocalPeriod(
+    candidateTimestamp,
+    period,
+    timestamp = Date.now(),
+    weekStartsOn = 1,
+) {
+    const candidate = Number(candidateTimestamp);
+    if (!Number.isFinite(candidate)) return false;
+    const bounds = localCalendarPeriodBounds(period, timestamp, weekStartsOn);
+    return candidate >= bounds.start && candidate < bounds.end;
+}
+
 export function meaningfulCharacterCount(text) {
     return String(text || "").replace(/\s/g, "").length;
 }

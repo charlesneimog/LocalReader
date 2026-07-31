@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { EventBus } from "../src/core/eventBus.js";
 import { GardenManager } from "../src/modules/rewards/gardenManager.js";
 import { RewardEngine } from "../src/modules/rewards/rewardEngine.js";
-import { REWARD_TYPES, elapsedLocalCalendarDays, startOfLocalWeek } from "../src/modules/rewards/rewardDefinitions.js";
+import {
+    REWARD_TYPES,
+    elapsedLocalCalendarDays,
+    isTimestampInLocalPeriod,
+    localCalendarPeriodBounds,
+    startOfLocalWeek,
+} from "../src/modules/rewards/rewardDefinitions.js";
 import { RewardStorage } from "../src/modules/rewards/rewardStorage.js";
 import { StreakManager } from "../src/modules/rewards/streakManager.js";
 
@@ -111,6 +117,21 @@ test("local calendar calculations handle DST-style offsets and Monday weeks", ()
     assert.equal(elapsedLocalCalendarDays(before, after), 7);
     const monday = new Date(2026, 6, 6, 12).getTime();
     assert.match(startOfLocalWeek(monday, 1), /2026-07-06/);
+});
+
+test("garden periods use local calendar transitions instead of fixed day durations", () => {
+    const now = new Date(2026, 2, 15, 12).getTime();
+    const month = localCalendarPeriodBounds("month", now, 1);
+    assert.equal(new Date(month.start).getDate(), 1);
+    assert.equal(new Date(month.end).getMonth(), 3);
+    assert.equal(
+        isTimestampInLocalPeriod(new Date(2026, 2, 1, 0).getTime(), "month", now, 1),
+        true,
+    );
+    assert.equal(
+        isTimestampInLocalPeriod(new Date(2026, 1, 28, 23, 59, 59).getTime(), "month", now, 1),
+        false,
+    );
 });
 
 test("recovery reward is granted once after seven local calendar days", async () => {

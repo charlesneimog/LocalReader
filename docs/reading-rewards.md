@@ -75,6 +75,11 @@ toolbar over the reader controls. The garden dialog includes the isometric
 Canvas, a keyboard-accessible textual list, weekly status, occupancy, and the
 append-only reward history.
 
+Each user has exactly one Reading Garden. The garden dialog has Week, Month,
+and Year views derived from each tree's local completion date. These views are
+projections of the same garden rather than separate plots, and changing the
+view does not mutate stored tree positions.
+
 After a tree is planted, the next sentence boundary may show a small non-modal
 note card. The note is optional, does not take focus automatically, and can be
 dismissed while reading continues.
@@ -92,7 +97,7 @@ Tree growth and points are related but deliberately separate:
 - Excess or capped points are never used to fake additional reading time.
 
 The versioned reward state is stored through `RewardStorage`. It retains active
-time, day/document buckets, sessions, plants, garden plots, reflections,
+time, day/document buckets, sessions, plants, the single garden, reflections,
 unlocks, weekly consistency, caps, and the append-only idempotent ledger.
 Cross-device merging uses transaction/entity IDs and deterministically
 relocates garden-cell conflicts.
@@ -126,16 +131,19 @@ relocates garden-cell conflicts.
    minutes.
 8. Open the garden in light and dark modes and at narrow/mobile widths; confirm
    the modal remains centered and keyboard cell selection works.
-9. Fill a plot and confirm mature trees wait for a newly added plot rather than
-   being discarded.
-10. Open the application in a second tab and confirm only one tab owns the
+9. Switch between Week, Month, and Year and confirm only trees completed in the
+   selected local-calendar period are shown.
+10. Confirm there is no plot selector or action for adding another garden.
+11. Open the application in a second tab and confirm only one tab owns the
     active reading session.
 
 ## Migration and rollback
 
 Existing flower species remain registered so older persisted gardens continue
-to render. The migration adds the default automatic tree unlock without
-removing legacy plants, ledger entries, or sessions.
+to render. Schema version 2 consolidates any older multiple plots into the
+oldest canonical Reading Garden, expands it enough to retain already placed
+trees, and deterministically relocates cell conflicts. It does not remove
+legacy plants, ledger entries, sessions, or reflections.
 
 To disable automatic trees without deleting reward history, set
 `REWARDS.automaticTreesEnabled` to `false` in `src/config.js`. For a code

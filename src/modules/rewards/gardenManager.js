@@ -67,9 +67,9 @@ export class GardenManager {
     placeMaturePlant(state, plant, timestamp = Date.now()) {
         if (plant.stage !== "mature") return { placed: false, reason: "not-mature" };
         if (plant.cell) return { placed: true, plotId: plant.plotId, cell: plant.cell };
-        for (const plot of state.gardenPlots) {
-            const cell = deterministicAvailableCell(plot, state.plants);
-            if (!cell) continue;
+        const plot = state.gardenPlots[0];
+        const cell = plot ? deterministicAvailableCell(plot, state.plants) : null;
+        if (cell) {
             plant.plotId = plot.id;
             plant.cell = cell;
             plant.updatedAt = timestamp;
@@ -79,15 +79,16 @@ export class GardenManager {
     }
 
     createPlot(state, { name, rows, columns, timestamp = Date.now() }) {
+        if (state.gardenPlots[0]) return state.gardenPlots[0];
         const plot = {
-            id: uuid(this.randomUUID),
-            name: String(name || `Garden ${state.gardenPlots.length + 1}`),
+            id: "garden-1",
+            name: String(name || "Reading Garden"),
             rows: Math.max(1, Math.floor(rows)),
             columns: Math.max(1, Math.floor(columns)),
             createdAt: timestamp,
             updatedAt: timestamp,
         };
-        state.gardenPlots.push(plot);
+        state.gardenPlots = [plot];
         return plot;
     }
 }

@@ -5,8 +5,12 @@ import {
     getAutomaticTreeTier,
     getPlantStage,
 } from "../src/modules/rewards/plantDefinitions.js";
-import { migrateRewardState } from "../src/modules/rewards/rewardMigrations.js";
+import {
+    migrateRewardState,
+    REWARD_SCHEMA_VERSION,
+} from "../src/modules/rewards/rewardMigrations.js";
 import { mergeRewardStates, relocateGardenConflicts } from "../src/modules/rewards/rewardStorage.js";
+import { gardenPlantsForPeriod } from "../src/modules/ui/gardenDialog.js";
 
 const config = { defaultGardenRows: 2, defaultGardenColumns: 2 };
 
@@ -59,6 +63,36 @@ test("reward ledger merges by transaction ID without duplication", () => {
         2,
     );
     assert.equal(merged.rewardLedger.length, 1);
+    assert.equal(merged.gardenPlots.length, 1);
+});
+
+test("cross-device merge keeps one garden and both devices' trees", () => {
+    const tree = (id, plotId, timestamp) => ({
+        id,
+        speciesId: "reading-sapling",
+        stage: "mature",
+        plotId,
+        cell: { x: 0, y: 0 },
+        plantedAt: timestamp,
+        completedAt: timestamp,
+        updatedAt: timestamp,
+    });
+    const merged = mergeRewardStates(
+        {
+            gardenPlots: [{ id: "local-garden", rows: 2, columns: 2, createdAt: 1 }],
+            plants: [tree("local-tree", "local-garden", 1)],
+        },
+        {
+            gardenPlots: [{ id: "remote-garden", rows: 2, columns: 2, createdAt: 2 }],
+            plants: [tree("remote-tree", "remote-garden", 2)],
+        },
+        config,
+        3,
+    );
+    assert.equal(merged.gardenPlots.length, 1);
+    assert.equal(merged.plants.length, 2);
+    assert.equal(merged.plants.every((plant) => plant.plotId === merged.gardenPlots[0].id), true);
+    assert.equal(new Set(merged.plants.map((plant) => `${plant.cell.x}:${plant.cell.y}`)).size, 2);
 });
 
 test("schema migration repairs malformed persisted collections", () => {
@@ -69,10 +103,55 @@ test("schema migration repairs malformed persisted collections", () => {
         plants: [{ nope: true }],
         unallocatedGrowthPoints: -9,
     }, config, 1);
-    assert.equal(migrated.schemaVersion, 1);
+    assert.equal(migrated.schemaVersion, REWARD_SCHEMA_VERSION);
     assert.deepEqual(migrated.rewardLedger, []);
     assert.deepEqual(migrated.plants, []);
     assert.equal(migrated.unallocatedGrowthPoints, 0);
+});
+
+test("schema migration consolidates old plots into one garden without losing placed trees", () => {
+    const migrated = migrateRewardState({
+        schemaVersion: 1,
+        gardenPlots: [
+            { id: "garden-a", rows: 2, columns: 2, createdAt: 1, updatedAt: 1 },
+            { id: "garden-b", rows: 2, columns: 2, createdAt: 2, updatedAt: 2 },
+        ],
+        plants: [
+            { id: "tree-a", speciesId: "reading-sapling", stage: "mature", plotId: "garden-a", cell: { x: 0, y: 0 }, plantedAt: 1, completedAt: 2 },
+            { id: "tree-b", speciesId: "reading-sapling", stage: "mature", plotId: "garden-b", cell: { x: 0, y: 0 }, plantedAt: 3, completedAt: 4 },
+        ],
+    }, config, 10);
+
+    assert.equal(migrated.gardenPlots.length, 1);
+    assert.equal(migrated.plants.every((plant) => plant.plotId === migrated.gardenPlots[0].id), true);
+    assert.equal(new Set(migrated.plants.map((plant) => `${plant.cell.x}:${plant.cell.y}`)).size, 2);
+});
+
+test("garden manager never creates a second user garden", () => {
+    const manager = new GardenManager({ randomUUID: () => "garden-new" });
+    const state = migrateRewardState(null, config, 1);
+    const original = state.gardenPlots[0];
+    const result = manager.createPlot(state, {
+        name: "Another garden",
+        rows: 10,
+        columns: 10,
+        timestamp: 2,
+    });
+    assert.equal(result.id, original.id);
+    assert.equal(state.gardenPlots.length, 1);
+});
+
+test("garden period views use local week, month, and year boundaries", () => {
+    const now = new Date(2026, 6, 30, 12).getTime();
+    const plants = [
+        { id: "week", stage: "mature", completedAt: new Date(2026, 6, 27, 12).getTime() },
+        { id: "month", stage: "mature", completedAt: new Date(2026, 6, 2, 12).getTime() },
+        { id: "year", stage: "mature", completedAt: new Date(2026, 0, 5, 12).getTime() },
+        { id: "past", stage: "mature", completedAt: new Date(2025, 11, 31, 12).getTime() },
+    ];
+    assert.deepEqual(gardenPlantsForPeriod(plants, "week", now, 1).map((plant) => plant.id), ["week"]);
+    assert.deepEqual(gardenPlantsForPeriod(plants, "month", now, 1).map((plant) => plant.id), ["month", "week"]);
+    assert.deepEqual(gardenPlantsForPeriod(plants, "year", now, 1).map((plant) => plant.id), ["year", "month", "week"]);
 });
 
 test("automatic tree catalog advances from one minute through the five and seven minute tiers", () => {

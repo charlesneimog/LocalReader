@@ -71,22 +71,7 @@ export class RewardsController {
 
     _createUi() {
         this.gardenDialog = new GardenDialog({
-            onCreatePlot: async () => {
-                let plot = null;
-                await this.storage.transaction((state) => {
-                    plot = this.gardenManager.createPlot(state, {
-                        name: `Reading Garden ${state.gardenPlots.length + 1}`,
-                        rows: this.config.defaultGardenRows,
-                        columns: this.config.defaultGardenColumns,
-                    });
-                    for (const plant of state.plants.filter((candidate) => candidate.stage === "mature" && !candidate.cell)) {
-                        this.gardenManager.placeMaturePlant(state, plant);
-                    }
-                });
-                this.app.eventBus.emit(EVENTS.GARDEN_UPDATED, { plot });
-                this._refresh();
-                return plot;
-            },
+            weekStartsOn: this.config.weekStartsOn,
         });
         this.reflectionDialog = new ReflectionDialog({
             minimumCharacters: this.config.reflectionMinimumCharacters,

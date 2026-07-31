@@ -12,6 +12,7 @@ import {
 } from "../src/modules/rewards/rewardMigrations.js";
 import { mergeRewardStates, relocateGardenConflicts } from "../src/modules/rewards/rewardStorage.js";
 import {
+    gardenPositionSeedForPlant,
     gardenPlantsForPeriod,
     projectPlantsIntoGarden,
     reflectionTextForPlant,
@@ -221,6 +222,29 @@ test("period projections add enough blocks for every visible tree", () => {
     assert.equal(projection.plot.columns, 5);
     assert.equal(projection.plants.length, 26);
     assert.equal(projection.plants.every((plant) => plant.cell), true);
+});
+
+test("period tree positions are phrase-seeded, stable, and conflict-free", () => {
+    const trees = [
+        { id: "tree-a", reflectionText: "The same phrase" },
+        { id: "tree-b", reflectionText: "The same phrase" },
+        { id: "tree-c", reflectionText: "A different thought" },
+    ];
+    const plot = { id: "garden-1", rows: 5, columns: 5 };
+    const first = projectPlantsIntoGarden(trees, plot);
+    const second = projectPlantsIntoGarden(trees, plot);
+    assert.deepEqual(
+        first.plants.map((plant) => plant.cell),
+        second.plants.map((plant) => plant.cell),
+    );
+    assert.equal(
+        new Set(first.plants.map((plant) => `${plant.cell.x}:${plant.cell.y}`)).size,
+        trees.length,
+    );
+    assert.notEqual(
+        gardenPositionSeedForPlant(trees[0]),
+        gardenPositionSeedForPlant(trees[1]),
+    );
 });
 
 test("garden hit testing prefers the front tree and uses diamond cells", () => {

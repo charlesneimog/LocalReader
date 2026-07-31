@@ -21,6 +21,21 @@
     margin: auto;
 }
 
+/* Keep the garden anchored while selected notes change its content height. */
+.rewards-dialog.garden-dialog {
+    --garden-dialog-top: clamp(1rem, 12vh, 8.5rem);
+    top: var(--garden-dialog-top);
+    bottom: auto;
+    margin: 0 auto;
+    max-height: calc(100vh - var(--garden-dialog-top) - 1rem);
+    max-height: calc(100dvh - var(--garden-dialog-top) - 1rem);
+}
+
+.garden-dialog > section {
+    max-height: calc(100vh - var(--garden-dialog-top) - 1rem);
+    max-height: calc(100dvh - var(--garden-dialog-top) - 1rem);
+}
+
 .garden-canvas {
     filter: none !important;
 }

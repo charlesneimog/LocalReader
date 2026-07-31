@@ -129,7 +129,9 @@ using their visible pixels rather than their transparent image rectangles, and
 selecting one shows the reading note saved when that tree was completed. The
 isometric garden is rendered as a raised grass-and-soil plot. It starts at 25
 blocks (5 by 5) and automatically adds rows as needed; period views likewise
-include enough blocks to show every Week, Month, or Year tree.
+include enough blocks to show every Week, Month, or Year tree. Within each view,
+trees are scattered deterministically from their saved reading note and tree ID;
+the layout remains stable and duplicate notes cannot cause cell conflicts.
 
 After a tree is planted, the next sentence boundary may show a small non-modal
 note card. The note is optional, does not take focus automatically, and can be

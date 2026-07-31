@@ -1,4 +1,5 @@
 import { GardenRenderer } from "../rewards/gardenRenderer.js";
+import { deterministicAvailableCell } from "../rewards/gardenManager.js";
 import { isTimestampInLocalPeriod } from "../rewards/rewardDefinitions.js";
 import { getPlantDefinition, getPlantStage } from "../rewards/plantDefinitions.js";
 
@@ -40,19 +41,31 @@ export function projectPlantsIntoGarden(plants, plot) {
         Number(plot.rows) || 1,
         Math.ceil(plants.length / columns),
     );
-    const cells = [];
-    for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < columns; x++) cells.push({ x, y, depth: x + y });
-    }
-    cells.sort((left, right) => left.depth - right.depth || left.y - right.y || left.x - right.x);
-    return {
-        plot: { ...plot, rows, columns },
-        plants: plants.map((plant, index) => ({
+    const projectedPlot = { ...plot, rows, columns };
+    const positioned = [];
+    for (const plant of plants) {
+        const cell = deterministicAvailableCell(
+            projectedPlot,
+            positioned,
+            gardenPositionSeedForPlant(plant),
+        );
+        positioned.push({
             ...plant,
-            plotId: plot.id,
-            cell: cells[index],
-        })),
+            plotId: projectedPlot.id,
+            cell,
+        });
+    }
+    return {
+        plot: projectedPlot,
+        plants: positioned,
     };
+}
+
+export function gardenPositionSeedForPlant(plant) {
+    const phrase = typeof plant?.reflectionText === "string"
+        ? plant.reflectionText.trim()
+        : "";
+    return `${phrase || "tree"}:${plant?.id || "unknown"}`;
 }
 
 export function reflectionTextForPlant(plant, reflections) {
@@ -138,14 +151,14 @@ export class GardenDialog {
             timestamp,
             this.weekStartsOn,
         );
-        const projection = projectPlantsIntoGarden(periodPlants, {
-            ...plot,
-            rows: this.minimumRows,
-        });
-        projection.plants = projection.plants.map((plant) => ({
+        const positionablePlants = periodPlants.map((plant) => ({
             ...plant,
             reflectionText: reflectionTextForPlant(plant, state.reflections),
         }));
+        const projection = projectPlantsIntoGarden(positionablePlants, {
+            ...plot,
+            rows: this.minimumRows,
+        });
         const occupied = state.plants.filter((plant) => plant.stage === "mature" && plant.cell).length;
         const unplaced = state.plants.filter((plant) => plant.stage === "mature" && !plant.cell).length;
         const periodLabel = PERIOD_LABELS[this.period];

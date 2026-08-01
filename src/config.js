@@ -5,7 +5,7 @@ export const CONFIG = {
     VERSION_LABEL: "0.38.7+16",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 40,
-    VERSION_PATCH: 10,
+    VERSION_PATCH: 11,
     VERSION_BUILD: 0,
 
     // Rendering

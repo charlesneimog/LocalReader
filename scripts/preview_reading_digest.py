@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--email",
-        help="Use this account's current forest and saved phrases. Without it, sample data is used.",
+        help="Use this account's planted trees and reflections. Without it, sample data is used.",
     )
     parser.add_argument(
         "--period",
@@ -79,17 +79,40 @@ def sample_snapshot(window: DigestWindow) -> dict:
         "ipe-amarelo-golden-rain",
         "buriti-sun-palm",
     ]
+    plants = [
+        {
+            "id": f"plant-{index}",
+            "speciesId": species[index],
+            "stage": "mature",
+            "completedAt": completed_at,
+            "cell": {"x": index % 4, "y": index // 4},
+            "sessionId": f"session-{index}",
+            "reflectionId": f"reflection-{index}",
+        }
+        for index in range(len(species))
+    ]
     return {
         "activeTimeByDay": {
             window.start_date.isoformat(): 58 * 60_000,
             window.end_date.isoformat(): 38 * 60_000,
         },
-        "plants": [
+        "plants": plants,
+        "sessions": [
             {
-                "speciesId": species[index],
-                "stage": "mature",
-                "completedAt": completed_at,
-                "cell": {"x": index % 4, "y": index // 4},
+                "id": f"session-{index}",
+                "document": {"title": "A favorite book" if index < 4 else "Notes on slow progress"},
+            }
+            for index in range(len(species))
+        ],
+        "reflections": [
+            {
+                "id": f"reflection-{index}",
+                "sessionId": f"session-{index}",
+                "text": (
+                    "A lovely reminder of why I keep making time for books."
+                    if index % 2 == 0
+                    else "Small, steady steps still carry us a very long way."
+                ),
             }
             for index in range(len(species))
         ],
@@ -109,24 +132,11 @@ def main() -> None:
         if not Path(app.DB_PATH).exists():
             raise SystemExit(f"Database not found: {app.DB_PATH}")
         snapshot = app.get_reward_state(args.email) or {}
-        memories = app.list_email_digest_memories(args.email, limit=4)
     else:
         snapshot = sample_snapshot(window)
-        memories = [
-            {
-                "text": "A reader lives a thousand lives before he dies.",
-                "comment": "A lovely reminder of why I keep making time for books.",
-                "documentTitle": "A favorite book",
-            },
-            {
-                "text": "Small, steady steps still carry us a very long way.",
-                "comment": "Use this idea for the next reading goal.",
-                "documentTitle": "Notes on slow progress",
-            },
-        ]
 
     summary = summarize_reward_snapshot(snapshot, window, "America/Sao_Paulo")
-    html = build_digest_html("PocketReader", window, summary, args.url, memories)
+    html = build_digest_html("PocketReader", window, summary, args.url)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(html, encoding="utf-8")
     print(args.output.resolve().as_uri())

@@ -106,6 +106,7 @@ class ReadingDigestServiceTests(unittest.TestCase):
 
     def test_summary_uses_active_milliseconds_and_counts_trees_and_points(self):
         completed_at = datetime(2026, 7, 30, 15, tzinfo=timezone.utc).timestamp() * 1000
+        older_completed_at = datetime(2026, 6, 30, 15, tzinfo=timezone.utc).timestamp() * 1000
         window = DigestWindow("monthly", "2026-07", date(2026, 7, 1), date(2026, 7, 31))
         summary = summarize_reward_snapshot(
             {
@@ -115,9 +116,29 @@ class ReadingDigestServiceTests(unittest.TestCase):
                     "bad": "bad",
                 },
                 "plants": [
-                    {"speciesId": "minute-sprout", "stage": "mature", "completedAt": completed_at},
-                    {"speciesId": "reading-sapling", "stage": "young", "completedAt": completed_at},
+                    {
+                        "id": "plant-1",
+                        "speciesId": "minute-sprout",
+                        "stage": "mature",
+                        "completedAt": completed_at,
+                        "sessionId": "session-1",
+                        "reflectionId": "reflection-1",
+                    },
+                    {
+                        "speciesId": "reading-sapling",
+                        "stage": "mature",
+                        "completedAt": older_completed_at,
+                    },
                 ],
+                "sessions": [{
+                    "id": "session-1",
+                    "document": {"title": "My Book"},
+                }],
+                "reflections": [{
+                    "id": "reflection-1",
+                    "sessionId": "session-1",
+                    "text": "This is my planting comment <script>",
+                }],
                 "rewardLedger": [
                     {"localDate": "2026-07-30", "points": 4},
                     {"localDate": "2026-06-30", "points": 10},
@@ -130,6 +151,8 @@ class ReadingDigestServiceTests(unittest.TestCase):
         self.assertEqual(summary["readingDays"], 2)
         self.assertEqual(summary["matureTrees"], 1)
         self.assertEqual(summary["growthPoints"], 4)
+        self.assertEqual(len(summary["periodPlants"]), 1)
+        self.assertEqual(summary["periodPlants"][0]["reflectionText"], "This is my planting comment <script>")
         subject, body = build_digest_email("PocketReader", window, summary)
         self.assertIn("monthly", subject)
         self.assertIn("15 minutes", body)
@@ -138,13 +161,13 @@ class ReadingDigestServiceTests(unittest.TestCase):
             window,
             summary,
             "https://reader.example.com",
-            [{"text": "A remembered phrase <script>", "comment": "Read this again", "documentTitle": "My Book"}],
         )
-        self.assertIn("Your current forest", html)
-        self.assertIn("A remembered phrase", html)
+        self.assertIn("Your new trees", html)
+        self.assertIn("This is my planting comment", html)
         self.assertNotIn("<script>", html)
         self.assertIn("Return to your library", html)
         self.assertIn("assets/rewards/trees/minute-sprout.svg", html)
+        self.assertNotIn("assets/rewards/trees/reading-sapling.svg", html)
         self.assertNotIn("🌳", html)
 
     def test_opt_out_and_delivery_claim_prevent_duplicate_email(self):
@@ -161,34 +184,6 @@ class ReadingDigestServiceTests(unittest.TestCase):
         self.assertEqual(sent[0][0], "reader@example.com")
         self.assertIn("<!doctype html>", sent[0][3])
         self.assertEqual(len(repository.completed), 1)
-
-    def test_digest_memories_are_account_scoped(self):
-        original_path = app.DB_PATH
-        try:
-            with tempfile.TemporaryDirectory() as directory:
-                app.DB_PATH = f"{directory}/database.db"
-                app.init_db()
-                self.assertTrue(app.create_user("reader@example.com", "strong-password"))
-                self.assertTrue(app.create_user("other@example.com", "strong-password"))
-                app.add_file_with_id("reader.pdf", "Reader book", b"reader", "pdf", owner_email="reader@example.com")
-                app.add_file_with_id("other.pdf", "Other book", b"other", "pdf", owner_email="other@example.com")
-                app.update_highlights(
-                    "reader.pdf",
-                    [{"sentenceIndex": 1, "text": "Reader phrase", "comment": "Reader note"}],
-                    owner_email="reader@example.com",
-                )
-                app.update_highlights(
-                    "other.pdf",
-                    [{"sentenceIndex": 1, "text": "Private other phrase"}],
-                    owner_email="other@example.com",
-                )
-                memories = app.list_email_digest_memories("reader@example.com")
-                self.assertEqual(len(memories), 1)
-                self.assertEqual(memories[0]["text"], "Reader phrase")
-                self.assertEqual(memories[0]["documentTitle"], "Reader book")
-        finally:
-            app.DB_PATH = original_path
-
 
 if __name__ == "__main__":
     unittest.main()

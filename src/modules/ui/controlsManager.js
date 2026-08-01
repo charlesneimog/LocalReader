@@ -28,6 +28,7 @@ export class ControlsManager {
         this.speedSelectValue = document.getElementById("reading-speed-value");
         this.btnDecreaseSpeed = document.getElementById("btn-speed-decrease");
         this.btnIncreaseSpeed = document.getElementById("btn-speed-increase");
+        this.readingDigestEmailSection = document.getElementById("reading-digest-email-section");
         this.readingDigestEmailToggle = document.getElementById("reading-digest-email");
         this.readingDigestEmailStatus = document.getElementById("reading-digest-email-status");
 
@@ -446,6 +447,7 @@ export class ControlsManager {
                 } else {
                     localStorage.removeItem("config.serverLink");
                 }
+                void this.refreshReadingDigestPreference();
             });
         }
 
@@ -467,12 +469,17 @@ export class ControlsManager {
         const status = this.readingDigestEmailStatus;
         if (!toggle || !status) return;
         const hasServer = !!this.app.serverSync?.getServerUrl?.();
+        if (this.readingDigestEmailSection) {
+            this.readingDigestEmailSection.hidden = !hasServer;
+        }
+        if (!hasServer) {
+            toggle.disabled = true;
+            return;
+        }
         const authenticated = hasServer && !!localStorage.getItem("localreaderAuthToken");
         if (!authenticated) {
             toggle.disabled = true;
-            status.textContent = hasServer
-                ? "Sign in to configure email summaries."
-                : "Set a self-hosted server link to configure email summaries.";
+            status.textContent = "Sign in to configure email summaries.";
             return;
         }
 

@@ -170,6 +170,9 @@ class ReadingDigestServiceTests(unittest.TestCase):
         self.assertIn("Return to your library", html)
         self.assertIn("assets/rewards/trees/minute-sprout.svg", html)
         self.assertNotIn("assets/rewards/trees/reading-sapling.svg", html)
+        self.assertIn("assets/icons/icon-192.png", html)
+        self.assertIn("#654ef0", html)
+        self.assertIn("#101922", html)
         self.assertNotIn("🌳", html)
 
     def test_opt_out_and_delivery_claim_prevent_duplicate_email(self):

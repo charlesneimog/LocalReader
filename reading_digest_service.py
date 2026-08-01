@@ -298,18 +298,19 @@ def _garden_html(summary: dict, app_url: str) -> str:
         rows.append(f"<tr>{cells}</tr>")
     if not rows:
         rows.append(
-            '<tr><td align="center" style="height:72px;font:14px Arial,sans-serif;color:#53735f">'
+            '<tr><td align="center" style="height:72px;font:14px Inter,Arial,sans-serif;color:#64748b">'
             'Your next tree will appear here.</td></tr>'
         )
     tree_label = f"{mature_count} tree{'s' if mature_count != 1 else ''} planted this period"
     return (
         '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
-        'style="background-color:#dff6e8;background-image:linear-gradient(180deg,#dff6e8 0%,#edf8d7 64%,#b9d98b 65%,#8ebc6d 100%);'
-        'border-radius:20px;border:1px solid #c8e5cf;padding:18px 14px 13px">'
-        '<tr><td align="center" style="color:#315c43;font:700 12px Arial,sans-serif;letter-spacing:.08em;'
-        f'text-transform:uppercase;padding-bottom:8px">Your new trees · {escape(tree_label)}</td></tr>'
-        f'<tr><td><table role="presentation" width="100%" cellspacing="0" cellpadding="0">{"".join(rows)}</table></td></tr>'
-        '</table>'
+        'style="background-color:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;padding:16px 14px 0">'
+        '<tr><td align="center" style="color:#654ef0;font:700 12px Inter,Arial,sans-serif;letter-spacing:.08em;'
+        f'text-transform:uppercase;padding-bottom:12px">Your new trees · {escape(tree_label)}</td></tr>'
+        '<tr><td style="background-color:#dff6e8;background-image:linear-gradient(180deg,#dff6e8 0%,#edf8d7 64%,#b9d98b 65%,#8ebc6d 100%);'
+        'border-radius:10px 10px 0 0;padding:13px 8px 9px">'
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{"".join(rows)}</table>'
+        '</td></tr></table>'
     )
 
 
@@ -326,9 +327,14 @@ def build_digest_html(
     trees = int(summary["matureTrees"])
     points = int(summary["growthPoints"])
     app_url = _normalized_app_url(public_app_url)
+    brand_icon = (
+        f'<img src="{escape(urljoin(app_url, "assets/icons/icon-192.png"), quote=True)}" width="46" height="46" '
+        f'alt="{escape(app_name, quote=True)}" style="display:block;width:46px;height:46px;border:0;border-radius:11px">'
+        if app_url else ""
+    )
     button = (
-        f'<a href="{escape(app_url, quote=True)}" style="display:inline-block;background:#315c43;color:#fff;'
-        'font:700 15px Arial,sans-serif;text-decoration:none;padding:13px 22px;border-radius:999px">'
+        f'<a href="{escape(app_url, quote=True)}" style="display:inline-block;background:#654ef0;color:#fff;'
+        'font:700 15px Inter,Arial,sans-serif;text-decoration:none;padding:13px 22px;border-radius:9px">'
         'Return to your library&nbsp; →</a>'
         if app_url else ""
     )
@@ -340,44 +346,47 @@ def build_digest_html(
         if not comment:
             continue
         tree = _tree_html(plant, app_url)
-        source = f'<div style="margin-top:9px;font:12px Arial,sans-serif;color:#6b7d72">{title}</div>' if title else ""
+        source = f'<div style="margin-top:9px;font:600 12px Inter,Arial,sans-serif;color:#654ef0">{title}</div>' if title else ""
         reflection_cards.append(
             '<td style="padding:0 0 10px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
-            'style="background:#f7faf7;border:1px solid #e1ebe3;border-radius:13px"><tr>'
+            'style="background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid #654ef0;border-radius:10px"><tr>'
             f'<td width="76" align="center" valign="middle" style="padding:14px 5px 14px 14px">{tree}</td>'
             '<td valign="middle" style="padding:15px 16px 15px 8px">'
-            f'<div style="font:italic 16px/1.55 Georgia,serif;color:#273d31">“{comment}”</div>{source}'
+            f'<div style="font:15px/1.55 Inter,Arial,sans-serif;color:#334155">“{comment}”</div>{source}'
             '</td></tr></table></td>'
         )
     reflections_html = ""
     if reflection_cards:
         reflections_html = (
-            '<tr><td style="padding:28px 32px 0"><div style="font:700 19px Georgia,serif;color:#213d2d;'
+            '<tr><td style="padding:28px 32px 0"><div style="font:700 19px Inter,Arial,sans-serif;color:#1e293b;'
             'margin-bottom:12px">Notes from the trees you planted</div>'
             '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>'
             + '</tr><tr>'.join(reflection_cards) + '</tr></table></td></tr>'
         )
     return f'''<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{escape(app_name)} reading summary</title></head>
-<body style="margin:0;background:#eef2ed;padding:24px 10px;color:#23352a">
-<div style="display:none;max-height:0;overflow:hidden">{escape(duration)} of reading, {trees} new tree{'s' if trees != 1 else ''}, and a look at your forest.</div>
+<body style="margin:0;background:#f6f7f8;padding:24px 10px;color:#1e293b;font-family:Inter,Arial,sans-serif">
+<div style="display:none;max-height:0;overflow:hidden">{escape(duration)} of reading and {trees} new tree{'s' if trees != 1 else ''} planted.</div>
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 8px 28px rgba(35,53,42,.09)">
-<tr><td style="padding:34px 32px 25px;background:#294e39;color:#fff">
-<div style="font:700 12px Arial,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#cbe8d4">{escape(app_name)}</div>
-<h1 style="margin:9px 0 7px;font:700 32px/1.15 Georgia,serif">Your {period_name} reading story</h1>
-<div style="font:14px Arial,sans-serif;color:#d9eade">{window.start_date.strftime('%b %d, %Y')} – {window.end_date.strftime('%b %d, %Y')}</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 10px 28px rgba(15,23,42,.08)">
+<tr><td height="5" style="height:5px;background:#654ef0;font-size:0;line-height:0">&nbsp;</td></tr>
+<tr><td style="padding:28px 32px 27px;background:#101922;color:#fff">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td width="58" valign="middle">{brand_icon}</td><td valign="middle"><div style="font:700 14px Inter,Arial,sans-serif;letter-spacing:.08em;color:#cbd5e1">{escape(app_name)}</div><div style="font:12px Inter,Arial,sans-serif;color:#94a3b8;margin-top:3px">Your personal reading space</div></td></tr></table>
+<h1 style="margin:24px 0 8px;font:700 29px/1.2 Inter,Arial,sans-serif;letter-spacing:-.02em">Your {period_name} reading story</h1>
+<div style="font:14px Inter,Arial,sans-serif;color:#cbd5e1">{window.start_date.strftime('%b %d, %Y')} – {window.end_date.strftime('%b %d, %Y')}</div>
 </td></tr>
 <tr><td style="padding:26px 32px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
-<td width="33%" align="center" style="padding:8px"><div style="font:700 23px Georgia,serif;color:#294e39">{escape(duration)}</div><div style="font:12px Arial,sans-serif;color:#708078;margin-top:4px">READING</div></td>
-<td width="33%" align="center" style="padding:8px;border-left:1px solid #e5ece6;border-right:1px solid #e5ece6"><div style="font:700 23px Georgia,serif;color:#294e39">{days}</div><div style="font:12px Arial,sans-serif;color:#708078;margin-top:4px">READING DAY{'S' if days != 1 else ''}</div></td>
-<td width="33%" align="center" style="padding:8px"><div style="font:700 23px Georgia,serif;color:#294e39">+{points}</div><div style="font:12px Arial,sans-serif;color:#708078;margin-top:4px">GROWTH POINTS</div></td>
+<td width="31%" align="center" style="padding:14px 6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px"><div style="font:700 21px Inter,Arial,sans-serif;color:#654ef0">{escape(duration)}</div><div style="font:700 11px Inter,Arial,sans-serif;color:#64748b;margin-top:5px;letter-spacing:.06em">READING</div></td>
+<td width="3%"></td>
+<td width="31%" align="center" style="padding:14px 6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px"><div style="font:700 21px Inter,Arial,sans-serif;color:#654ef0">{days}</div><div style="font:700 11px Inter,Arial,sans-serif;color:#64748b;margin-top:5px;letter-spacing:.06em">READING DAY{'S' if days != 1 else ''}</div></td>
+<td width="3%"></td>
+<td width="31%" align="center" style="padding:14px 6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px"><div style="font:700 21px Inter,Arial,sans-serif;color:#654ef0">+{points}</div><div style="font:700 11px Inter,Arial,sans-serif;color:#64748b;margin-top:5px;letter-spacing:.06em">GROWTH POINTS</div></td>
 </tr></table></td></tr>
 <tr><td style="padding:27px 32px 0">{_garden_html(summary, app_url)}</td></tr>
-<tr><td style="padding:17px 35px 0;text-align:center;font:15px/1.55 Arial,sans-serif;color:#53655a">You planted <b>{trees} new tree{'s' if trees != 1 else ''}</b> this {period_name}. Keep reading at your own pace—your garden never decays.</td></tr>
+<tr><td style="padding:17px 35px 0;text-align:center;font:14px/1.6 Inter,Arial,sans-serif;color:#64748b">You planted <b style="color:#334155">{trees} new tree{'s' if trees != 1 else ''}</b> this {period_name}. Keep reading at your own pace—your garden never decays.</td></tr>
 {reflections_html}
 <tr><td align="center" style="padding:27px 32px 31px">{button}</td></tr>
-<tr><td align="center" style="padding:18px 24px;background:#f5f7f4;font:12px/1.5 Arial,sans-serif;color:#7a877f">You can turn off reading summary emails in Settings.</td></tr>
+<tr><td align="center" style="padding:18px 24px;background:#f8fafc;border-top:1px solid #e2e8f0;font:12px/1.5 Inter,Arial,sans-serif;color:#94a3b8">You can turn off reading summary emails in Settings.</td></tr>
 </table></td></tr></table></body></html>'''
 
 

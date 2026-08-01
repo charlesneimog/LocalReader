@@ -72,6 +72,7 @@ export class PDFTTSApp {
         // Keep the historic property name while routing storage through the
         // selected self-host or Google Drive backend.
         this.serverSync = new SyncManager(this);
+        void this.controlsManager.refreshReadingDigestPreference();
 
         // PDF / Text
         this.pdfLoader = new PDFLoader(this);

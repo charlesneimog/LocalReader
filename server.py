@@ -319,7 +319,7 @@ def _parse_multipart_form_data(content_type: str, body: bytes) -> tuple[dict, di
     return fields, files
 
 
-def _send_email_smtp(to_email: str, subject: str, body: str) -> None:
+def _send_email_smtp(to_email: str, subject: str, body: str, html_body: str = "") -> None:
     host = os.environ.get("SMTP_HOST", "")
     port = int(os.environ.get("SMTP_PORT", "587"))
     user = os.environ.get("SMTP_USER", "")
@@ -335,6 +335,8 @@ def _send_email_smtp(to_email: str, subject: str, body: str) -> None:
     msg["To"] = to_email
     msg["Subject"] = subject
     msg.set_content(body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
 
     with smtplib.SMTP(host, port, timeout=15) as smtp:
         smtp.ehlo()

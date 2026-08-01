@@ -11,6 +11,7 @@ import math
 import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from html import escape
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -123,6 +124,18 @@ def summarize_reward_snapshot(snapshot: dict | None, window: DigestWindow, timez
         "readingDays": reading_days,
         "matureTrees": mature_trees,
         "growthPoints": points,
+        # The digest period controls the counters above. The garden is deliberately
+        # current: it gives the email a familiar snapshot of what the reader has
+        # built without pretending that older trees were planted this period.
+        "gardenPlants": [
+            {
+                "speciesId": str(plant.get("speciesId") or "tree"),
+                "stage": str(plant.get("stage") or "seed"),
+                "cell": plant.get("cell") if isinstance(plant.get("cell"), dict) else None,
+            }
+            for plant in snapshot.get("plants", [])
+            if isinstance(plant, dict)
+        ],
     }
 
 
@@ -141,11 +154,19 @@ def format_reading_duration(milliseconds: float) -> str:
     )
 
 
+def _compact_text(value, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)].rstrip() + "…"
+
+
 def build_digest_email(
     app_name: str,
     window: DigestWindow,
     summary: dict,
     public_app_url: str = "",
+    memories: list[dict] | None = None,
 ) -> tuple[str, str]:
     period_name = {
         "weekly": "weekly",
@@ -163,12 +184,153 @@ def build_digest_email(
         f"You read for {duration} across {days} reading day{'s' if days != 1 else ''}.\n"
         f"You planted {trees} tree{'s' if trees != 1 else ''} and earned {points} growth point"
         f"{'s' if points != 1 else ''}.\n\n"
-        "Keep reading at your own pace—your existing garden never decays.\n\n"
-        "You can turn off reading summary emails in Settings."
+        "Keep reading at your own pace—your existing garden never decays."
     )
+    memories = memories if isinstance(memories, list) else []
+    if memories:
+        body += "\n\nPhrases & notes from your library"
+        for memory in memories[:4]:
+            text = _compact_text(memory.get("text"), 420)
+            comment = _compact_text(memory.get("comment"), 280)
+            title = _compact_text(memory.get("documentTitle"), 100)
+            if text:
+                body += f'\n\n“{text}”'
+            if comment:
+                body += f"\nNote: {comment}"
+            if title:
+                body += f"\n— {title}"
     if public_app_url:
-        body += f"\n{public_app_url.rstrip('/')}/"
+        body += f"\n\n{public_app_url.rstrip('/')}/"
+    body += "\n\nYou can turn off reading summary emails in Settings."
     return subject, body
+
+
+def _plant_emoji(species_id: str, stage: str) -> str:
+    if stage == "seed":
+        return "•"
+    if stage in {"sprout", "young"}:
+        return "🌱"
+    species_id = species_id.lower()
+    if any(token in species_id for token in ("blossom", "ipe", "flower", "coral")):
+        return "🌸"
+    if any(token in species_id for token in ("pine", "cypress", "araucaria")):
+        return "🌲"
+    if any(token in species_id for token in ("palm", "buriti")):
+        return "🌴"
+    return "🌳"
+
+
+def _garden_html(summary: dict) -> str:
+    plants = summary.get("gardenPlants")
+    plants = plants if isinstance(plants, list) else []
+    mature_count = sum(1 for plant in plants if plant.get("stage") == "mature")
+    def cell_coordinate(plant: dict, axis: str) -> int:
+        try:
+            return int((plant.get("cell") or {}).get(axis, 999))
+        except (TypeError, ValueError):
+            return 999
+
+    visible = sorted(
+        plants,
+        key=lambda plant: (
+            cell_coordinate(plant, "y"),
+            cell_coordinate(plant, "x"),
+        ),
+    )[-18:]
+    icons = [_plant_emoji(str(item.get("speciesId") or ""), str(item.get("stage") or "")) for item in visible]
+    if not icons:
+        icons = ["🌱"]
+    rows = []
+    for offset in range(0, len(icons), 6):
+        cells = "".join(
+            '<td align="center" valign="bottom" style="width:16.66%;height:54px;'
+            'font-size:31px;line-height:36px;padding:2px">'
+            f'{escape(icon)}</td>'
+            for icon in icons[offset:offset + 6]
+        )
+        cells += '<td style="width:16.66%"></td>' * (6 - len(icons[offset:offset + 6]))
+        rows.append(f"<tr>{cells}</tr>")
+    tree_label = f"{mature_count} tree{'s' if mature_count != 1 else ''} growing here"
+    return (
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        'style="background-color:#dff6e8;background-image:linear-gradient(180deg,#dff6e8 0%,#edf8d7 64%,#b9d98b 65%,#8ebc6d 100%);'
+        'border-radius:20px;border:1px solid #c8e5cf;padding:18px 14px 13px">'
+        '<tr><td align="center" style="color:#315c43;font:700 12px Arial,sans-serif;letter-spacing:.08em;'
+        f'text-transform:uppercase;padding-bottom:8px">Your current forest · {escape(tree_label)}</td></tr>'
+        f'<tr><td><table role="presentation" width="100%" cellspacing="0" cellpadding="0">{"".join(rows)}</table></td></tr>'
+        '</table>'
+    )
+
+
+def build_digest_html(
+    app_name: str,
+    window: DigestWindow,
+    summary: dict,
+    public_app_url: str = "",
+    memories: list[dict] | None = None,
+) -> str:
+    """Build a conservative, inline-styled HTML email for broad client support."""
+    period_name = {"weekly": "weekly", "monthly": "monthly", "yearly": "yearly"}[window.digest_type]
+    duration = format_reading_duration(summary["activeReadingMs"])
+    days = int(summary["readingDays"])
+    trees = int(summary["matureTrees"])
+    points = int(summary["growthPoints"])
+    memories = memories if isinstance(memories, list) else []
+    app_url = public_app_url.rstrip("/") + "/" if public_app_url else ""
+    button = (
+        f'<a href="{escape(app_url, quote=True)}" style="display:inline-block;background:#315c43;color:#fff;'
+        'font:700 15px Arial,sans-serif;text-decoration:none;padding:13px 22px;border-radius:999px">'
+        'Return to your library&nbsp; →</a>'
+        if app_url else ""
+    )
+    memory_cards = []
+    for memory in memories[:4]:
+        text = escape(_compact_text(memory.get("text"), 420))
+        comment = escape(_compact_text(memory.get("comment"), 280))
+        title = escape(_compact_text(memory.get("documentTitle"), 100))
+        if not text and not comment:
+            continue
+        quote = f'<div style="font:italic 16px/1.55 Georgia,serif;color:#273d31">“{text}”</div>' if text else ""
+        note = (
+            '<div style="margin-top:10px;padding:9px 11px;background:#fff7da;border-radius:9px;'
+            f'font:14px/1.5 Arial,sans-serif;color:#5c4b22"><b>Your note:</b> {comment}</div>'
+            if comment else ""
+        )
+        source = f'<div style="margin-top:9px;font:12px Arial,sans-serif;color:#6b7d72">{title}</div>' if title else ""
+        memory_cards.append(
+            '<td style="padding:0 0 10px"><div style="background:#f7faf7;border:1px solid #e1ebe3;'
+            f'border-radius:13px;padding:15px 16px">{quote}{note}{source}</div></td>'
+        )
+    memories_html = ""
+    if memory_cards:
+        memories_html = (
+            '<tr><td style="padding:28px 32px 0"><div style="font:700 19px Georgia,serif;color:#213d2d;'
+            'margin-bottom:12px">Phrases &amp; notes worth revisiting</div>'
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>'
+            + '</tr><tr>'.join(memory_cards) + '</tr></table></td></tr>'
+        )
+    return f'''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{escape(app_name)} reading summary</title></head>
+<body style="margin:0;background:#eef2ed;padding:24px 10px;color:#23352a">
+<div style="display:none;max-height:0;overflow:hidden">{escape(duration)} of reading, {trees} new tree{'s' if trees != 1 else ''}, and a look at your forest.</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 8px 28px rgba(35,53,42,.09)">
+<tr><td style="padding:34px 32px 25px;background:#294e39;color:#fff">
+<div style="font:700 12px Arial,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#cbe8d4">{escape(app_name)}</div>
+<h1 style="margin:9px 0 7px;font:700 32px/1.15 Georgia,serif">Your {period_name} reading story</h1>
+<div style="font:14px Arial,sans-serif;color:#d9eade">{window.start_date.strftime('%b %d, %Y')} – {window.end_date.strftime('%b %d, %Y')}</div>
+</td></tr>
+<tr><td style="padding:26px 32px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
+<td width="33%" align="center" style="padding:8px"><div style="font:700 23px Georgia,serif;color:#294e39">{escape(duration)}</div><div style="font:12px Arial,sans-serif;color:#708078;margin-top:4px">READING</div></td>
+<td width="33%" align="center" style="padding:8px;border-left:1px solid #e5ece6;border-right:1px solid #e5ece6"><div style="font:700 23px Georgia,serif;color:#294e39">{days}</div><div style="font:12px Arial,sans-serif;color:#708078;margin-top:4px">READING DAY{'S' if days != 1 else ''}</div></td>
+<td width="33%" align="center" style="padding:8px"><div style="font:700 23px Georgia,serif;color:#294e39">+{points}</div><div style="font:12px Arial,sans-serif;color:#708078;margin-top:4px">GROWTH POINTS</div></td>
+</tr></table></td></tr>
+<tr><td style="padding:27px 32px 0">{_garden_html(summary)}</td></tr>
+<tr><td style="padding:17px 35px 0;text-align:center;font:15px/1.55 Arial,sans-serif;color:#53655a">You planted <b>{trees} new tree{'s' if trees != 1 else ''}</b> this {period_name}. Keep reading at your own pace—your garden never decays.</td></tr>
+{memories_html}
+<tr><td align="center" style="padding:27px 32px 31px">{button}</td></tr>
+<tr><td align="center" style="padding:18px 24px;background:#f5f7f4;font:12px/1.5 Arial,sans-serif;color:#7a877f">You can turn off reading summary emails in Settings.</td></tr>
+</table></td></tr></table></body></html>'''
 
 
 class ReadingDigestService:
@@ -226,13 +388,23 @@ class ReadingDigestService:
                 try:
                     snapshot = self.repository.get_reward_state(email)
                     summary = summarize_reward_snapshot(snapshot, window, timezone_name)
+                    get_memories = getattr(self.repository, "list_email_digest_memories", None)
+                    memories = get_memories(email, limit=4) if callable(get_memories) else []
                     subject, body = build_digest_email(
                         self.app_name,
                         window,
                         summary,
                         self.public_app_url,
+                        memories,
                     )
-                    self.send_email(email, subject, body)
+                    html_body = build_digest_html(
+                        self.app_name,
+                        window,
+                        summary,
+                        self.public_app_url,
+                        memories,
+                    )
+                    self.send_email(email, subject, body, html_body)
                     self.repository.complete_email_digest_delivery(
                         email,
                         window.digest_type,

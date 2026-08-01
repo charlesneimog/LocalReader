@@ -1465,6 +1465,50 @@ def get_reward_state(owner_email):
         return None
 
 
+def list_email_digest_memories(owner_email, limit=4):
+    """Return a small, account-scoped selection of saved phrases and notes."""
+    owner_n = _normalize_email(owner_email)
+    if not owner_n:
+        return []
+    try:
+        safe_limit = max(0, min(10, int(limit)))
+    except (TypeError, ValueError):
+        safe_limit = 4
+    if not safe_limit:
+        return []
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                h.text,
+                h.comment,
+                COALESCE((
+                    SELECT f.title
+                    FROM files AS f
+                    WHERE f.owner_email = h.owner_email
+                      AND (h.file_id = h.owner_email || '::' || f.filename OR h.file_id = f.filename)
+                    ORDER BY COALESCE(f.updated_at, f.created_at) DESC
+                    LIMIT 1
+                ), '') AS document_title
+            FROM highlights AS h
+            WHERE h.owner_email = ?
+              AND (TRIM(COALESCE(h.text, '')) <> '' OR TRIM(COALESCE(h.comment, '')) <> '')
+            ORDER BY h.created_at DESC, h.id DESC
+            LIMIT ?
+            """,
+            (owner_n, safe_limit),
+        ).fetchall()
+    return [
+        {
+            "text": str(row["text"] or "").strip(),
+            "comment": str(row["comment"] or "").strip(),
+            "documentTitle": str(row["document_title"] or "").strip(),
+        }
+        for row in rows
+    ]
+
+
 def update_reward_state(owner_email, snapshot):
     """Store an account-scoped snapshot after client-side ID-based merging."""
     owner_n = _normalize_email(owner_email)

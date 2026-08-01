@@ -132,6 +132,16 @@ Self-hosted accounts receive reading summaries through the same SMTP configurati
 
 The schedule is evaluated in the IANA timezone reported by the user's browser. Delivery is idempotent, so restarting the scheduler does not send the same period twice. Users can turn all reading summary emails off in **Settings → Reading summary emails**.
 
+Messages are sent as multipart email with an HTML reading story and a plain-text fallback. The HTML view includes period totals, an email-safe illustration of the reader's current garden, and up to four account-scoped saved highlights or notes.
+
+Preview the sample email locally without sending it:
+
+```bash
+python scripts/preview_reading_digest.py
+```
+
+Open the printed `file:///tmp/pocketreader-reading-summary.html` URL in a browser. To preview persisted data for an account, add `--email reader@example.com`; `--period YYYY-MM`, `--database PATH`, and `--output PATH` can be used when needed.
+
 Required SMTP variables are `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_TLS`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`. The optional `READING_DIGEST_*` variables in `.env.default` control scheduler polling and local delivery hours. Set `READING_DIGEST_ENABLED=false` to disable the service for the entire deployment.
 
 ---

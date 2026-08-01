@@ -7,6 +7,7 @@ from reading_digest_service import (
     DigestWindow,
     ReadingDigestService,
     build_digest_email,
+    build_digest_html,
     scheduled_digest_windows,
     summarize_reward_snapshot,
 )
@@ -132,6 +133,17 @@ class ReadingDigestServiceTests(unittest.TestCase):
         subject, body = build_digest_email("PocketReader", window, summary)
         self.assertIn("monthly", subject)
         self.assertIn("15 minutes", body)
+        html = build_digest_html(
+            "PocketReader",
+            window,
+            summary,
+            "https://reader.example.com",
+            [{"text": "A remembered phrase <script>", "comment": "Read this again", "documentTitle": "My Book"}],
+        )
+        self.assertIn("Your current forest", html)
+        self.assertIn("A remembered phrase", html)
+        self.assertNotIn("<script>", html)
+        self.assertIn("Return to your library", html)
 
     def test_opt_out_and_delivery_claim_prevent_duplicate_email(self):
         repository = FakeRepository()
@@ -145,7 +157,35 @@ class ReadingDigestServiceTests(unittest.TestCase):
         self.assertEqual(service.run_once(), 0)
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0][0], "reader@example.com")
+        self.assertIn("<!doctype html>", sent[0][3])
         self.assertEqual(len(repository.completed), 1)
+
+    def test_digest_memories_are_account_scoped(self):
+        original_path = app.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                app.DB_PATH = f"{directory}/database.db"
+                app.init_db()
+                self.assertTrue(app.create_user("reader@example.com", "strong-password"))
+                self.assertTrue(app.create_user("other@example.com", "strong-password"))
+                app.add_file_with_id("reader.pdf", "Reader book", b"reader", "pdf", owner_email="reader@example.com")
+                app.add_file_with_id("other.pdf", "Other book", b"other", "pdf", owner_email="other@example.com")
+                app.update_highlights(
+                    "reader.pdf",
+                    [{"sentenceIndex": 1, "text": "Reader phrase", "comment": "Reader note"}],
+                    owner_email="reader@example.com",
+                )
+                app.update_highlights(
+                    "other.pdf",
+                    [{"sentenceIndex": 1, "text": "Private other phrase"}],
+                    owner_email="other@example.com",
+                )
+                memories = app.list_email_digest_memories("reader@example.com")
+                self.assertEqual(len(memories), 1)
+                self.assertEqual(memories[0]["text"], "Reader phrase")
+                self.assertEqual(memories[0]["documentTitle"], "Reader book")
+        finally:
+            app.DB_PATH = original_path
 
 
 if __name__ == "__main__":

@@ -272,6 +272,7 @@ export class PDFHeaderFooterDetector {
                 cached.readableWordCount = null;
             }
             const canvas = state.fullPageRenderCache.get(pageNumber) || null;
+            this._drawIgnoredDetectionsOverlay(pageNumber, cached.detections, canvas);
             this._drawNotSureTextControls(pageNumber, cached.detections, canvas);
             return Promise.resolve(cached.detections);
         }
@@ -669,10 +670,12 @@ export class PDFHeaderFooterDetector {
             const region = document.createElement("button");
             region.type = "button";
             region.className = "not-sure-layout-region";
-            region.style.left = `${box.x1}px`;
-            region.style.top = `${box.y1}px`;
-            region.style.width = `${box.width}px`;
-            region.style.height = `${box.height}px`;
+            // Percentages keep the interactive region aligned when the page
+            // wrapper is resized or shifted by mobile scaling or text-width fit.
+            region.style.left = `${(box.x1 / viewportDisplay.width) * 100}%`;
+            region.style.top = `${(box.y1 / viewportDisplay.height) * 100}%`;
+            region.style.width = `${(box.width / viewportDisplay.width) * 100}%`;
+            region.style.height = `${(box.height / viewportDisplay.height) * 100}%`;
             region.title = "Read this uncertain text";
             region.setAttribute("aria-label", "Read this uncertain text");
             region.addEventListener("click", (event) => {

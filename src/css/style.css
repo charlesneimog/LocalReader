@@ -462,6 +462,19 @@ html.reader-scrollbars-hidden #viewer-wrapper::-webkit-scrollbar {
 .pdf-page-wrapper:hover {
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
+
+/*
+ * Layout-detection canvases use the unscaled PDF viewport as their drawing
+ * coordinate system. Keep their CSS box tied to the page wrapper so they
+ * follow both the normal page scale and the focused text-width fit/offset.
+ */
+.pdf-page-wrapper > .ignored-overlay,
+.pdf-page-wrapper > .layout-debug-overlay {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
 .pdf-word-highlight {
     position: absolute;
     background-color: rgba(12, 163, 223, 0.3);

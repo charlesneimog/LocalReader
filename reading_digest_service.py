@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -152,7 +153,7 @@ def summarize_reward_snapshot(snapshot: dict | None, window: DigestWindow, timez
                 "cell": plant.get("cell") if isinstance(plant.get("cell"), dict) else None,
                 "completedAt": raw_timestamp,
                 "reflectionText": str(reflection.get("text") or "").strip(),
-                "documentTitle": str(document.get("title") or "").strip(),
+                "documentTitle": _display_document_title(document.get("title")),
             })
 
     points = 0
@@ -197,6 +198,10 @@ def _compact_text(value, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(1, limit - 1)].rstrip() + "…"
+
+
+def _display_document_title(value) -> str:
+    return re.sub(r"\.pdf$", "", str(value or "").strip(), flags=re.IGNORECASE).strip()
 
 
 def build_digest_email(

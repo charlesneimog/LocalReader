@@ -100,7 +100,7 @@ def sample_snapshot(window: DigestWindow) -> dict:
         "sessions": [
             {
                 "id": f"session-{index}",
-                "document": {"title": "A favorite book" if index < 4 else "Notes on slow progress"},
+                "document": {"title": "A favorite book.pdf" if index < 4 else "Notes on slow progress.PDF"},
             }
             for index in range(len(species))
         ],

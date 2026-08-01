@@ -132,7 +132,7 @@ class ReadingDigestServiceTests(unittest.TestCase):
                 ],
                 "sessions": [{
                     "id": "session-1",
-                    "document": {"title": "My Book"},
+                    "document": {"title": "My Book.PDF"},
                 }],
                 "reflections": [{
                     "id": "reflection-1",
@@ -153,6 +153,7 @@ class ReadingDigestServiceTests(unittest.TestCase):
         self.assertEqual(summary["growthPoints"], 4)
         self.assertEqual(len(summary["periodPlants"]), 1)
         self.assertEqual(summary["periodPlants"][0]["reflectionText"], "This is my planting comment <script>")
+        self.assertEqual(summary["periodPlants"][0]["documentTitle"], "My Book")
         subject, body = build_digest_email("PocketReader", window, summary)
         self.assertIn("monthly", subject)
         self.assertIn("15 minutes", body)
@@ -164,6 +165,7 @@ class ReadingDigestServiceTests(unittest.TestCase):
         )
         self.assertIn("Your new trees", html)
         self.assertIn("This is my planting comment", html)
+        self.assertNotIn("My Book.PDF", html)
         self.assertNotIn("<script>", html)
         self.assertIn("Return to your library", html)
         self.assertIn("assets/rewards/trees/minute-sprout.svg", html)

@@ -6,16 +6,36 @@ events, so a closed tab cannot generate or prevent a scheduled digest.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from html import escape
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 logger = logging.getLogger("localreader.reading_digest")
+
+
+def _load_tree_catalog() -> dict[str, dict]:
+    catalog_path = Path(__file__).resolve().parent / "assets" / "rewards" / "trees" / "catalog.json"
+    try:
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        logger.exception("Unable to load tree catalog for reading digest")
+        return {}
+    return {
+        str(definition.get("id")): definition
+        for definition in catalog.get("trees", [])
+        if isinstance(definition, dict) and definition.get("id") and definition.get("image")
+    }
+
+
+TREE_CATALOG = _load_tree_catalog()
 
 
 @dataclass(frozen=True)
@@ -205,22 +225,30 @@ def build_digest_email(
     return subject, body
 
 
-def _plant_emoji(species_id: str, stage: str) -> str:
-    if stage == "seed":
-        return "•"
-    if stage in {"sprout", "young"}:
-        return "🌱"
-    species_id = species_id.lower()
-    if any(token in species_id for token in ("blossom", "ipe", "flower", "coral")):
-        return "🌸"
-    if any(token in species_id for token in ("pine", "cypress", "araucaria")):
-        return "🌲"
-    if any(token in species_id for token in ("palm", "buriti")):
-        return "🌴"
-    return "🌳"
+def _normalized_app_url(public_app_url: str) -> str:
+    value = str(public_app_url or "").strip()
+    if value and not urlparse(value).scheme:
+        value = "https://" + value
+    return value.rstrip("/") + "/" if value else ""
 
 
-def _garden_html(summary: dict) -> str:
+def _tree_html(plant: dict, app_url: str) -> str:
+    definition = TREE_CATALOG.get(str(plant.get("speciesId") or ""))
+    if not definition:
+        return ""
+    asset_path = str(definition["image"]).removeprefix("./")
+    source = urljoin(app_url, asset_path) if app_url else asset_path
+    stage = str(plant.get("stage") or "seed")
+    sizes = {"seed": 25, "sprout": 31, "young": 39, "flowering": 47, "mature": 56}
+    size = sizes.get(stage, 56)
+    opacity = "0.68" if stage == "seed" else "0.82" if stage == "sprout" else "1"
+    return (
+        f'<img src="{escape(source, quote=True)}" width="{size}" alt="{escape(str(definition.get("name") or "Tree"), quote=True)}" '
+        f'style="display:block;width:{size}px;height:auto;max-height:66px;margin:0 auto;opacity:{opacity};border:0">'
+    )
+
+
+def _garden_html(summary: dict, app_url: str) -> str:
     plants = summary.get("gardenPlants")
     plants = plants if isinstance(plants, list) else []
     mature_count = sum(1 for plant in plants if plant.get("stage") == "mature")
@@ -237,19 +265,23 @@ def _garden_html(summary: dict) -> str:
             cell_coordinate(plant, "x"),
         ),
     )[-18:]
-    icons = [_plant_emoji(str(item.get("speciesId") or ""), str(item.get("stage") or "")) for item in visible]
-    if not icons:
-        icons = ["🌱"]
+    trees = [_tree_html(item, app_url) for item in visible]
+    trees = [tree for tree in trees if tree]
     rows = []
-    for offset in range(0, len(icons), 6):
+    for offset in range(0, len(trees), 6):
         cells = "".join(
             '<td align="center" valign="bottom" style="width:16.66%;height:54px;'
-            'font-size:31px;line-height:36px;padding:2px">'
-            f'{escape(icon)}</td>'
-            for icon in icons[offset:offset + 6]
+            'padding:2px">'
+            f'{tree}</td>'
+            for tree in trees[offset:offset + 6]
         )
-        cells += '<td style="width:16.66%"></td>' * (6 - len(icons[offset:offset + 6]))
+        cells += '<td style="width:16.66%"></td>' * (6 - len(trees[offset:offset + 6]))
         rows.append(f"<tr>{cells}</tr>")
+    if not rows:
+        rows.append(
+            '<tr><td align="center" style="height:72px;font:14px Arial,sans-serif;color:#53735f">'
+            'Your next tree will appear here.</td></tr>'
+        )
     tree_label = f"{mature_count} tree{'s' if mature_count != 1 else ''} growing here"
     return (
         '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
@@ -276,7 +308,7 @@ def build_digest_html(
     trees = int(summary["matureTrees"])
     points = int(summary["growthPoints"])
     memories = memories if isinstance(memories, list) else []
-    app_url = public_app_url.rstrip("/") + "/" if public_app_url else ""
+    app_url = _normalized_app_url(public_app_url)
     button = (
         f'<a href="{escape(app_url, quote=True)}" style="display:inline-block;background:#315c43;color:#fff;'
         'font:700 15px Arial,sans-serif;text-decoration:none;padding:13px 22px;border-radius:999px">'
@@ -325,7 +357,7 @@ def build_digest_html(
 <td width="33%" align="center" style="padding:8px;border-left:1px solid #e5ece6;border-right:1px solid #e5ece6"><div style="font:700 23px Georgia,serif;color:#294e39">{days}</div><div style="font:12px Arial,sans-serif;color:#708078;margin-top:4px">READING DAY{'S' if days != 1 else ''}</div></td>
 <td width="33%" align="center" style="padding:8px"><div style="font:700 23px Georgia,serif;color:#294e39">+{points}</div><div style="font:12px Arial,sans-serif;color:#708078;margin-top:4px">GROWTH POINTS</div></td>
 </tr></table></td></tr>
-<tr><td style="padding:27px 32px 0">{_garden_html(summary)}</td></tr>
+<tr><td style="padding:27px 32px 0">{_garden_html(summary, app_url)}</td></tr>
 <tr><td style="padding:17px 35px 0;text-align:center;font:15px/1.55 Arial,sans-serif;color:#53655a">You planted <b>{trees} new tree{'s' if trees != 1 else ''}</b> this {period_name}. Keep reading at your own pace—your garden never decays.</td></tr>
 {memories_html}
 <tr><td align="center" style="padding:27px 32px 31px">{button}</td></tr>

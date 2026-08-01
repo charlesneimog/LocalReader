@@ -132,7 +132,7 @@ Self-hosted accounts receive reading summaries through the same SMTP configurati
 
 The schedule is evaluated in the IANA timezone reported by the user's browser. Delivery is idempotent, so restarting the scheduler does not send the same period twice. Users can turn all reading summary emails off in **Settings → Reading summary emails**.
 
-Messages are sent as multipart email with an HTML reading story and a plain-text fallback. The HTML view includes period totals, an email-safe illustration of the reader's current garden, and up to four account-scoped saved highlights or notes.
+Messages are sent as multipart email with an HTML reading story and a plain-text fallback. The HTML view includes period totals, the reader's current garden rendered with PocketReader's catalog SVG trees, and up to four account-scoped saved highlights or notes.
 
 Preview the sample email locally without sending it:
 

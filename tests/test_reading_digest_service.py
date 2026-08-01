@@ -115,8 +115,8 @@ class ReadingDigestServiceTests(unittest.TestCase):
                     "bad": "bad",
                 },
                 "plants": [
-                    {"stage": "mature", "completedAt": completed_at},
-                    {"stage": "young", "completedAt": completed_at},
+                    {"speciesId": "minute-sprout", "stage": "mature", "completedAt": completed_at},
+                    {"speciesId": "reading-sapling", "stage": "young", "completedAt": completed_at},
                 ],
                 "rewardLedger": [
                     {"localDate": "2026-07-30", "points": 4},
@@ -144,6 +144,8 @@ class ReadingDigestServiceTests(unittest.TestCase):
         self.assertIn("A remembered phrase", html)
         self.assertNotIn("<script>", html)
         self.assertIn("Return to your library", html)
+        self.assertIn("assets/rewards/trees/minute-sprout.svg", html)
+        self.assertNotIn("🌳", html)
 
     def test_opt_out_and_delivery_claim_prevent_duplicate_email(self):
         repository = FakeRepository()

@@ -27,7 +27,8 @@ export function consolidateGardenPlots(state, config = {}, now = Date.now()) {
         fallbackColumns,
         ...candidates.map((plot) => Math.max(1, Number(plot.columns) || 1)),
     );
-    const maturePlants = state.plants.filter((plant) => plant?.stage === "mature");
+    const visiblePlants = state.plants.filter((plant) => !plant?.deletedAt);
+    const maturePlants = visiblePlants.filter((plant) => plant?.stage === "mature");
     const rows = Math.max(
         fallbackRows,
         ...candidates.map((plot) => Math.max(1, Number(plot.rows) || 1)),
@@ -49,7 +50,7 @@ export function consolidateGardenPlots(state, config = {}, now = Date.now()) {
     const occupied = new Set();
     const matureIds = new Set(maturePlants.map((plant) => plant.id));
     const placedIds = new Set();
-    const sorted = [...state.plants].sort(
+    const sorted = [...visiblePlants].sort(
         (left, right) =>
             Number(left.completedAt || left.plantedAt || 0) -
                 Number(right.completedAt || right.plantedAt || 0) ||
@@ -138,6 +139,12 @@ export function migrateRewardState(input, config = {}, now = Date.now()) {
     result.rewardLedger = result.rewardLedger.filter((entry) => entry && entry.id && entry.deduplicationKey);
     result.sessions = result.sessions.filter((entry) => entry && entry.id);
     result.plants = result.plants.filter((entry) => entry && entry.id && entry.speciesId);
+    for (const plant of result.plants) {
+        if (!plant.deletedAt) continue;
+        plant.plotId = null;
+        plant.cell = null;
+        plant.reflectionRequired = false;
+    }
     result.reflections = result.reflections.filter((entry) => entry && entry.id && entry.sessionId);
     consolidateGardenPlots(result, config, now);
     result.schemaVersion = REWARD_SCHEMA_VERSION;

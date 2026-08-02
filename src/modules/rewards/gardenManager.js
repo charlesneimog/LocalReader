@@ -20,7 +20,7 @@ function stableHash(value) {
 export function deterministicAvailableCell(plot, plants, seed = "") {
     const occupied = new Set(
         plants
-            .filter((plant) => plant.plotId === plot.id && plant.cell)
+            .filter((plant) => !plant.deletedAt && plant.plotId === plot.id && plant.cell)
             .map((plant) => `${plant.cell.x}:${plant.cell.y}`),
     );
     const available = [];

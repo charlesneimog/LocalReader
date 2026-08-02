@@ -23,7 +23,7 @@
 
 /* Keep the garden anchored while selected notes change its content height. */
 .rewards-dialog.garden-dialog {
-    --garden-dialog-top: clamp(1rem, 12vh, 8.5rem);
+    --garden-dialog-top: clamp(0.5rem, 2vh, 1.25rem);
     top: var(--garden-dialog-top);
     bottom: auto;
     margin: 0 auto;

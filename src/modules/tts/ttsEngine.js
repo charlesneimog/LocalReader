@@ -213,6 +213,7 @@ export class TTSEngine {
             }
 
             let modelBuffer = null;
+            let modelBufferFactory = null;
             let voiceConfig = null;
 
             if (usesPersonalizedModel) {
@@ -246,6 +247,10 @@ export class TTSEngine {
                 modelBuffer = await getCachedModel(modelFile, modelUrl, {
                     onProgress: (pct) => ui.showMessage(`Downloading model: ${pct.toFixed(2)}%`, 1200),
                 });
+                // A secondary Piper lane is initialized lazily. Re-read its model
+                // from IndexedDB when needed instead of retaining another full ONNX
+                // ArrayBuffer on the main thread throughout the cold start.
+                modelBufferFactory = () => getCachedModel(modelFile, modelUrl);
                 voiceConfig = await getCachedJSON(configFile, configUrl);
             }
 
@@ -272,6 +277,7 @@ export class TTSEngine {
                     transferModel: true,
                     maxThreads,
                     useWebGpu,
+                    modelBufferFactory,
                 });
                 console.info(
                     `[TTS] Piper ready; backend=${runtime.backend || "unknown"}; ort=${runtime.ortVersion || "unknown"}; workers=${runtime.workers || 1}; threadsPerWorker=${runtime.threadsPerWorker || runtime.threads || 1}`,
@@ -287,6 +293,7 @@ export class TTSEngine {
                 const runtime = await this.client.changeVoice({
                     modelBuffer,
                     voiceConfig,
+                    modelBufferFactory,
                     transferModel: true,
                 });
                 console.info(`[TTS] Piper voice loaded; backend=${runtime.backend || "unknown"}`);

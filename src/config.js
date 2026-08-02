@@ -26,8 +26,8 @@ export function normalizeInferenceBackend(value, fallback = INFERENCE_BACKENDS.W
 //╰─────────────────────────────────────╯
 export const CONFIG = {
     VERSION_MAJOR: 0,
-    VERSION_MINOR: 40,
-    VERSION_PATCH: 19,
+    VERSION_MINOR: 41,
+    VERSION_PATCH: 0,
     VERSION_BUILD: 0,
 
     // Rendering
@@ -75,9 +75,9 @@ export const CONFIG = {
     PDF_LAYOUT_MAX_THREADS: 4,
     // Generate the selected sentence and one look-ahead sentence concurrently.
     MAX_CONCURRENT_SYNTH: 2,
-    // Two independent workers provide two parallel synthesis lanes. Each worker
-    // uses two WASM threads when cross-origin isolation is available, and safely
-    // falls back to one thread when SharedArrayBuffer is unavailable.
+    // Two independent workers provide two parallel synthesis lanes. The primary
+    // worker initializes on the critical path; the second starts lazily when the
+    // primary begins synthesis. Each worker uses two WASM threads when available.
     PIPER_WORKERS: 2,
     PIPER_MAX_THREADS: 2,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
@@ -133,7 +133,7 @@ export const CONFIG = {
         maxAcceptedDeltaMs: 5000,
         checkpointIntervalMs: 15000,
         syncDebounceMs: 30000,
-        treePlantingIntervalMinutes: 1,
+        treePlantingIntervalMinutes: 5,
         timeRewardIntervalMinutes: 5,
         timeRewardPoints: 1,
         dailyTimeRewardCap: 12,

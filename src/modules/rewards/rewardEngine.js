@@ -218,7 +218,8 @@ export class RewardEngine {
         const totalPoints = sumLedger(state.rewardLedger);
         const current = state.currentSession;
         const currentPlant = current ? state.plants.find((plant) => plant.id === current.plantId) : null;
-        const occupied = state.plants.filter((plant) => plant.cell).length;
+        const visiblePlants = state.plants.filter((plant) => !plant.deletedAt);
+        const occupied = visiblePlants.filter((plant) => plant.cell).length;
         const capacity = state.gardenPlots.reduce(
             (total, plot) => total + (Number(plot.rows) || 0) * (Number(plot.columns) || 0),
             0,
@@ -229,7 +230,7 @@ export class RewardEngine {
         return {
             totalPoints,
             unallocatedGrowthPoints: state.unallocatedGrowthPoints,
-            maturePlantCount: state.plants.filter((plant) => plant.stage === "mature").length,
+            maturePlantCount: visiblePlants.filter((plant) => plant.stage === "mature").length,
             currentPlant,
             weeklyReadingDays: week.days.length,
             nextUnlock: treeTier.next

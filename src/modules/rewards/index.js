@@ -69,10 +69,9 @@ export class RewardsController {
         this.adapter.start();
         this._createUi();
         this._bindEvents();
-        this._queueMissingRequiredParagraphs();
+        this._rememberHistoricalTrees();
         if (this.adapter.getDocumentDescriptor()) this.adapter.documentOpened();
         this._refresh();
-        await this._flushTreeNotification();
         this.app.state.rewards.ready = true;
     }
 
@@ -80,6 +79,7 @@ export class RewardsController {
         this.gardenDialog = new GardenDialog({
             weekStartsOn: this.config.weekStartsOn,
             minimumRows: this.config.defaultGardenRows,
+            onRemove: (plantId) => this.removeTree(plantId),
         });
         this.reflectionDialog = new ReflectionDialog({
             minimumCharacters: this.config.reflectionMinimumCharacters,
@@ -268,19 +268,38 @@ export class RewardsController {
         }
     }
 
-    _queueMissingRequiredParagraphs() {
+    _rememberHistoricalTrees() {
         const state = this.storage.getSnapshot();
-        const reflectedSessions = new Set(state.reflections.map((entry) => entry.sessionId));
-        const queuedIds = new Set(this.pendingTreeNotifications.map((plant) => plant.id));
-        const missing = state.plants
-            .filter((plant) =>
-                plant.reflectionRequired === true &&
-                !plant.reflectionId &&
-                !reflectedSessions.has(plant.sessionId) &&
-                !queuedIds.has(plant.id)
-            )
-            .sort((left, right) => Number(left.completedAt) - Number(right.completedAt));
-        this.pendingTreeNotifications.push(...missing);
+        for (const plant of state.plants) {
+            if (plant?.id && (plant.completedAt || plant.stage === "mature")) {
+                this.notifiedTreeIds.add(plant.id);
+            }
+        }
+    }
+
+    async removeTree(plantId) {
+        if (!plantId) return null;
+        const timestamp = Date.now();
+        let removed = null;
+        await this.storage.transaction((state) => {
+            const plant = state.plants.find((candidate) => candidate.id === plantId);
+            if (!plant || plant.deletedAt || plant.stage !== "mature") return;
+            plant.deletedAt = timestamp;
+            plant.updatedAt = timestamp;
+            plant.plotId = null;
+            plant.cell = null;
+            plant.reflectionRequired = false;
+            removed = { ...plant };
+        });
+        if (!removed) return null;
+
+        this.pendingTreeNotifications = this.pendingTreeNotifications.filter((plant) => plant.id !== plantId);
+        this.notifiedTreeIds.add(plantId);
+        this._refresh();
+        this.app.eventBus.emit(EVENTS.GARDEN_UPDATED, { plant: removed, removed: true });
+        this._queueSync(true);
+        this.app.ui.showInfo("Tree removed from your garden.");
+        return removed;
     }
 
     async _pauseForRequiredReflection() {

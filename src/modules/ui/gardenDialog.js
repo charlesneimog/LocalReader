@@ -3,12 +3,6 @@ import { deterministicAvailableCell } from "../rewards/gardenManager.js";
 import { isTimestampInLocalPeriod } from "../rewards/rewardDefinitions.js";
 import { getPlantDefinition, getPlantStage } from "../rewards/plantDefinitions.js";
 
-const PERIOD_LABELS = Object.freeze({
-    week: "this week",
-    month: "this month",
-    year: "this year",
-});
-
 export function gardenPlantsForPeriod(
     plants,
     period,
@@ -19,6 +13,7 @@ export function gardenPlantsForPeriod(
         .filter(
             (plant) =>
                 plant?.stage === "mature" &&
+                !plant.deletedAt &&
                 isTimestampInLocalPeriod(
                     plant.completedAt || plant.plantedAt,
                     period,
@@ -77,10 +72,12 @@ export function reflectionTextForPlant(plant, reflections) {
 }
 
 export class GardenDialog {
-    constructor({ weekStartsOn = 1, minimumRows = 5, now = Date.now } = {}) {
+    constructor({ weekStartsOn = 1, minimumRows = 5, now = Date.now, onRemove = null } = {}) {
         this.weekStartsOn = weekStartsOn;
         this.minimumRows = Math.max(1, Number(minimumRows) || 5);
         this.now = now;
+        this.onRemove = typeof onRemove === "function" ? onRemove : null;
+        this.selectedPlantId = null;
         this.period = "week";
         this.dialog = document.createElement("dialog");
         this.dialog.className =
@@ -88,18 +85,14 @@ export class GardenDialog {
             "border border-slate-200 dark:border-slate-700 bg-background-light dark:bg-background-dark " +
             "text-slate-800 dark:text-slate-200 text-center shadow-2xl";
         this.dialog.innerHTML = `
-            <section class="grid gap-3 p-4 overflow-y-auto max-h-[88vh]">
-                <header class="flex items-start justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-700">
-                    <div class="flex-1 text-center">
-                        <h2 class="text-xl font-bold text-slate-900 dark:text-slate-100">Reading garden</h2>
-                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">One garden, shaped by focused reading.</p>
-                    </div>
+            <section class="grid gap-2 px-3 pb-3 pt-2 overflow-y-auto max-h-[88vh]">
+                <header class="flex items-center justify-between gap-3">
+                    <h2 class="pl-1 text-base font-semibold text-slate-900 dark:text-slate-100">Reading garden</h2>
                     <button type="button" data-close aria-label="Close"
-                        class="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10">
+                        class="flex h-8 w-8 items-center justify-center rounded-md bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10">
                         <span class="material-symbols-outlined" aria-hidden="true">close</span>
                     </button>
                 </header>
-                <div class="rounded-lg bg-primary/10 p-3 text-sm text-slate-700 dark:text-slate-200" data-summary></div>
                 <div class="flex justify-center gap-2" role="group" aria-label="Garden time period">
                     <button type="button" data-period="week" aria-pressed="true">Week</button>
                     <button type="button" data-period="month" aria-pressed="false">Month</button>
@@ -111,6 +104,10 @@ export class GardenDialog {
                 <div class="rounded-lg bg-slate-100 dark:bg-slate-800 p-3 text-sm text-slate-600 dark:text-slate-300" aria-live="polite">
                     <p data-tooltip>Select a tree for details.</p>
                     <blockquote data-comment class="hidden mt-2 border-l-2 border-primary/50 pl-3 text-left italic whitespace-pre-wrap"></blockquote>
+                    <button type="button" data-remove class="hidden mt-3 ml-auto items-center gap-1 rounded-md border border-red-300 px-3 py-2 pt-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/30">
+                        <span class="material-symbols-outlined text-base" aria-hidden="true">delete</span>
+                        Remove tree
+                    </button>
                 </div>
             </section>`;
         document.body.appendChild(this.dialog);
@@ -121,6 +118,11 @@ export class GardenDialog {
                 this.renderer.selectedIndex = -1;
                 this._resetDetails();
                 this.update(this.state, this.summary);
+            });
+        });
+        this.dialog.querySelector("[data-remove]").addEventListener("click", () => {
+            this._removeSelectedTree().catch((error) => {
+                console.error("[GardenDialog] Failed to remove tree", error);
             });
         });
         this.renderer = new GardenRenderer(this.dialog.querySelector("canvas"), {
@@ -159,36 +161,64 @@ export class GardenDialog {
             ...plot,
             rows: this.minimumRows,
         });
-        const occupied = state.plants.filter((plant) => plant.stage === "mature" && plant.cell).length;
-        const unplaced = state.plants.filter((plant) => plant.stage === "mature" && !plant.cell).length;
-        const periodLabel = PERIOD_LABELS[this.period];
-        this.dialog.querySelector("[data-summary]").textContent =
-            `${periodPlants.length} ${periodPlants.length === 1 ? "tree" : "trees"} ${periodLabel} · ` +
-            `${summary.maturePlantCount} total · ${occupied} of ${plot.rows * plot.columns} cells occupied` +
-            `${unplaced ? ` · ${unplaced} waiting for space` : ""}`;
         this.renderer.render(projection);
     }
 
     _showDetails(area) {
         const tooltip = this.dialog.querySelector("[data-tooltip]");
         const comment = this.dialog.querySelector("[data-comment]");
+        const remove = this.dialog.querySelector("[data-remove]");
         if (!area.plant) {
+            this.selectedPlantId = null;
             tooltip.textContent = `Cell ${area.cell.x + 1}, ${area.cell.y + 1} is available.`;
             comment.textContent = "";
             comment.classList.add("hidden");
+            remove.classList.add("hidden");
+            remove.classList.remove("flex");
             return;
         }
+        this.selectedPlantId = area.plant.id;
         tooltip.textContent = this._plantLabel(area.plant);
         comment.textContent = area.plant.reflectionText || "No reading note was saved for this tree.";
         comment.classList.remove("hidden");
+        remove.classList.remove("hidden");
+        remove.classList.add("flex");
     }
 
     _resetDetails() {
         const tooltip = this.dialog.querySelector("[data-tooltip]");
         const comment = this.dialog.querySelector("[data-comment]");
+        const remove = this.dialog.querySelector("[data-remove]");
+        this.selectedPlantId = null;
         tooltip.textContent = "Select a tree for details.";
         comment.textContent = "";
         comment.classList.add("hidden");
+        remove.classList.add("hidden");
+        remove.classList.remove("flex");
+    }
+
+    async _removeSelectedTree() {
+        const plantId = this.selectedPlantId;
+        if (!plantId || !this.onRemove) return false;
+        const plant = this.state?.plants?.find((candidate) => candidate.id === plantId);
+        if (!plant) return false;
+        const definition = getPlantDefinition(plant.speciesId);
+        const confirmed = globalThis.confirm?.(
+            `Remove ${definition.name} from your garden? Your reading time and earned points will be kept.`,
+        );
+        if (!confirmed) return false;
+
+        const button = this.dialog.querySelector("[data-remove]");
+        button.disabled = true;
+        try {
+            const removed = await this.onRemove(plantId);
+            if (!removed) return false;
+            this.renderer.selectedIndex = -1;
+            this._resetDetails();
+            return true;
+        } finally {
+            button.disabled = false;
+        }
     }
 
     _updatePeriodButtons() {

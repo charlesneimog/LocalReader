@@ -106,7 +106,7 @@ function mergeWeekly(left, right) {
 export function relocateGardenConflicts(plants, plots) {
     const plotMap = new Map(plots.map((plot) => [plot.id, plot]));
     const occupied = new Map();
-    const sorted = [...plants].sort(
+    const sorted = plants.filter((plant) => !plant?.deletedAt).sort(
         (left, right) => Number(left.completedAt || left.plantedAt || 0) - Number(right.completedAt || right.plantedAt || 0) || left.id.localeCompare(right.id),
     );
     for (const plant of sorted) {

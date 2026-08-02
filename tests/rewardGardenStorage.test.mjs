@@ -107,6 +107,38 @@ test("reward ledger merges by transaction ID without duplication", () => {
     assert.equal(merged.gardenPlots.length, 1);
 });
 
+test("a removed tree tombstone wins over an older synced copy", () => {
+    const base = migrateRewardState(null, config, 1);
+    const remoteTree = {
+        id: "tree-1",
+        speciesId: "minute-sprout",
+        stage: "mature",
+        plotId: "garden-1",
+        cell: { x: 0, y: 0 },
+        completedAt: 5,
+        updatedAt: 10,
+    };
+    const localTombstone = {
+        ...remoteTree,
+        plotId: null,
+        cell: null,
+        deletedAt: 20,
+        updatedAt: 20,
+    };
+
+    const merged = mergeRewardStates(
+        { ...base, plants: [localTombstone] },
+        { ...base, plants: [remoteTree] },
+        config,
+        30,
+    );
+
+    assert.equal(merged.plants.length, 1);
+    assert.equal(merged.plants[0].deletedAt, 20);
+    assert.equal(merged.plants[0].cell, null);
+    assert.deepEqual(gardenPlantsForPeriod(merged.plants, "year", 30, 1), []);
+});
+
 test("cross-device merge keeps one garden and both devices' trees", () => {
     const tree = (id, plotId, timestamp) => ({
         id,
@@ -208,6 +240,7 @@ test("garden period views use local week, month, and year boundaries", () => {
         { id: "month", stage: "mature", completedAt: new Date(2026, 6, 2, 12).getTime() },
         { id: "year", stage: "mature", completedAt: new Date(2026, 0, 5, 12).getTime() },
         { id: "past", stage: "mature", completedAt: new Date(2025, 11, 31, 12).getTime() },
+        { id: "removed", stage: "mature", completedAt: now, deletedAt: now + 1 },
     ];
     assert.deepEqual(gardenPlantsForPeriod(plants, "week", now, 1).map((plant) => plant.id), ["week"]);
     assert.deepEqual(gardenPlantsForPeriod(plants, "month", now, 1).map((plant) => plant.id), ["month", "week"]);

@@ -2,6 +2,68 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { RewardsController } from "../src/modules/rewards/index.js";
 
+test("historical trees do not become mandatory reflection popups on startup", () => {
+    const controller = Object.create(RewardsController.prototype);
+    controller.pendingTreeNotifications = [];
+    controller.notifiedTreeIds = new Set();
+    controller.storage = {
+        getSnapshot: () => ({
+            plants: [
+                { id: "old-tree-without-note", stage: "mature", completedAt: 1, reflectionRequired: true },
+                { id: "growing-tree", stage: "young", completedAt: null },
+            ],
+        }),
+    };
+
+    controller._rememberHistoricalTrees();
+
+    assert.deepEqual(controller.pendingTreeNotifications, []);
+    assert.deepEqual([...controller.notifiedTreeIds], ["old-tree-without-note"]);
+});
+
+test("removing a mature tree creates a sync-safe tombstone and clears pending prompts", async () => {
+    const state = {
+        plants: [{
+            id: "tree-1",
+            speciesId: "minute-sprout",
+            stage: "mature",
+            plotId: "garden-1",
+            cell: { x: 0, y: 0 },
+            reflectionRequired: true,
+            updatedAt: 1,
+        }],
+        sessions: [{ id: "session-1", plantId: "tree-1" }],
+        reflections: [],
+    };
+    const emitted = [];
+    const notices = [];
+    const controller = Object.create(RewardsController.prototype);
+    controller.pendingTreeNotifications = [{ id: "tree-1" }];
+    controller.notifiedTreeIds = new Set();
+    controller.storage = {
+        transaction: async (mutator) => mutator(state),
+    };
+    controller._refresh = () => {};
+    controller._queueSync = (immediate) => assert.equal(immediate, true);
+    controller.app = {
+        eventBus: { emit: (...args) => emitted.push(args) },
+        ui: { showInfo: (message) => notices.push(message) },
+    };
+
+    const removed = await controller.removeTree("tree-1");
+
+    assert.equal(removed.id, "tree-1");
+    assert.ok(Number.isFinite(state.plants[0].deletedAt));
+    assert.equal(state.plants[0].plotId, null);
+    assert.equal(state.plants[0].cell, null);
+    assert.equal(state.plants[0].reflectionRequired, false);
+    assert.equal(state.sessions.length, 1);
+    assert.deepEqual(controller.pendingTreeNotifications, []);
+    assert.equal(controller.notifiedTreeIds.has("tree-1"), true);
+    assert.equal(emitted[0][0], "rewards:garden:updated");
+    assert.deepEqual(notices, ["Tree removed from your garden."]);
+});
+
 test("automatic completion queues the reflection until the next sentence boundary", async () => {
     const lifecycle = [];
     const controller = Object.create(RewardsController.prototype);

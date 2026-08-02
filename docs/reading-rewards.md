@@ -116,7 +116,11 @@ trees are scattered deterministically from their saved reading note and tree ID;
 the layout remains stable and duplicate notes cannot cause cell conflicts.
 
 After a tree is planted, its required paragraph is available by selecting the
-tree in the garden.
+tree in the garden. Selecting a tree also exposes a **Remove tree** action. The
+action asks for confirmation and removes the tree from synchronized garden
+views without deleting its reading time, earned points, session, or saved note.
+Trees completed before the current application run are never replayed as a
+backlog of mandatory paragraph dialogs when a document is opened.
 
 ## Reward and persistence behavior
 

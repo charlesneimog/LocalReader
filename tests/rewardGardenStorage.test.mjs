@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { CONFIG } from "../src/config.js";
 import { deterministicAvailableCell, GardenManager } from "../src/modules/rewards/gardenManager.js";
 import {
     AUTOMATIC_TREE_DEFINITIONS,
@@ -293,7 +294,7 @@ test("a garden tree resolves its saved reading note", () => {
     );
 });
 
-test("automatic tree catalog advances its artwork while every tree takes five minutes", () => {
+test("automatic tree catalog uses the shared configured duration", () => {
     const minuteTree = {
         id: "minute-1",
         speciesId: "minute-sprout",
@@ -304,18 +305,19 @@ test("automatic tree catalog advances its artwork while every tree takes five mi
         speciesId: "reading-sapling",
         stage: "mature",
     };
-    assert.equal(getAutomaticTreeTier([]).definition.durationMinutes, 5);
-    assert.equal(getAutomaticTreeTier([minuteTree]).definition.durationMinutes, 5);
+    const duration = CONFIG.REWARDS.treePlantingIntervalMinutes;
+    assert.equal(getAutomaticTreeTier([]).definition.durationMinutes, duration);
+    assert.equal(getAutomaticTreeTier([minuteTree]).definition.durationMinutes, duration);
     const nextTier = getAutomaticTreeTier([minuteTree, sapling]);
     assert.equal(nextTier.definition.id, "aurora-pine");
-    assert.equal(nextTier.definition.durationMinutes, 5);
+    assert.equal(nextTier.definition.durationMinutes, duration);
     assert.deepEqual(
         AUTOMATIC_TREE_DEFINITIONS.map((definition) => definition.durationMinutes),
-        Array.from({ length: 25 }, () => 5),
+        Array.from({ length: 25 }, () => duration),
     );
 });
 
-test("the final automatic tree repeats in five-minute blocks", () => {
+test("the final automatic tree repeats at the configured interval", () => {
     const completedEarlierTiers = AUTOMATIC_TREE_DEFINITIONS.slice(0, -1).map((definition, index) => ({
         id: `tree-${index}`,
         speciesId: definition.id,
@@ -329,11 +331,12 @@ test("the final automatic tree repeats in five-minute blocks", () => {
     const secondBuriti = { ...buriti, id: "buriti-2" };
     const thirdBuriti = { ...buriti, id: "buriti-3" };
 
-    assert.equal(getAutomaticTreeTier(completedEarlierTiers).definition.durationMinutes, 5);
-    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti]).definition.durationMinutes, 5);
-    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti]).definition.durationMinutes, 5);
+    const duration = CONFIG.REWARDS.treePlantingIntervalMinutes;
+    assert.equal(getAutomaticTreeTier(completedEarlierTiers).definition.durationMinutes, duration);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti]).definition.durationMinutes, duration);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti]).definition.durationMinutes, duration);
     assert.equal(
         getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti, thirdBuriti]).definition.durationMinutes,
-        5,
+        duration,
     );
 });

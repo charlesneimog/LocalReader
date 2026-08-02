@@ -1,4 +1,5 @@
 import treeCatalog from "../../../assets/rewards/trees/catalog.json" with { type: "json" };
+import { CONFIG } from "../../config.js";
 
 /**
  * @typedef {Object} GardenPlant
@@ -40,6 +41,7 @@ export const AUTOMATIC_TREE_DEFINITIONS = Object.freeze(
     treeCatalog.trees.map((definition) => plant({
         ...definition,
         automatic: true,
+        durationMinutes: CONFIG.REWARDS.treePlantingIntervalMinutes,
         requiredPoints: Number(definition.requiredPoints) || 15,
         unlockPoints: 0,
     })),

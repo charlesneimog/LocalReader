@@ -13,6 +13,8 @@ import { ReflectionDialog } from "../ui/reflectionDialog.js";
 import { RewardsPanel } from "../ui/rewardsPanel.js";
 import { getPlantDefinition, getPlantStage } from "./plantDefinitions.js";
 
+const REFLECTION_PLAYBACK_BLOCK = "required-reflection";
+
 /** Application composition root and public reward UI/sync facade. */
 export class RewardsController {
     constructor(app) {
@@ -57,6 +59,7 @@ export class RewardsController {
         this.notifiedTreeIds = new Set();
         this.reflectionPromptPromise = null;
         this.reflectionResumeState = null;
+        this.readingBoundaryPromise = null;
     }
 
     async initialize() {
@@ -158,13 +161,11 @@ export class RewardsController {
             if (payload?.comment && payload?.annotationId) this.rewardAnnotation(payload);
         }));
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.PLANT_MATURED, (plant) => {
-            if (!plant?.id || this.notifiedTreeIds.has(plant.id)) return;
-            this.notifiedTreeIds.add(plant.id);
-            this.pendingTreeNotifications.push(plant);
+            this._queueTreeNotification(plant);
         }));
         for (const eventName of [EVENTS.SENTENCE_CHANGED, EVENTS.AUDIO_PLAYBACK_END]) {
             this.unsubscribers.push(this.app.eventBus.on(eventName, () => {
-                this._flushTreeNotification().catch((error) => {
+                this.handleReadingBoundary().catch((error) => {
                     console.error("[RewardsController] Required reading paragraph prompt failed", error);
                 });
             }));
@@ -209,6 +210,7 @@ export class RewardsController {
             const session = this.sessions.getCurrentSession();
             if (!session?.automatic || session.activeReadingMs < session.goalMs) return null;
             const result = await this.sessions.complete();
+            this._queueTreeNotification(result?.plant);
             await this.sessions.ensureAutomatic();
             this._refresh();
             return result;
@@ -220,6 +222,26 @@ export class RewardsController {
             this.automaticCompletionPromise = null;
         });
         return this.automaticCompletionPromise;
+    }
+
+    _queueTreeNotification(plant) {
+        if (!plant?.id || this.notifiedTreeIds.has(plant.id)) return false;
+        this.notifiedTreeIds.add(plant.id);
+        this.pendingTreeNotifications.push(plant);
+        return true;
+    }
+
+    async handleReadingBoundary() {
+        if (this.readingBoundaryPromise) return this.readingBoundaryPromise;
+        this.readingBoundaryPromise = (async () => {
+            if (this.automaticCompletionPromise) {
+                await this.automaticCompletionPromise;
+            }
+            await this._flushTreeNotification();
+        })().finally(() => {
+            this.readingBoundaryPromise = null;
+        });
+        return this.readingBoundaryPromise;
     }
 
     async _flushTreeNotification() {
@@ -270,7 +292,11 @@ export class RewardsController {
             sessionId: current?.id || null,
             shouldResumePlayback,
         };
-        if (shouldResumePlayback) await this.app.audioManager?.stopPlayback?.(false);
+        if (this.app.audioManager?.addPlaybackBlock) {
+            await this.app.audioManager.addPlaybackBlock(REFLECTION_PLAYBACK_BLOCK, false);
+        } else if (shouldResumePlayback) {
+            await this.app.audioManager?.stopPlayback?.(false);
+        }
         if (current?.state === "active" || current?.state === "idle-timeout") {
             await this.sessions.pause({ reason: "reflection" });
         }
@@ -279,6 +305,7 @@ export class RewardsController {
     async _resumeAfterRequiredReflection() {
         const resumeState = this.reflectionResumeState;
         this.reflectionResumeState = null;
+        this.app.audioManager?.removePlaybackBlock?.(REFLECTION_PLAYBACK_BLOCK);
         this.adapter._updateReadingScreen();
         const current = this.sessions.getCurrentSession();
         if (

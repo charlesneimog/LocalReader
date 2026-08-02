@@ -2,6 +2,57 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { RewardsController } from "../src/modules/rewards/index.js";
 
+test("automatic completion queues the reflection until the next sentence boundary", async () => {
+    const lifecycle = [];
+    const controller = Object.create(RewardsController.prototype);
+    controller.automaticCompletionPromise = null;
+    controller.pendingTreeNotifications = [];
+    controller.notifiedTreeIds = new Set();
+    controller.sessions = {
+        getCurrentSession: () => ({ automatic: true, activeReadingMs: 60000, goalMs: 60000 }),
+        complete: async () => {
+            lifecycle.push("tree-completed");
+            return { plant: { id: "tree-1", speciesId: "minute-sprout" } };
+        },
+        ensureAutomatic: async () => lifecycle.push("next-tree-created"),
+    };
+    controller._refresh = () => lifecycle.push("refreshed");
+    controller.app = { ui: { showInfo: () => {} } };
+
+    await controller._completeAutomaticTree();
+
+    assert.deepEqual(lifecycle, [
+        "tree-completed",
+        "next-tree-created",
+        "refreshed",
+    ]);
+    assert.deepEqual(controller.pendingTreeNotifications, [
+        { id: "tree-1", speciesId: "minute-sprout" },
+    ]);
+});
+
+test("a reading boundary waits for tree completion before opening its reflection", async () => {
+    const lifecycle = [];
+    let finishCompletion;
+    const controller = Object.create(RewardsController.prototype);
+    controller.readingBoundaryPromise = null;
+    controller.automaticCompletionPromise = new Promise((resolve) => {
+        finishCompletion = () => {
+            lifecycle.push("tree-finalized");
+            resolve();
+        };
+    });
+    controller._flushTreeNotification = async () => lifecycle.push("prompt-opened");
+
+    const boundary = controller.handleReadingBoundary();
+    await Promise.resolve();
+    assert.deepEqual(lifecycle, []);
+
+    finishCompletion();
+    await boundary;
+    assert.deepEqual(lifecycle, ["tree-finalized", "prompt-opened"]);
+});
+
 test("earned-tree prompt pauses reading and playback until the required paragraph is saved", async () => {
     const announcements = [];
     const notePrompts = [];
@@ -42,11 +93,12 @@ test("earned-tree prompt pauses reading and playback until the required paragrap
     controller.app = {
         state: { isPlaying: true, autoAdvanceActive: true },
         audioManager: {
-            stopPlayback: async () => {
+            addPlaybackBlock: async (reason) => {
                 controller.app.state.isPlaying = false;
                 controller.app.state.autoAdvanceActive = false;
-                lifecycle.push("playback-paused");
+                lifecycle.push(`playback-blocked:${reason}`);
             },
+            removePlaybackBlock: (reason) => lifecycle.push(`playback-unblocked:${reason}`),
             playCurrentSentence: async () => lifecycle.push("playback-resumed"),
         },
     };
@@ -66,13 +118,14 @@ test("earned-tree prompt pauses reading and playback until the required paragrap
         session: { id: "session-1" },
         summary: "Reading Sapling was added to your garden. Reading is paused until you save its paragraph.",
     }]);
-    assert.deepEqual(lifecycle, ["playback-paused", "reading-paused"]);
+    assert.deepEqual(lifecycle, ["playback-blocked:required-reflection", "reading-paused"]);
     assert.equal(nextSession.pauseReason, "reflection");
 
     await controller._resumeAfterRequiredReflection();
     assert.deepEqual(lifecycle, [
-        "playback-paused",
+        "playback-blocked:required-reflection",
         "reading-paused",
+        "playback-unblocked:required-reflection",
         "screen-updated",
         "reading-resumed",
         "playback-resumed",

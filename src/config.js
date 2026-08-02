@@ -19,11 +19,15 @@ export function normalizeInferenceBackend(value, fallback = INFERENCE_BACKENDS.W
     return fallback === INFERENCE_BACKENDS.WEBGPU ? INFERENCE_BACKENDS.WEBGPU : INFERENCE_BACKENDS.WASM;
 }
 
-// Centralized configuration constants extracted from original render.js
+//╭─────────────────────────────────────╮
+//│      Centralized configuration      │
+//│  constants extracted from original  │
+//│              render.js              │
+//╰─────────────────────────────────────╯
 export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 40,
-    VERSION_PATCH: 18,
+    VERSION_PATCH: 19,
     VERSION_BUILD: 0,
 
     // Rendering
@@ -129,6 +133,7 @@ export const CONFIG = {
         maxAcceptedDeltaMs: 5000,
         checkpointIntervalMs: 15000,
         syncDebounceMs: 30000,
+        treePlantingIntervalMinutes: 1,
         timeRewardIntervalMinutes: 5,
         timeRewardPoints: 1,
         dailyTimeRewardCap: 12,

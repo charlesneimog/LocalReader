@@ -7,6 +7,7 @@ export class AudioManager {
         this._playPromise = null;
         this._playbackContext = null;
         this._playbackContextId = 0;
+        this._playbackBlocks = new Set();
         this._mediaBridgeAudio = null;
         this._mediaBridgeObjectUrl = null;
         this._mediaBridgeSyncing = false;
@@ -17,6 +18,9 @@ export class AudioManager {
 
     async playCurrentSentence() {
         const { state } = this.app;
+        if (this._playbackBlocks.size) {
+            return;
+        }
         if (state.isPlaying) {
             return;
         }
@@ -468,6 +472,15 @@ export class AudioManager {
         }
     }
 
+    async addPlaybackBlock(reason, fade = false) {
+        this._playbackBlocks.add(String(reason || "unspecified"));
+        await this.stopPlayback(fade);
+    }
+
+    removePlaybackBlock(reason) {
+        this._playbackBlocks.delete(String(reason || "unspecified"));
+    }
+
     togglePlay() {
         const { state } = this.app;
         if (state.isPlaying) {
@@ -620,6 +633,11 @@ export class AudioManager {
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
             return;
         }
+
+        // A reward interval may finish at the same time as this sentence. Wait
+        // for that completion to be persisted and, when required, block TTS and
+        // open the reflection dialog before starting the following sentence.
+        await this.app.rewards?.handleReadingBoundary?.();
 
         const nextSentence = state.sentences[state.currentSentenceIndex];
         this._invalidateContext(context);

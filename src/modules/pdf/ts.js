@@ -5,6 +5,17 @@ import {
     env,
 } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/transformers.min.js";
 
+/**
+ * PDF layout inference worker.
+ *
+ * Ownership boundary:
+ * - PDFHeaderFooterDetector renders a page and sends ImageData here.
+ * - This worker owns model/processor lifetime and inference only.
+ * - The detector owns caching, readable-region policy, and DOM overlays.
+ *
+ * Keeping inference off the main thread prevents model initialization and ONNX
+ * execution from blocking pointer handling, rendering, and audio controls.
+ */
 let model;
 let processor;
 let initPromise = null;
@@ -16,6 +27,13 @@ const serializeError = (error) => ({
     name: error?.name || "Error",
 });
 
+/**
+ * Initialize exactly once and notify the main thread when the worker is usable.
+ * WebGPU is attempted only when explicitly requested. WASM remains the recovery
+ * path because layout filtering is useful even on browsers without WebGPU.
+ * Reusing one promise also makes concurrent `init`/`detect` messages converge on
+ * the same model session instead of downloading or allocating it twice.
+ */
 function ensureInitialized(config) {
     if (!initPromise) {
         initPromise = (async () => {
@@ -82,6 +100,11 @@ function ensureInitialized(config) {
     return initPromise;
 }
 
+/**
+ * Convert transferred page pixels to model input and return normalized boxes.
+ * Coordinates are converted back to the original render size here so downstream
+ * code never needs to know the model's resized input dimensions.
+ */
 async function runDetection(payload) {
     const {
         requestId,
@@ -153,6 +176,8 @@ async function runDetection(payload) {
     });
 }
 
+// Worker protocol: `init` establishes the shared session; every `detect` response
+// carries its requestId so PDFHeaderFooterDetector can resolve the correct promise.
 self.onmessage = (event) => {
     const { action } = event.data || {};
 

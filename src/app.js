@@ -245,7 +245,7 @@ export class PDFTTSApp {
             mobileBreakpoint: this.config.MOBILE_BREAKPOINT,
         };
         this._isSmartphoneRuntime = isSmartphoneEnvironment(ttsEnvironment);
-        const configuredTtsBackend = normalizeInferenceBackend(this.config.TTS_BACKEND, INFERENCE_BACKENDS.WEBGPU);
+        const configuredTtsBackend = normalizeInferenceBackend(this.config.TTS_BACKEND, INFERENCE_BACKENDS.WASM);
         const ttsWebGpuEnabled =
             configuredTtsBackend === INFERENCE_BACKENDS.WEBGPU && resolveTtsWebGpuPreference(ttsEnvironment);
         this.state.ttsWebGpuEnabled = ttsWebGpuEnabled;

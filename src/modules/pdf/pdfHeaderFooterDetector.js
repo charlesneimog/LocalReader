@@ -2,6 +2,14 @@ import { hitTestSentence } from "../utils/coordinates.js";
 import { INFERENCE_BACKENDS, normalizeInferenceBackend } from "../../config.js";
 
 export class PDFHeaderFooterDetector {
+    /**
+     * Main-thread owner of the layout worker and page-level layout policy.
+     *
+     * The worker returns raw detections. This class serializes page inference,
+     * caches results in StateManager, converts detections into readable/ignored
+     * regions, and asks SentenceParser/PDFRenderer to consume that classification.
+     * It is created lazily by PDFTTSApp so opening an EPUB never loads the model.
+     */
     constructor(app) {
         this.app = app;
         this._overlayStylesInjected = false;
@@ -21,7 +29,7 @@ export class PDFHeaderFooterDetector {
         const threads = Math.max(1, Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 4);
         const requestedBackend = normalizeInferenceBackend(
             this.app.config.LAYOUT_DETECTION_BACKEND,
-            INFERENCE_BACKENDS.WEBGPU,
+            INFERENCE_BACKENDS.WASM,
         );
         this.workerReadyPromise = new Promise((resolve, reject) => {
             this._resolveWorkerReady = resolve;
@@ -301,6 +309,9 @@ export class PDFHeaderFooterDetector {
             this.app.ui.updatePlayButton(state.playerState.LOADING);
         }
 
+        // Inference is serialized intentionally. Multiple full-resolution page
+        // tensors can exhaust browser GPU memory, while text extraction and TTS
+        // remain independently concurrent.
         const detectionPromise = this._detectionQueue
             .catch(() => {})
             .then(() => this._ensureModelReady())
@@ -786,6 +797,8 @@ export class PDFHeaderFooterDetector {
     }
 
     _sendWorkerDetection(payload) {
+        // Promise ownership stays on the main thread. The request map is the only
+        // bridge between worker messages and callers awaiting a particular page.
         const requestId = this._nextRequestId();
         const message = {
             action: "detect",

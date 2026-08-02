@@ -14,4 +14,6 @@ test("exposes only WASM and WebGPU inference backend values", () => {
 test("configures TTS and layout detection with explicit inference backends", () => {
     assert.ok(Object.values(INFERENCE_BACKENDS).includes(CONFIG.TTS_BACKEND));
     assert.ok(Object.values(INFERENCE_BACKENDS).includes(CONFIG.LAYOUT_DETECTION_BACKEND));
+    assert.equal(CONFIG.TTS_BACKEND, INFERENCE_BACKENDS.WASM);
+    assert.equal(CONFIG.LAYOUT_DETECTION_BACKEND, INFERENCE_BACKENDS.WASM);
 });

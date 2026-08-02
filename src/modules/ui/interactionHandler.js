@@ -148,6 +148,13 @@ export class InteractionHandler {
     }
 
     _buildPageLineModel({ state, wrapper, canvas, pageNumber }) {
+        /*
+         * Build a selection-only view of PDF words in rendered CSS pixels.
+         * This is deliberately separate from SentenceParser: speech follows
+         * semantic phrases, while mouse selection follows visual lines/columns.
+         * Layout block keys are reused when available; geometry is the fallback
+         * so selection still works before layout inference finishes.
+         */
         const indices = state.pageSentencesIndex.get(pageNumber);
         if (!indices) return null;
 
@@ -232,6 +239,10 @@ export class InteractionHandler {
     }
 
     _splitLineAtColumnGaps(line) {
+        // PDF text extraction can report two columns on one baseline. Treating
+        // that as one visual line would paint across the gutter and copy both
+        // columns. Three text heights is large enough to represent a gutter but
+        // tolerant of normal/justified word spacing.
         if (!Array.isArray(line?.words) || !line.words.length) return [];
         const words = [...line.words].sort((a, b) => a.leftPx - b.leftPx);
         const typicalHeight = words.reduce((sum, word) => sum + word.heightPx, 0) / words.length;
@@ -255,6 +266,8 @@ export class InteractionHandler {
     }
 
     _findLineIndexAtPoint(lines, xPx, yPx) {
+        // X is as important as Y here: a Y-only search always chooses the first
+        // column when two lines share a baseline.
         if (!Array.isArray(lines) || !lines.length || !Number.isFinite(xPx) || !Number.isFinite(yPx)) return -1;
 
         let bestIdx = -1;
@@ -273,6 +286,13 @@ export class InteractionHandler {
     }
 
     _getLinesForLayoutFlow(lines, startLineIdx, endLineIdx) {
+        /*
+         * Restrict a vertical drag to one reading flow. AI layout keys are the
+         * strongest signal. Horizontal overlap provides a deterministic fallback
+         * for documents processed before/without the layout model. If endpoints
+         * intentionally belong to different flows, keep all lines so cross-column
+         * selection remains possible instead of silently discarding an endpoint.
+         */
         const startLine = lines[startLineIdx];
         const endLine = lines[endLineIdx];
         if (!startLine || !endLine) return null;
@@ -337,6 +357,13 @@ export class InteractionHandler {
     }
 
     _selectWordsBetweenEndpoints(lines, startLineIdx, endLineIdx, startXPx, endXPx) {
+        /*
+         * Selection is stored in document order regardless of drag direction.
+         * Forward drag: suffix(anchor), complete middle lines, prefix(focus).
+         * Backward drag reverses which endpoint receives prefix/suffix. Keeping
+         * this normalization here makes overlay text, clipboard text, and selected
+         * sentence indices consume the same word set.
+         */
         if (!Array.isArray(lines) || !lines.length) return [];
 
         const lo = Math.min(startLineIdx, endLineIdx);
@@ -822,7 +849,8 @@ export class InteractionHandler {
         this._textSelect.selectedSentenceIndices = [];
         this._hideSelectionMenu();
 
-        // Precompute per-line model for this page to make selection line-based.
+        // Snapshot the model at drag start. Rebuilding it on every mousemove is
+        // unnecessary work and could change endpoint identity mid-gesture.
         this._textSelect.lineModel = this._buildPageLineModel({ state, wrapper, canvas, pageNumber });
 
         const onMove = (ev) => this._updatePdfDragSelection(ev);

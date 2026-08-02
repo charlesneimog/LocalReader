@@ -16,7 +16,7 @@ let session = null;
 let modelBytes = null;
 let voiceConfig = null;
 let activeBackend = null;
-let preferWebGpu = true;
+let preferWebGpu = false;
 
 // Piper's duration predictor uses INT64 indices for these GatherND nodes.
 // WebGPU shaders cannot represent INT64, so ONNX Runtime keeps only these
@@ -354,7 +354,7 @@ self.onmessage = async (event) => {
             await ensurePhonemizer(phonemizerWasmUrl, phonemizerDataUrl);
 
             voiceConfig = cfg;
-            preferWebGpu = useWebGpu !== false;
+            preferWebGpu = useWebGpu === true;
             await createSession(modelBuffer, preferWebGpu);
 
             respond(id, "init-ok", {

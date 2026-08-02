@@ -23,6 +23,22 @@ globalThis.Worker = MockWorker;
 
 const { PiperWorkerClient, PiperWorkerPoolClient } = await import("../src/modules/tts/piper-client.js");
 
+test("defaults Piper initialization to WASM", async () => {
+    const client = new PiperWorkerClient({ workerUrl: "piper.worker.js" });
+    const initialization = client.init({
+        modelBuffer: new ArrayBuffer(8),
+        voiceConfig: { audio: { sample_rate: 22050 } },
+    });
+
+    const [{ message }] = MockWorker.instance.messages;
+    assert.equal(message.payload.useWebGpu, false);
+    MockWorker.instance.onmessage({
+        data: { id: message.id, type: "init-ok", backend: "wasm", ortVersion: "1.27.0", threads: 1 },
+    });
+    await initialization;
+    client.terminate();
+});
+
 test("requests WebGPU for Piper and reports the active TTS backend", async () => {
     const client = new PiperWorkerClient({ workerUrl: "piper.worker.js" });
     const modelBuffer = new ArrayBuffer(8);

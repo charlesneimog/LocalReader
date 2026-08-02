@@ -46,6 +46,8 @@ It runs entirely in your browser and can be installed as a **Progressive Web App
 
 ## Architecture Overview
 
+For runtime call flows, ownership boundaries, design rationale, invariants, and future simplification candidates, see [Application architecture](docs/app-architecture.md).
+
 * `index.html` — App shell and main UI
 * `sw.js`, `manifest.webmanifest` — PWA configuration
 * `src/`

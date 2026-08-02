@@ -5,6 +5,14 @@ export const INFERENCE_BACKENDS = Object.freeze({
     WEBGPU: "webgpu",
 });
 
+/**
+ * Keep backend choice validation at the application boundary.
+ *
+ * Both inference workers ultimately accept strings, so allowing arbitrary values
+ * would defer a configuration typo until an expensive model load. Callers use
+ * this helper before creating a worker/session; workers still validate their
+ * messages independently because a worker is a separate runtime boundary.
+ */
 export function normalizeInferenceBackend(value, fallback = INFERENCE_BACKENDS.WASM) {
     if (value === INFERENCE_BACKENDS.WEBGPU) return INFERENCE_BACKENDS.WEBGPU;
     if (value === INFERENCE_BACKENDS.WASM) return INFERENCE_BACKENDS.WASM;

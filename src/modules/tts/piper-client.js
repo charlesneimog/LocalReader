@@ -101,7 +101,7 @@ export class PiperWorkerClient {
         logLevel = "error",
         transferModel = true,
         maxThreads = 4,
-        useWebGpu = true,
+        useWebGpu = false,
     }) {
         if (!(modelBuffer instanceof ArrayBuffer)) {
             throw new Error("modelBuffer must be an ArrayBuffer");

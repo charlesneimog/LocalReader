@@ -29,10 +29,12 @@ advances through its visual stages. When a tree reaches 100%, it is completed
 and placed automatically, and the next tier starts without interrupting
 reading.
 
-Every completed tree stores an automatic paragraph made from the readable
-sentences visited during that five-minute block. If sentence text is not
-available, the paragraph records the document title instead. The paragraph is
-shown as that tree's reading note in the garden.
+Every completed tree requires the reader to write a paragraph about what they
+read during that five-minute block. Phrase/TTS playback and the next tree's
+active-reading clock pause while the modal prompt is open. The prompt cannot be
+skipped or dismissed; saving a valid paragraph closes it and resumes reading
+from the current phrase. The paragraph is shown as that tree's reading note in
+the garden.
 
 The completion notice is queued until the reader reaches the next sentence
 boundary or TTS playback finishes. The neutral notification reads:
@@ -113,9 +115,8 @@ include enough blocks to show every Week, Month, or Year tree. Within each view,
 trees are scattered deterministically from their saved reading note and tree ID;
 the layout remains stable and duplicate notes cannot cause cell conflicts.
 
-After a tree is planted, its captured paragraph is available by selecting the
-tree in the garden. Legacy/manual sessions can still show the optional note
-card without taking focus from the reader.
+After a tree is planted, its required paragraph is available by selecting the
+tree in the garden.
 
 ## Reward and persistence behavior
 
@@ -162,7 +163,8 @@ relocates garden-cell conflicts.
 5. Finish or navigate to the next sentence and confirm one earned-tree notice.
 6. Reload midway through a tree and confirm its partial progress is retained.
 7. Confirm a new, increasingly elaborate tree is planted after every additional
-   five active minutes and each one has its own captured reading paragraph.
+   five active minutes. Confirm playback pauses at the required paragraph prompt
+   and resumes only after the paragraph is saved.
 8. Open the garden in light and dark modes and at narrow/mobile widths; confirm
    the modal remains centered and keyboard cell selection works.
 9. Switch between Week, Month, and Year and confirm only trees completed in the

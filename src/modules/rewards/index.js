@@ -55,6 +55,8 @@ export class RewardsController {
         this.automaticCompletionPromise = null;
         this.pendingTreeNotifications = [];
         this.notifiedTreeIds = new Set();
+        this.reflectionPromptPromise = null;
+        this.reflectionResumeState = null;
     }
 
     async initialize() {
@@ -64,8 +66,10 @@ export class RewardsController {
         this.adapter.start();
         this._createUi();
         this._bindEvents();
+        this._queueMissingRequiredParagraphs();
         if (this.adapter.getDocumentDescriptor()) this.adapter.documentOpened();
         this._refresh();
+        await this._flushTreeNotification();
         this.app.state.rewards.ready = true;
     }
 
@@ -77,6 +81,7 @@ export class RewardsController {
         this.reflectionDialog = new ReflectionDialog({
             minimumCharacters: this.config.reflectionMinimumCharacters,
             onSave: (session, text) => this.saveReflection(session, text),
+            onSaved: () => this._resumeAfterRequiredReflection(),
         });
         this.panel = new RewardsPanel({
             onGarden: () => this.openGarden(),
@@ -143,9 +148,6 @@ export class RewardsController {
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_GOAL_REACHED, () => {
             this._completeAutomaticTree();
         }));
-        this.unsubscribers.push(this.app.eventBus.on(EVENTS.SENTENCE_CHANGED, (payload) => {
-            this._captureReadingText(payload?.sentence);
-        }));
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.PLANT_STAGE_CHANGED, ({ plant, stage }) => {
             if (stage.percent >= 25) this.panel.announce(
                 `plant:${plant.id}:${stage.id}`,
@@ -161,7 +163,11 @@ export class RewardsController {
             this.pendingTreeNotifications.push(plant);
         }));
         for (const eventName of [EVENTS.SENTENCE_CHANGED, EVENTS.AUDIO_PLAYBACK_END]) {
-            this.unsubscribers.push(this.app.eventBus.on(eventName, () => this._flushTreeNotification()));
+            this.unsubscribers.push(this.app.eventBus.on(eventName, () => {
+                this._flushTreeNotification().catch((error) => {
+                    console.error("[RewardsController] Required reading paragraph prompt failed", error);
+                });
+            }));
         }
         const checkpoint = () => {
             this.tracker.checkpoint();
@@ -183,7 +189,6 @@ export class RewardsController {
         if (this.automaticStartPromise) return this.automaticStartPromise;
         this.automaticStartPromise = this.sessions.ensureAutomatic()
             .then((session) => {
-                this._captureReadingText(this.app.state?.sentences?.[this.app.state?.currentSentenceIndex]);
                 this._refresh();
                 return session;
             })
@@ -196,13 +201,6 @@ export class RewardsController {
                 this.automaticStartPromise = null;
             });
         return this.automaticStartPromise;
-    }
-
-    _captureReadingText(sentence) {
-        const text = sentence?.readableText || sentence?.text;
-        this.sessions.recordReadingText(text).catch((error) => {
-            console.error("[RewardsController] Reading paragraph capture failed", error);
-        });
     }
 
     async _completeAutomaticTree() {
@@ -224,8 +222,8 @@ export class RewardsController {
         return this.automaticCompletionPromise;
     }
 
-    _flushTreeNotification() {
-        if (this.reflectionDialog?.isOpen()) return;
+    async _flushTreeNotification() {
+        if (this.reflectionDialog?.isOpen() || this.reflectionPromptPromise) return;
         const plant = this.pendingTreeNotifications.shift();
         if (!plant) return;
         const definition = getPlantDefinition(plant.speciesId);
@@ -235,11 +233,69 @@ export class RewardsController {
         const session = state.sessions.find((candidate) => candidate.id === plant.sessionId);
         const alreadyReflected = state.reflections.some((entry) => entry.sessionId === plant.sessionId);
         if (session && !alreadyReflected) {
+            this.reflectionPromptPromise = this._pauseForRequiredReflection();
+            try {
+                await this.reflectionPromptPromise;
+            } finally {
+                this.reflectionPromptPromise = null;
+            }
             this.reflectionDialog?.open(
                 session,
-                `${definition.name} was added to your garden.`,
+                `${definition.name} was added to your garden. Reading is paused until you save its paragraph.`,
             );
         }
+    }
+
+    _queueMissingRequiredParagraphs() {
+        const state = this.storage.getSnapshot();
+        const reflectedSessions = new Set(state.reflections.map((entry) => entry.sessionId));
+        const queuedIds = new Set(this.pendingTreeNotifications.map((plant) => plant.id));
+        const missing = state.plants
+            .filter((plant) =>
+                plant.reflectionRequired === true &&
+                !plant.reflectionId &&
+                !reflectedSessions.has(plant.sessionId) &&
+                !queuedIds.has(plant.id)
+            )
+            .sort((left, right) => Number(left.completedAt) - Number(right.completedAt));
+        this.pendingTreeNotifications.push(...missing);
+    }
+
+    async _pauseForRequiredReflection() {
+        const current = this.sessions.getCurrentSession();
+        const shouldResumePlayback = !!(
+            this.app.state?.isPlaying || this.app.state?.autoAdvanceActive
+        );
+        this.reflectionResumeState = {
+            sessionId: current?.id || null,
+            shouldResumePlayback,
+        };
+        if (shouldResumePlayback) await this.app.audioManager?.stopPlayback?.(false);
+        if (current?.state === "active" || current?.state === "idle-timeout") {
+            await this.sessions.pause({ reason: "reflection" });
+        }
+    }
+
+    async _resumeAfterRequiredReflection() {
+        const resumeState = this.reflectionResumeState;
+        this.reflectionResumeState = null;
+        this.adapter._updateReadingScreen();
+        const current = this.sessions.getCurrentSession();
+        if (
+            resumeState?.sessionId &&
+            current?.id === resumeState.sessionId &&
+            current.state === "paused" &&
+            current.pauseReason === "reflection" &&
+            this.adapter.getDocumentDescriptor()
+        ) {
+            await this.sessions.resume();
+        }
+        if (resumeState?.shouldResumePlayback && this.adapter.getDocumentDescriptor()) {
+            await this.app.audioManager?.playCurrentSentence?.();
+        }
+        this._flushTreeNotification().catch((error) => {
+            console.error("[RewardsController] Next required paragraph prompt failed", error);
+        });
     }
 
     async saveReflection(session, text) {
@@ -263,7 +319,11 @@ export class RewardsController {
             };
             state.reflections.push(reflection);
             const plant = state.plants.find((candidate) => candidate.id === eligible.plantId);
-            if (plant) plant.reflectionId = reflection.id;
+            if (plant) {
+                plant.reflectionId = reflection.id;
+                plant.reflectionRequired = false;
+                plant.updatedAt = timestamp;
+            }
         });
         if (!reflection) {
             this.app.ui.showInfo("A reflection is already saved for this session.");

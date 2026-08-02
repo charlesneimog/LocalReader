@@ -192,7 +192,7 @@ test("cross-tab lock keeps native timer functions bound to the global timer host
     }
 });
 
-test("automatic reading plants a tree every five minutes with a reading paragraph", async () => {
+test("automatic reading plants a new tree every five minutes", async () => {
     const item = await fixture();
     const session = await item.manager.ensureAutomatic();
     assert.equal(session.automatic, true);
@@ -200,7 +200,6 @@ test("automatic reading plants a tree every five minutes with a reading paragrap
     const initialPlant = item.storage.getSnapshot().plants.find((plant) => plant.id === session.plantId);
     assert.equal(initialPlant.speciesId, "minute-sprout");
 
-    await item.manager.recordReadingText("The chapter explains how roots carry water through a tree.");
     await item.engine.recordActiveReading({
         milliseconds: session.goalMs,
         sessionId: session.id,
@@ -208,12 +207,9 @@ test("automatic reading plants a tree every five minutes with a reading paragrap
     });
     const completed = await item.manager.complete();
     assert.equal(completed.plant.stage, "mature");
+    assert.equal(completed.plant.reflectionRequired, true);
     assert.equal(completed.placement.placed, true);
-    const reflection = item.storage.getSnapshot().reflections.find(
-        (candidate) => candidate.sessionId === session.id,
-    );
-    assert.match(reflection.text, /roots carry water/);
-    assert.equal(completed.plant.reflectionId, reflection.id);
+    assert.equal(item.storage.getSnapshot().reflections.length, 0);
 
     const next = await item.manager.ensureAutomatic();
     assert.equal(next.goalMs, 300000);

@@ -31,7 +31,6 @@ export class ReadingSessionManager {
         this.now = now;
         this.randomUUID = randomUUID;
         this.deltaQueue = Promise.resolve();
-        this.contentQueue = Promise.resolve();
         this.lifecycleState = SESSION_STATES.IDLE;
         this.tracker.onDelta = (milliseconds) => {
             this.deltaQueue = this.deltaQueue
@@ -52,11 +51,13 @@ export class ReadingSessionManager {
         if (!session || [SESSION_STATES.COMPLETED, SESSION_STATES.ABANDONED].includes(session.state)) return null;
         await this.storage.transaction((draft) => {
             const stored = draft.sessions.find((candidate) => candidate.id === session.id);
-            const wasExplicitlyPaused =
+            const preservedPauseReason =
                 session.state === SESSION_STATES.PAUSED &&
-                (!session.pauseReason || session.pauseReason === "explicit");
+                ["explicit", "reflection"].includes(session.pauseReason || "explicit")
+                    ? (session.pauseReason || "explicit")
+                    : null;
             stored.state = SESSION_STATES.PAUSED;
-            stored.pauseReason = wasExplicitlyPaused ? "explicit" : "restore";
+            stored.pauseReason = preservedPauseReason || "restore";
             if (!stored.automatic) {
                 stored.activeReadingMs = 0;
                 stored.goalReachedAt = null;
@@ -137,7 +138,6 @@ export class ReadingSessionManager {
                     completedAt: null,
                     abandonedAt: null,
                     automatic: !!automatic,
-                    readingExcerpts: [],
                     pauseReason: null,
                     updatedAt: timestamp,
                 };
@@ -175,7 +175,7 @@ export class ReadingSessionManager {
             } else {
                 if (
                     current.state === SESSION_STATES.PAUSED &&
-                    current.pauseReason === "explicit"
+                    ["explicit", "reflection"].includes(current.pauseReason)
                 ) {
                     this.tracker.setPaused(true);
                     return current;
@@ -253,7 +253,6 @@ export class ReadingSessionManager {
         this.tracker.checkpoint();
         this.tracker.setPaused(true);
         await this.deltaQueue;
-        await this.contentQueue;
         const result = await this.rewardEngine.completeSession(session.id, this.now());
         this.tracker.stop();
         this.lock.release();
@@ -295,25 +294,6 @@ export class ReadingSessionManager {
 
     getCurrentSession() {
         return this.storage.getSnapshot().currentSession;
-    }
-
-    /** Save the readable sentences visited during the current five-minute tree. */
-    recordReadingText(text) {
-        const normalized = String(text || "").replace(/\s+/g, " ").trim();
-        if (!normalized) return this.contentQueue;
-        this.contentQueue = this.contentQueue.then(() => this.storage.transaction((state) => {
-            const current = state.currentSession;
-            if (!current?.automatic || current.state !== SESSION_STATES.ACTIVE) return;
-            const session = state.sessions.find((candidate) => candidate.id === current.id);
-            if (!session) return;
-            const excerpts = Array.isArray(session.readingExcerpts) ? session.readingExcerpts : [];
-            if (excerpts.at(-1) !== normalized && !excerpts.includes(normalized)) excerpts.push(normalized);
-            while (excerpts.length > 40 || excerpts.join(" ").length > 4000) excerpts.shift();
-            session.readingExcerpts = excerpts;
-            session.updatedAt = this.now();
-            state.currentSession = { ...session };
-        }));
-        return this.contentQueue;
     }
 
     async resetContinuousProgress({ reason = "interrupted" } = {}) {

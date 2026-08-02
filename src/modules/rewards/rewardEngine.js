@@ -13,25 +13,6 @@ import {
     PLANT_DEFINITIONS,
 } from "./plantDefinitions.js";
 
-function automaticReadingParagraph(session) {
-    const excerpts = (Array.isArray(session?.readingExcerpts) ? session.readingExcerpts : [])
-        .map((text) => String(text || "").replace(/\s+/g, " ").trim())
-        .filter(Boolean);
-    const prefix = "During this five-minute reading block, you read: ";
-    if (!excerpts.length) {
-        const title = String(session?.document?.title || "this document").trim();
-        return `During this five-minute reading block, you read from “${title}”.`;
-    }
-    let body = "";
-    for (const excerpt of excerpts) {
-        const candidate = body ? `${body} ${excerpt}` : excerpt;
-        if ((prefix + candidate).length > 1200) break;
-        body = candidate;
-    }
-    if (!body) body = excerpts[0].slice(0, 1150).trim();
-    return `${prefix}${body}`;
-}
-
 /**
  * Idempotent reward ledger and plant allocation service. UI and reader events
  * cannot mint rewards directly; callers must supply trusted manager-owned facts.
@@ -209,21 +190,8 @@ export class RewardEngine {
                 plant.growthProgress = 1;
                 plant.stage = "mature";
                 plant.completedAt ||= timestamp;
+                plant.reflectionRequired = true;
                 plant.updatedAt = timestamp;
-                let reflection = state.reflections.find((entry) => entry.sessionId === session.id);
-                if (!reflection) {
-                    reflection = {
-                        id: uuid(this.randomUUID),
-                        sessionId: session.id,
-                        documentId: session.document.id,
-                        text: automaticReadingParagraph(session),
-                        automatic: true,
-                        createdAt: timestamp,
-                        updatedAt: timestamp,
-                    };
-                    state.reflections.push(reflection);
-                }
-                plant.reflectionId = reflection.id;
             }
             const completion = this._grantInDraft(state, {
                 rewardType: REWARD_TYPES.SESSION_COMPLETION,

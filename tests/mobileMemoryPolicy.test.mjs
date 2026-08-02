@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { isIOSLike, isMobile } from "../src/modules/utils/helpers.js";
-import { PDFHeaderFooterDetector } from "../src/modules/pdf/pdfHeaderFooterDetector.js";
 
 globalThis.window = globalThis.window || {};
 const { TTSEngine } = await import("../src/modules/tts/ttsEngine.js");
@@ -47,33 +46,6 @@ test("does not classify a regular Mac as an iOS device", () => {
         () => {
             assert.equal(isIOSLike(), false);
             assert.equal(isMobile(), false);
-        },
-    );
-});
-
-test("iPad low-memory mode does not create the layout AI worker", async () => {
-    await withNavigator(
-        {
-            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/605.1.15",
-            maxTouchPoints: 5,
-        },
-        async () => {
-            const detector = new PDFHeaderFooterDetector({
-                config: {},
-                state: { layoutDetectionCache: new Map(), layoutCacheVersion: 1 },
-                ui: { showInfo: () => {} },
-            });
-            assert.equal(detector.lowMemoryMode, true);
-            assert.equal(detector.worker, null);
-            assert.deepEqual(await detector.detectHeadersAndFooters(2), [
-                {
-                    pageNumber: 2,
-                    label: "text",
-                    score: 1,
-                    normalized: { left: 0, top: 0, right: 1, bottom: 1 },
-                    lowMemoryFallback: true,
-                },
-            ]);
         },
     );
 });

@@ -529,9 +529,8 @@ export class PDFLoader {
         }
 
         for (const pageNumber of targetPages) {
-            const detector = app.getPdfHeaderFooterDetector();
-            if (!detector.lowMemoryMode) await app.pdfRenderer.ensureFullPageRendered(pageNumber);
-            await detector.ensureReadabilityForPage(pageNumber, { force: forceRebuild });
+            await app.pdfRenderer.ensureFullPageRendered(pageNumber);
+            await app.getPdfHeaderFooterDetector().ensureReadabilityForPage(pageNumber, { force: forceRebuild });
             await cooperativeYield();
         }
 
@@ -558,9 +557,8 @@ export class PDFLoader {
             for (let i = 0; i < state.sentences.length; i++) {
                 const sentence = state.sentences[i];
                 if (!sentence || sentence.layoutProcessed) continue;
-                const detector = app.getPdfHeaderFooterDetector();
-                if (!detector.lowMemoryMode) await app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
-                await detector.ensureReadabilityForPage(sentence.pageNumber, {
+                await app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
+                await app.getPdfHeaderFooterDetector().ensureReadabilityForPage(sentence.pageNumber, {
                     force: forceRebuild,
                 });
                 if (sentence.layoutProcessed && sentence.isTextToRead) {

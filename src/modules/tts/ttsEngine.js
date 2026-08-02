@@ -612,7 +612,9 @@ export class TTSEngine {
         if (!this._isPersonalizedPiperEnabled()) {
             const cacheKey = `${activeVoice}|${state.CURRENT_SPEED}|${sentence.normalizedText}`;
             state.audioCache.set(cacheKey, {
-                audioBlob: config.STORE_DECODED_ONLY ? null : effectiveBlob,
+                // HTMLAudioElement is the playback source. Retain the worker's
+                // WAV so sentence transitions do not re-encode the AudioBuffer.
+                audioBlob: effectiveBlob,
                 wavBlob: config.MAKE_WAV_COPY ? effectiveBlob : null,
                 audioBuffer: decoded,
                 wordBoundaries,
@@ -621,7 +623,7 @@ export class TTSEngine {
         }
 
         Object.assign(sentence, {
-            audioBlob: config.STORE_DECODED_ONLY ? null : effectiveBlob,
+            audioBlob: effectiveBlob,
             wavBlob: config.MAKE_WAV_COPY ? effectiveBlob : null,
             audioBuffer: decoded,
             audioReady: true,
@@ -852,11 +854,10 @@ export class TTSEngine {
             if (!sentence) continue;
 
             if (!sentence.layoutProcessed) {
-                const detector = this.app.getPdfHeaderFooterDetector();
-                if (!detector.lowMemoryMode) await this.app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
+                await this.app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
                 if (requestId !== this._pdfPhrasePrefetchRequestId || state.pdf !== pdf) return;
 
-                await detector.ensureReadabilityForPage(sentence.pageNumber);
+                await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(sentence.pageNumber);
                 if (requestId !== this._pdfPhrasePrefetchRequestId || state.pdf !== pdf) return;
                 sentence = state.sentences[index];
             }

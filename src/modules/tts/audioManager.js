@@ -140,7 +140,6 @@ export class AudioManager {
 
             this.setupWordBoundaryTimers(sentence);
 
-            await delay(10);
             if (!this._isContextActive(context) || state.stopRequested) {
                 state.playingSentenceIndex = -1;
                 state.playingPhraseBlockKey = null;
@@ -276,7 +275,6 @@ export class AudioManager {
 
             this.setupWordBoundaryTimers(sentence);
 
-            await delay(10);
             if (!this._isContextActive(context) || state.stopRequested) {
                 state.playingSentenceIndex = -1;
                 state.playingPhraseBlockKey = null;
@@ -629,6 +627,18 @@ export class AudioManager {
         }
     }
 
+    _findPreparedNextSentenceIndex(finishedIndex) {
+        const { state } = this.app;
+        for (let index = finishedIndex + 1; index < state.sentences.length; index++) {
+            const sentence = state.sentences[index];
+            if (!sentence) continue;
+            if (!sentence.layoutProcessed) return -1;
+            if (!sentence.isTextToRead || !hasUsableSpeechText(this._extractSpeechText(sentence))) continue;
+            return sentence.audioReady && sentence.audioBuffer && !sentence.audioError ? index : -1;
+        }
+        return -1;
+    }
+
     async _handleSourceEnded(context, sentence) {
         const { state } = this.app;
         const finishedIndex =
@@ -666,12 +676,34 @@ export class AudioManager {
             return;
         }
 
-        await delay(120);
         if (!this._isContextActive(context) || state.stopRequested) {
             state.autoAdvanceActive = false;
             this._invalidateContext(context);
             this._setMediaSessionPlaybackState("paused");
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
+            return;
+        }
+
+        // A reward interval may finish at the same time as this sentence. Wait
+        // for that completion to be persisted and, when required, block TTS and
+        // open the reflection dialog before starting the following sentence.
+        await this.app.rewards?.handleReadingBoundary?.();
+
+        // The next phrase is normally synthesized by prefetch. Start it before
+        // canvas mounting, scrolling, and progress persistence so those UI tasks
+        // cannot create an audible gap between HTML audio tracks.
+        const preparedNextIndex = this._findPreparedNextSentenceIndex(finishedIndex);
+        if (preparedNextIndex >= 0 && !this._playbackBlocks.size) {
+            state.currentSentenceIndex = preparedNextIndex;
+            this._invalidateContext(context);
+            await this.playCurrentSentence();
+            Promise.resolve(
+                this.app.pdfRenderer.renderSentence(preparedNextIndex, {
+                    autoAdvance: true,
+                    skipTTS: true,
+                }),
+            ).catch((error) => console.warn("Deferred auto-advance render failed", error));
+            this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: finishedIndex });
             return;
         }
 
@@ -685,11 +717,6 @@ export class AudioManager {
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END, { index: state.currentSentenceIndex });
             return;
         }
-
-        // A reward interval may finish at the same time as this sentence. Wait
-        // for that completion to be persisted and, when required, block TTS and
-        // open the reflection dialog before starting the following sentence.
-        await this.app.rewards?.handleReadingBoundary?.();
 
         const nextSentence = state.sentences[state.currentSentenceIndex];
         this._invalidateContext(context);

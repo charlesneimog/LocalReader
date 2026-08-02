@@ -188,3 +188,50 @@ test("the HTML audio element is primed synchronously by the Play gesture", async
         URL.createObjectURL = originalCreateObjectURL;
     }
 });
+
+test("a prefetched phrase starts before auto-advance rendering work", async () => {
+    const order = [];
+    const context = { id: 3, sentenceIndex: 0 };
+    const manager = Object.create(AudioManager.prototype);
+    manager._playbackContext = context;
+    manager._playbackBlocks = new Set();
+    manager._mediaBridgeAudio = { pause: () => {}, currentTime: 0, onended: null };
+    manager._mediaBridgeSyncing = false;
+    manager.clearWordBoundaryTimers = () => {};
+    manager.playCurrentSentence = async () => {
+        order.push("play");
+        manager.app.state.isPlaying = true;
+        manager.app.state.playingSentenceIndex = 1;
+    };
+    manager.app = {
+        state: {
+            sentences: [
+                { text: "First.", layoutProcessed: true, isTextToRead: true },
+                {
+                    text: "Second.",
+                    layoutProcessed: true,
+                    isTextToRead: true,
+                    audioReady: true,
+                    audioBuffer: {},
+                },
+            ],
+            currentSentenceIndex: 0,
+            isPlaying: true,
+            autoAdvanceActive: true,
+            stopRequested: false,
+            autoHighlightEnabled: false,
+            playingSentenceIndex: 0,
+        },
+        pdfRenderer: {
+            updateHighlightFullDoc: () => {},
+            renderSentence: async () => order.push("render"),
+        },
+        rewards: { handleReadingBoundary: async () => {} },
+        eventBus: { emit: () => {} },
+    };
+
+    await manager._handleSourceEnded(context, manager.app.state.sentences[0]);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(order, ["play", "render"]);
+});

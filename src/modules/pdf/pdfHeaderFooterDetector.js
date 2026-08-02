@@ -22,28 +22,11 @@ export class PDFHeaderFooterDetector {
         this._pendingDetectionsByPage = new Map();
         this._detectionQueue = Promise.resolve();
         this._requestIdCounter = 0;
-        this.lowMemoryMode = isIOSLike();
-
-        if (this.lowMemoryMode) {
-            // Keeping the layout ONNX model beside the Piper voice model exceeds
-            // the practical WebKit memory budget on many iPads. In this mode the
-            // entire text layer is readable; headers/footers may also be spoken.
-            this.worker = null;
-            this.workerReadyPromise = Promise.resolve();
-            this._modelReady = this.workerReadyPromise;
-            this.DETECTION_THRESHOLD = 0.35;
-            this.TEXT_CONFIDENCE_THRESHOLD = 0.89;
-            this.DETECTION_CLASSES = ["text"];
-            this.ITEMS_TO_READ = ["text"];
-            this.app.ui.showInfo("iPad low-memory reading mode enabled.");
-            return;
-        }
-
         this.app.ui.showInfo("Loading Layout AI model...");
         this.worker = new Worker("./src/modules/pdf/ts.js", { type: "module" });
         this.app.ui.showInfo("AI Layout model loaded...");
 
-        const threads = Math.max(1, Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 4);
+        const threads = isIOSLike() ? 1 : Math.max(1, Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 4);
         const requestedBackend = normalizeInferenceBackend(
             this.app.config.LAYOUT_DETECTION_BACKEND,
             INFERENCE_BACKENDS.WASM,
@@ -297,17 +280,6 @@ export class PDFHeaderFooterDetector {
     // ---------- Main Detection ----------
     detectHeadersAndFooters(pageNumber, scaleFactor = 1) {
         const { state } = this.app;
-        if (this.lowMemoryMode) {
-            return Promise.resolve([
-                {
-                    pageNumber,
-                    label: "text",
-                    score: 1,
-                    normalized: { left: 0, top: 0, right: 1, bottom: 1 },
-                    lowMemoryFallback: true,
-                },
-            ]);
-        }
         const cached = state.layoutDetectionCache.get(pageNumber);
         if (cached && cached.cacheVersion === state.layoutCacheVersion && Array.isArray(cached.detections)) {
             const hasNewLowConfidenceText = cached.detections.some((det) => {

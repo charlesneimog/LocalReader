@@ -15,7 +15,7 @@ export function normalizeInferenceBackend(value, fallback = INFERENCE_BACKENDS.W
 export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 40,
-    VERSION_PATCH: 14,
+    VERSION_PATCH: 15,
     VERSION_BUILD: 0,
 
     // Rendering

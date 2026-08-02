@@ -4,8 +4,8 @@ Reading Trees starts automatically whenever a PDF or EPUB is open. There is no
 setup step and no Start button. Only active reading time accepted by
 `ActiveReadingTracker` grows the current tree: the document must be open, the
 reader screen visible, the tab visible, the window focused, and the session not
-paused or idle for more than four minutes. Tree growth is a continuous focus
-streak: an interruption resets the current tree to zero.
+paused or idle for more than four minutes. Interruptions stop the clock but
+retain progress in the current five-minute block.
 
 ## Default tree ladder
 
@@ -13,45 +13,26 @@ The ladder is defined in
 `assets/rewards/trees/catalog.json`. The first incomplete tier is selected
 deterministically:
 
-| Tier | Active reading per tree | Trees before next tier |
+| Tier | Cumulative reading time | Active reading per tree |
 | --- | ---: | ---: |
-| Minute Sprout | 1 minute | 1 |
-| Reading Sapling | 5 minutes | 1 |
-| Aurora Pine | 6 minutes | 1 |
-| Violet Blossom Tree | 7 minutes | 1 |
-| Coral Canopy | 8 minutes | 1 |
-| Crystal Willow | 9 minutes | 1 |
-| Sunset Maple | 10 minutes | 1 |
-| Ember Bonsai | 11 minutes | 1 |
-| Firefly Fig | 12 minutes | 1 |
-| Geometric Cypress | 13 minutes | 1 |
-| Rainbow Baobab | 14 minutes | 1 |
-| Moonlit Oak | 15 minutes | 1 |
-| Starlight Birch | 16 minutes | 1 |
-| Tea Cloud Tree | 17 minutes | 1 |
-| Wind Song Tree | 18 minutes | 1 |
-| Ancient Jequitibá | 19 minutes | 1 |
-| Golden Ipê | 20 minutes | 1 |
-| Twilight Ipê-roxo | 21 minutes | 1 |
-| Araucária-do-Paraná | 22 minutes | 1 |
-| Pau-brasil Red Heart | 23 minutes | 1 |
-| Jabuticaba Night Orchard | 24 minutes | 1 |
-| Silver Embaúba | 25 minutes | 1 |
-| Mangue-vermelho Tide Tree | 26 minutes | 1 |
-| Amazon Castanheira | 27 minutes | 1 |
-| Buriti Sun Palm | 28, then 29, then 30 minutes | Repeats at 30 |
+| Minute Sprout | 5 minutes | 5 minutes |
+| Reading Sapling | 10 minutes | 5 minutes |
+| Aurora Pine | 15 minutes | 5 minutes |
+| Later catalog trees | Each additional 5 minutes | 5 minutes |
+| Buriti Sun Palm | After the catalog is completed | Repeats every 5 minutes |
 
-Growth is based on consecutive verified active milliseconds. Timer ticks retain
-partial progress, but pausing, hiding or leaving the tab, losing window focus,
-leaving the reader, changing or closing the document, becoming idle, or
-reloading the application resets the current tree. Navigating normally inside
-the same PDF or EPUB does not reset it. At 20%, 45%, 75%, and 100%, the tree
+Growth is based on accumulated verified active milliseconds. Pausing, hiding or
+leaving the tab, losing window focus, leaving the reader, changing or closing
+the document, becoming idle, or reloading the application stops counting but
+does not discard partial progress. At 20%, 45%, 75%, and 100%, the tree
 advances through its visual stages. When a tree reaches 100%, it is completed
 and placed automatically, and the next tier starts without interrupting
 reading.
 
-Already accumulated reading totals and earned rewards are retained when a
-focus streak resets; only the unfinished tree returns to zero.
+Every completed tree stores an automatic paragraph made from the readable
+sentences visited during that five-minute block. If sentence text is not
+available, the paragraph records the document title instead. The paragraph is
+shown as that tree's reading note in the garden.
 
 The completion notice is queued until the reader reaches the next sentence
 boundary or TTS playback finishes. The neutral notification reads:
@@ -62,9 +43,8 @@ boundary or TTS playback finishes. The neutral notification reads:
 Edit `assets/rewards/trees/catalog.json` to change the order, reading duration,
 number of completions needed to advance, display name, rarity, palette, or image
 path. Tree IDs must remain unique. `requiredCompletions: null` makes a tier
-repeat indefinitely, so it is normally used on the last entry.
-`repeatDurationIncrementMinutes` increases that repeating tier's duration after
-each completion. `maximumDurationMinutes` caps that increase.
+repeat indefinitely, so it is normally used on the last entry. All automatic
+entries currently use the same five-minute duration.
 
 `groundAnchor` is the vertical position of the image's ground shadow as a
 fraction of its SVG height. For example, `0.92` means the shadow is 92% down the
@@ -133,9 +113,9 @@ include enough blocks to show every Week, Month, or Year tree. Within each view,
 trees are scattered deterministically from their saved reading note and tree ID;
 the layout remains stable and duplicate notes cannot cause cell conflicts.
 
-After a tree is planted, the next sentence boundary may show a small non-modal
-note card. The note is optional, does not take focus automatically, and can be
-dismissed while reading continues.
+After a tree is planted, its captured paragraph is available by selecting the
+tree in the garden. Legacy/manual sessions can still show the optional note
+card without taking focus from the reader.
 
 ## Reward and persistence behavior
 
@@ -171,18 +151,18 @@ relocates garden-cell conflicts.
 
 ## Manual test checklist
 
-1. Open a PDF or EPUB and confirm a one-minute Minute Sprout appears without
+1. Open a PDF or EPUB and confirm a five-minute Minute Sprout appears without
    clicking Start.
 2. Navigate/read normally and confirm the quiet top-right tree indicator stays
    visually static.
 3. Partially grow a tree, then hide the tab, blur the window, open a non-reading
    dialog, close the document, pause, and exceed idle timeout; confirm each
-   interruption resets the unfinished tree to zero.
-4. Reach one active minute and confirm the debug tree is placed automatically.
+   interruption retains the unfinished tree's progress while counting stops.
+4. Reach five active minutes and confirm the first tree is placed automatically.
 5. Finish or navigate to the next sentence and confirm one earned-tree notice.
-6. Reload midway through a tree and confirm its focus streak restarts at zero.
-7. After the Minute Sprout, confirm each completed tree advances the goal from
-   five to six, seven, and then one minute at a time until it repeats at 30.
+6. Reload midway through a tree and confirm its partial progress is retained.
+7. Confirm a new, increasingly elaborate tree is planted after every additional
+   five active minutes and each one has its own captured reading paragraph.
 8. Open the garden in light and dark modes and at narrow/mobile widths; confirm
    the modal remains centered and keyboard cell selection works.
 9. Switch between Week, Month, and Year and confirm only trees completed in the

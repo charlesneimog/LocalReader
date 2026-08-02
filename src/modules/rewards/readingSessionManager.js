@@ -31,6 +31,7 @@ export class ReadingSessionManager {
         this.now = now;
         this.randomUUID = randomUUID;
         this.deltaQueue = Promise.resolve();
+        this.contentQueue = Promise.resolve();
         this.lifecycleState = SESSION_STATES.IDLE;
         this.tracker.onDelta = (milliseconds) => {
             this.deltaQueue = this.deltaQueue
@@ -56,12 +57,14 @@ export class ReadingSessionManager {
                 (!session.pauseReason || session.pauseReason === "explicit");
             stored.state = SESSION_STATES.PAUSED;
             stored.pauseReason = wasExplicitlyPaused ? "explicit" : "restore";
-            stored.activeReadingMs = 0;
-            stored.goalReachedAt = null;
+            if (!stored.automatic) {
+                stored.activeReadingMs = 0;
+                stored.goalReachedAt = null;
+            }
             stored.updatedAt = this.now();
             draft.currentSession = { ...stored };
             const plant = draft.plants.find((candidate) => candidate.id === stored.plantId);
-            if (plant && plant.stage !== "mature") {
+            if (plant && plant.stage !== "mature" && !stored.automatic) {
                 plant.growthProgress = 0;
                 plant.stage = "seed";
                 plant.updatedAt = this.now();
@@ -134,6 +137,7 @@ export class ReadingSessionManager {
                     completedAt: null,
                     abandonedAt: null,
                     automatic: !!automatic,
+                    readingExcerpts: [],
                     pauseReason: null,
                     updatedAt: timestamp,
                 };
@@ -249,6 +253,7 @@ export class ReadingSessionManager {
         this.tracker.checkpoint();
         this.tracker.setPaused(true);
         await this.deltaQueue;
+        await this.contentQueue;
         const result = await this.rewardEngine.completeSession(session.id, this.now());
         this.tracker.stop();
         this.lock.release();
@@ -292,6 +297,25 @@ export class ReadingSessionManager {
         return this.storage.getSnapshot().currentSession;
     }
 
+    /** Save the readable sentences visited during the current five-minute tree. */
+    recordReadingText(text) {
+        const normalized = String(text || "").replace(/\s+/g, " ").trim();
+        if (!normalized) return this.contentQueue;
+        this.contentQueue = this.contentQueue.then(() => this.storage.transaction((state) => {
+            const current = state.currentSession;
+            if (!current?.automatic || current.state !== SESSION_STATES.ACTIVE) return;
+            const session = state.sessions.find((candidate) => candidate.id === current.id);
+            if (!session) return;
+            const excerpts = Array.isArray(session.readingExcerpts) ? session.readingExcerpts : [];
+            if (excerpts.at(-1) !== normalized && !excerpts.includes(normalized)) excerpts.push(normalized);
+            while (excerpts.length > 40 || excerpts.join(" ").length > 4000) excerpts.shift();
+            session.readingExcerpts = excerpts;
+            session.updatedAt = this.now();
+            state.currentSession = { ...session };
+        }));
+        return this.contentQueue;
+    }
+
     async resetContinuousProgress({ reason = "interrupted" } = {}) {
         await this.deltaQueue;
         const timestamp = this.now();
@@ -303,6 +327,13 @@ export class ReadingSessionManager {
             if (!session || [SESSION_STATES.COMPLETED, SESSION_STATES.ABANDONED].includes(session.state)) return;
             const previousActiveReadingMs = Math.max(0, Number(session.activeReadingMs) || 0);
             const plant = state.plants.find((candidate) => candidate.id === session.plantId);
+            if (session.automatic) {
+                session.lastInterruptionReason = reason;
+                session.lastInterruptedAt = timestamp;
+                session.updatedAt = timestamp;
+                state.currentSession = { ...session };
+                return;
+            }
             const hadPlantProgress = plant && plant.stage !== "mature" &&
                 (Number(plant.growthProgress) > 0 || plant.stage !== "seed");
             if (!previousActiveReadingMs && !hadPlantProgress) return;

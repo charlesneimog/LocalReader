@@ -83,6 +83,21 @@ test("application restart restores an unfinished active session as paused", asyn
     assert.equal(restored.activeReadingMs, 0);
 });
 
+test("application restart retains partial progress for an automatic five-minute tree", async () => {
+    const first = await fixture();
+    await first.manager.ensureAutomatic();
+    first.tracker.onDelta(90000);
+    await first.manager.deltaQueue;
+
+    const second = await fixture(first.backing);
+    const restored = await second.manager.restore();
+    assert.equal(restored.activeReadingMs, 90000);
+    assert.equal(restored.goalMs, 300000);
+    assert.equal(second.storage.getSnapshot().plants.find(
+        (plant) => plant.id === restored.plantId,
+    ).growthProgress, 0.3);
+});
+
 test("an explicit pause remains paused during automatic checks and records no time", async () => {
     const item = await fixture();
     const session = await item.manager.ensureAutomatic();
@@ -99,11 +114,11 @@ test("an explicit pause remains paused during automatic checks and records no ti
     assert.equal(automaticCheck.state, "paused");
     assert.equal(automaticCheck.pauseReason, "explicit");
     assert.equal(automaticCheck.activeReadingMs, pausedAt);
-    assert.equal(pausedAt, 0);
+    assert.equal(pausedAt, 30000);
     assert.equal(item.tracker.paused, true);
 });
 
-test("focus interruptions reset automatic tree progress but preserve reading totals", async () => {
+test("focus interruptions pause counting without discarding automatic tree progress", async () => {
     const item = await fixture();
     const session = await item.manager.ensureAutomatic();
     item.tracker.onDelta(30000);
@@ -114,8 +129,8 @@ test("focus interruptions reset automatic tree progress but preserve reading tot
 
     const state = item.storage.getSnapshot();
     const plant = state.plants.find((candidate) => candidate.id === session.plantId);
-    assert.equal(state.currentSession.activeReadingMs, 0);
-    assert.equal(plant.growthProgress, 0);
+    assert.equal(state.currentSession.activeReadingMs, 30000);
+    assert.equal(plant.growthProgress, 0.1);
     assert.equal(plant.stage, "seed");
     assert.equal(state.totalActiveReadingMs, 30000);
 });
@@ -177,14 +192,15 @@ test("cross-tab lock keeps native timer functions bound to the global timer host
     }
 });
 
-test("automatic reading starts a one-minute tree without setup and matures it at the goal", async () => {
+test("automatic reading plants a tree every five minutes with a reading paragraph", async () => {
     const item = await fixture();
     const session = await item.manager.ensureAutomatic();
     assert.equal(session.automatic, true);
-    assert.equal(session.goalMs, 60000);
+    assert.equal(session.goalMs, 300000);
     const initialPlant = item.storage.getSnapshot().plants.find((plant) => plant.id === session.plantId);
     assert.equal(initialPlant.speciesId, "minute-sprout");
 
+    await item.manager.recordReadingText("The chapter explains how roots carry water through a tree.");
     await item.engine.recordActiveReading({
         milliseconds: session.goalMs,
         sessionId: session.id,
@@ -193,6 +209,17 @@ test("automatic reading starts a one-minute tree without setup and matures it at
     const completed = await item.manager.complete();
     assert.equal(completed.plant.stage, "mature");
     assert.equal(completed.placement.placed, true);
+    const reflection = item.storage.getSnapshot().reflections.find(
+        (candidate) => candidate.sessionId === session.id,
+    );
+    assert.match(reflection.text, /roots carry water/);
+    assert.equal(completed.plant.reflectionId, reflection.id);
+
+    const next = await item.manager.ensureAutomatic();
+    assert.equal(next.goalMs, 300000);
+    assert.equal(item.storage.getSnapshot().plants.find(
+        (plant) => plant.id === next.plantId,
+    ).speciesId, "reading-sapling");
 });
 
 test("automatic sessions adopt catalog changes without manual reset", async () => {
@@ -205,5 +232,5 @@ test("automatic sessions adopt catalog changes without manual reset", async () =
 
     const synchronized = await item.manager.ensureAutomatic();
     assert.equal(synchronized.plantId, item.manager.getCurrentSession().plantId);
-    assert.equal(synchronized.goalMs, 60000);
+    assert.equal(synchronized.goalMs, 300000);
 });

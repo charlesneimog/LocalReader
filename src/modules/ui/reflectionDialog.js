@@ -25,7 +25,7 @@ export class ReflectionDialog {
                     </button>
                 </header>
                 <label class="grid gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
-                    A small note about what you were reading
+                    Add your own note about what you were reading
                     <textarea rows="3" data-text placeholder="Optional reading note…"
                         class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-primary"></textarea>
                 </label>

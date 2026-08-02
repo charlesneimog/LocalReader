@@ -143,6 +143,9 @@ export class RewardsController {
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_GOAL_REACHED, () => {
             this._completeAutomaticTree();
         }));
+        this.unsubscribers.push(this.app.eventBus.on(EVENTS.SENTENCE_CHANGED, (payload) => {
+            this._captureReadingText(payload?.sentence);
+        }));
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.PLANT_STAGE_CHANGED, ({ plant, stage }) => {
             if (stage.percent >= 25) this.panel.announce(
                 `plant:${plant.id}:${stage.id}`,
@@ -180,6 +183,7 @@ export class RewardsController {
         if (this.automaticStartPromise) return this.automaticStartPromise;
         this.automaticStartPromise = this.sessions.ensureAutomatic()
             .then((session) => {
+                this._captureReadingText(this.app.state?.sentences?.[this.app.state?.currentSentenceIndex]);
                 this._refresh();
                 return session;
             })
@@ -192,6 +196,13 @@ export class RewardsController {
                 this.automaticStartPromise = null;
             });
         return this.automaticStartPromise;
+    }
+
+    _captureReadingText(sentence) {
+        const text = sentence?.readableText || sentence?.text;
+        this.sessions.recordReadingText(text).catch((error) => {
+            console.error("[RewardsController] Reading paragraph capture failed", error);
+        });
     }
 
     async _completeAutomaticTree() {

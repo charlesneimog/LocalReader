@@ -293,7 +293,7 @@ test("a garden tree resolves its saved reading note", () => {
     );
 });
 
-test("automatic tree catalog advances once per tree through consecutive minute goals", () => {
+test("automatic tree catalog advances its artwork while every tree takes five minutes", () => {
     const minuteTree = {
         id: "minute-1",
         speciesId: "minute-sprout",
@@ -304,18 +304,18 @@ test("automatic tree catalog advances once per tree through consecutive minute g
         speciesId: "reading-sapling",
         stage: "mature",
     };
-    assert.equal(getAutomaticTreeTier([]).definition.durationMinutes, 1);
+    assert.equal(getAutomaticTreeTier([]).definition.durationMinutes, 5);
     assert.equal(getAutomaticTreeTier([minuteTree]).definition.durationMinutes, 5);
     const nextTier = getAutomaticTreeTier([minuteTree, sapling]);
     assert.equal(nextTier.definition.id, "aurora-pine");
-    assert.equal(nextTier.definition.durationMinutes, 6);
+    assert.equal(nextTier.definition.durationMinutes, 5);
     assert.deepEqual(
-        AUTOMATIC_TREE_DEFINITIONS.slice(1).map((definition) => definition.durationMinutes),
-        Array.from({ length: 24 }, (_, index) => index + 5),
+        AUTOMATIC_TREE_DEFINITIONS.map((definition) => definition.durationMinutes),
+        Array.from({ length: 25 }, () => 5),
     );
 });
 
-test("the final automatic tree keeps increasing its reading goal", () => {
+test("the final automatic tree repeats in five-minute blocks", () => {
     const completedEarlierTiers = AUTOMATIC_TREE_DEFINITIONS.slice(0, -1).map((definition, index) => ({
         id: `tree-${index}`,
         speciesId: definition.id,
@@ -329,11 +329,11 @@ test("the final automatic tree keeps increasing its reading goal", () => {
     const secondBuriti = { ...buriti, id: "buriti-2" };
     const thirdBuriti = { ...buriti, id: "buriti-3" };
 
-    assert.equal(getAutomaticTreeTier(completedEarlierTiers).definition.durationMinutes, 28);
-    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti]).definition.durationMinutes, 29);
-    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti]).definition.durationMinutes, 30);
+    assert.equal(getAutomaticTreeTier(completedEarlierTiers).definition.durationMinutes, 5);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti]).definition.durationMinutes, 5);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti]).definition.durationMinutes, 5);
     assert.equal(
         getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti, thirdBuriti]).definition.durationMinutes,
-        30,
+        5,
     );
 });

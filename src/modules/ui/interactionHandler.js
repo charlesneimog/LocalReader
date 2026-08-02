@@ -100,11 +100,14 @@ export class InteractionHandler {
         const isCopy = (e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.key === "c" || e.key === "C");
         if (!isCopy) return;
 
-        const text = this.getCurrentPhraseTextForCopy({ fallbackToSelection: true });
+        const selectedText = this._getSelectionTextForCopy();
+        const text = selectedText || this.getCurrentPhraseTextForCopy({ fallbackToSelection: false });
         if (!text) return;
 
         e.preventDefault();
-        await this._copyTextToClipboard(text, { successMessage: "Current phrase copied" });
+        await this._copyTextToClipboard(text, {
+            successMessage: selectedText ? "Selection copied" : "Current phrase copied",
+        });
     }
 
     _clearPdfTextSelectionOverlays() {
@@ -149,6 +152,7 @@ export class InteractionHandler {
         if (!indices) return null;
 
         const { scaleX, scaleY } = this.app.pdfRenderer.getPageScaleFactors(wrapper, canvas, pageNumber);
+        const readableBoxes = this.app.pdfRenderer._getCachedReadableLayoutBoxes?.(pageNumber) || [];
 
         const items = [];
         for (const idx of indices) {
@@ -172,8 +176,17 @@ export class InteractionHandler {
                 const widthPx = Math.max(1, w.width * scaleX);
                 const heightPx = Math.max(1, w.height * scaleY);
 
-                const text = (w.str ?? w.text ?? "");
-                items.push({ leftPx, topPx, widthPx, heightPx, text, sentenceIndex: idx });
+                let layoutFlowKey = s.layoutBlockKey || null;
+                if (readableBoxes.length > 1) {
+                    const wordBox = this.app.pdfRenderer._getWordBoxViewport?.(w);
+                    const blockIndex = wordBox
+                        ? readableBoxes.findIndex((box) => this.app.pdfRenderer._boxesOverlap?.(wordBox, box))
+                        : -1;
+                    if (blockIndex >= 0) layoutFlowKey = `readable:${blockIndex}`;
+                }
+
+                const text = w.str ?? w.text ?? "";
+                items.push({ leftPx, topPx, widthPx, heightPx, text, sentenceIndex: idx, layoutFlowKey });
             }
         }
 
@@ -189,13 +202,18 @@ export class InteractionHandler {
             const right = it.leftPx + it.widthPx;
 
             const last = lines[lines.length - 1];
-            if (!last || Math.abs(top - last.topPx) > yTolerance) {
+            if (
+                !last ||
+                Math.abs(top - last.topPx) > yTolerance ||
+                last.layoutFlowKey !== it.layoutFlowKey
+            ) {
                 lines.push({
                     topPx: top,
                     bottomPx: bottom,
                     leftPx: left,
                     rightPx: right,
                     words: [it],
+                    layoutFlowKey: it.layoutFlowKey,
                 });
             } else {
                 last.topPx = Math.min(last.topPx, top);
@@ -206,34 +224,80 @@ export class InteractionHandler {
             }
         }
 
-        // Ensure words in each line are ordered left->right
-        for (const line of lines) {
-            line.words.sort((a, b) => a.leftPx - b.leftPx);
-        }
+        // A shared baseline can contain both columns. Split it at a column-sized
+        // horizontal gap so hit testing and selection never treat both as one line.
+        const splitLines = lines.flatMap((line) => this._splitLineAtColumnGaps(line));
 
-        return { lines, scaleX, scaleY };
+        return { lines: splitLines, scaleX, scaleY };
     }
 
-    _findLineIndexAtY(lines, yPx) {
-        if (!Array.isArray(lines) || !lines.length || !Number.isFinite(yPx)) return -1;
-        // Prefer containment.
-        for (let i = 0; i < lines.length; i++) {
-            const l = lines[i];
-            if (yPx >= l.topPx && yPx <= l.bottomPx) return i;
+    _splitLineAtColumnGaps(line) {
+        if (!Array.isArray(line?.words) || !line.words.length) return [];
+        const words = [...line.words].sort((a, b) => a.leftPx - b.leftPx);
+        const typicalHeight = words.reduce((sum, word) => sum + word.heightPx, 0) / words.length;
+        const columnGapThreshold = Math.max(18, typicalHeight * 3);
+        const groups = [[]];
+
+        for (const word of words) {
+            const group = groups[groups.length - 1];
+            const previous = group[group.length - 1];
+            const gap = previous ? word.leftPx - (previous.leftPx + previous.widthPx) : 0;
+            if (previous && gap > columnGapThreshold) groups.push([]);
+            groups[groups.length - 1].push(word);
         }
-        // Otherwise pick closest line by center.
-        let bestIdx = 0;
-        let bestDist = Infinity;
+
+        return groups.map((group) => ({
+            ...line,
+            words: group,
+            leftPx: group[0].leftPx,
+            rightPx: group[group.length - 1].leftPx + group[group.length - 1].widthPx,
+        }));
+    }
+
+    _findLineIndexAtPoint(lines, xPx, yPx) {
+        if (!Array.isArray(lines) || !lines.length || !Number.isFinite(xPx) || !Number.isFinite(yPx)) return -1;
+
+        let bestIdx = -1;
+        let bestDistanceSquared = Infinity;
         for (let i = 0; i < lines.length; i++) {
-            const l = lines[i];
-            const center = (l.topPx + l.bottomPx) / 2;
-            const d = Math.abs(center - yPx);
-            if (d < bestDist) {
-                bestDist = d;
+            const line = lines[i];
+            const dx = xPx < line.leftPx ? line.leftPx - xPx : xPx > line.rightPx ? xPx - line.rightPx : 0;
+            const dy = yPx < line.topPx ? line.topPx - yPx : yPx > line.bottomPx ? yPx - line.bottomPx : 0;
+            const distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared < bestDistanceSquared) {
+                bestDistanceSquared = distanceSquared;
                 bestIdx = i;
             }
         }
         return bestIdx;
+    }
+
+    _getLinesForLayoutFlow(lines, startLineIdx, endLineIdx) {
+        const startLine = lines[startLineIdx];
+        const endLine = lines[endLineIdx];
+        if (!startLine || !endLine) return null;
+
+        let belongsToFlow = null;
+        if (startLine.layoutFlowKey && startLine.layoutFlowKey === endLine.layoutFlowKey) {
+            belongsToFlow = (line) => line.layoutFlowKey === startLine.layoutFlowKey;
+        } else if (!startLine.layoutFlowKey && !endLine.layoutFlowKey) {
+            const endpointOverlap =
+                Math.min(startLine.rightPx, endLine.rightPx) - Math.max(startLine.leftPx, endLine.leftPx);
+            if (endpointOverlap > 0) {
+                belongsToFlow = (line) =>
+                    Math.min(line.rightPx, startLine.rightPx) - Math.max(line.leftPx, startLine.leftPx) > 0 ||
+                    Math.min(line.rightPx, endLine.rightPx) - Math.max(line.leftPx, endLine.leftPx) > 0;
+            }
+        }
+
+        if (!belongsToFlow) return { lines, startLineIdx, endLineIdx };
+
+        const flowLines = lines.filter(belongsToFlow);
+        return {
+            lines: flowLines,
+            startLineIdx: flowLines.indexOf(startLine),
+            endLineIdx: flowLines.indexOf(endLine),
+        };
     }
 
     _buildSelectedTextFromLines(lines) {
@@ -249,6 +313,61 @@ export class InteractionHandler {
             .filter(Boolean)
             .join("\n")
             .trim();
+    }
+
+    _findWordIndexAtX(line, xPx) {
+        const words = line?.words;
+        if (!Array.isArray(words) || !words.length || !Number.isFinite(xPx)) return -1;
+
+        let closestIndex = 0;
+        let closestDistance = Infinity;
+        for (let i = 0; i < words.length; i++) {
+            const word = words[i];
+            const left = word.leftPx;
+            const right = word.leftPx + word.widthPx;
+            if (xPx >= left && xPx <= right) return i;
+
+            const distance = xPx < left ? left - xPx : xPx - right;
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestIndex = i;
+            }
+        }
+        return closestIndex;
+    }
+
+    _selectWordsBetweenEndpoints(lines, startLineIdx, endLineIdx, startXPx, endXPx) {
+        if (!Array.isArray(lines) || !lines.length) return [];
+
+        const lo = Math.min(startLineIdx, endLineIdx);
+        const hi = Math.max(startLineIdx, endLineIdx);
+        const movingForward = startLineIdx < endLineIdx;
+
+        return lines.slice(lo, hi + 1).map((line, offset) => {
+            const lineIndex = lo + offset;
+            let words = line.words;
+
+            if (startLineIdx === endLineIdx) {
+                const startWordIdx = this._findWordIndexAtX(line, startXPx);
+                const endWordIdx = this._findWordIndexAtX(line, endXPx);
+                words = words.slice(Math.min(startWordIdx, endWordIdx), Math.max(startWordIdx, endWordIdx) + 1);
+            } else if (lineIndex === startLineIdx) {
+                const startWordIdx = this._findWordIndexAtX(line, startXPx);
+                words = movingForward ? words.slice(startWordIdx) : words.slice(0, startWordIdx + 1);
+            } else if (lineIndex === endLineIdx) {
+                const endWordIdx = this._findWordIndexAtX(line, endXPx);
+                words = movingForward ? words.slice(0, endWordIdx + 1) : words.slice(endWordIdx);
+            }
+
+            const firstWord = words[0];
+            const lastWord = words[words.length - 1];
+            return {
+                ...line,
+                words,
+                leftPx: firstWord?.leftPx ?? line.leftPx,
+                rightPx: lastWord ? lastWord.leftPx + lastWord.widthPx : line.rightPx,
+            };
+        });
     }
 
     async _copyTextToClipboard(text, { successMessage = "Copied selection" } = {}) {
@@ -737,6 +856,8 @@ export class InteractionHandler {
 
         const startY = startClientY - originTop;
         const curY = e.clientY - originTop;
+        const startX = startClientX - originLeft;
+        const curX = e.clientX - originLeft;
 
         const offsetTop = canvasRect.top - wrapperRect.top;
         const offsetLeft = canvasRect.left - wrapperRect.left;
@@ -744,13 +865,19 @@ export class InteractionHandler {
         const model = lineModel || this._buildPageLineModel({ state, wrapper, canvas, pageNumber });
         if (!model?.lines?.length) return;
 
-        const startLineIdx = this._findLineIndexAtY(model.lines, startY);
-        const endLineIdx = this._findLineIndexAtY(model.lines, curY);
+        const startLineIdx = this._findLineIndexAtPoint(model.lines, startX, startY);
+        const endLineIdx = this._findLineIndexAtPoint(model.lines, curX, curY);
         if (startLineIdx < 0 || endLineIdx < 0) return;
 
-        const lo = Math.min(startLineIdx, endLineIdx);
-        const hi = Math.max(startLineIdx, endLineIdx);
-        const selectedLines = model.lines.slice(lo, hi + 1);
+        const flow = this._getLinesForLayoutFlow(model.lines, startLineIdx, endLineIdx);
+        if (!flow || flow.startLineIdx < 0 || flow.endLineIdx < 0) return;
+        const selectedLines = this._selectWordsBetweenEndpoints(
+            flow.lines,
+            flow.startLineIdx,
+            flow.endLineIdx,
+            startX,
+            curX,
+        );
 
         wrapper.querySelectorAll(".pdf-text-selection").forEach((n) => n.remove());
         for (const line of selectedLines) {

@@ -28,6 +28,7 @@ function fixture() {
     tracker.setReadingScreen(true);
     tracker.setPaused(false);
     tracker.start();
+    tracker.setTtsPlaying(true);
     return {
         tracker,
         documentObject,
@@ -62,18 +63,37 @@ test("hidden tabs and unfocused windows do not count", () => {
 
 test("idle timeout permits normal reading pauses then stops", () => {
     const item = fixture();
-    assert.equal(item.advance(239000), 5000);
+    item.tracker.setTtsPlaying(false);
+    assert.equal(item.advance(239000), 0);
     assert.equal(item.advance(2000), 0);
     assert.equal(item.idleCount, 1);
     item.tracker.recordActivity("page-change");
+    assert.equal(item.advance(1000), 0);
+    item.tracker.setTtsPlaying(true);
     assert.equal(item.advance(1000), 1000);
 });
 
 test("delayed callbacks are clamped and TTS keeps one shared clock eligible", () => {
     const item = fixture();
     assert.equal(item.advance(60000), 5000);
+    item.tracker.setTtsPlaying(false);
     item.advance(240001);
     assert.equal(item.tracker.isEligible(), false);
+    item.tracker.setTtsPlaying(true);
+    assert.equal(item.advance(1000), 1000);
+});
+
+test("loading and allowed playback pauses do not count or break tree continuity", () => {
+    const item = fixture();
+    item.tracker.setTtsPlaying(false);
+    assert.equal(item.advance(30000), 0);
+    assert.deepEqual(item.interruptions, []);
+
+    item.documentObject.hasFocus = () => false;
+    assert.equal(item.advance(1000), 0);
+    assert.deepEqual(item.interruptions, []);
+
+    item.documentObject.hasFocus = () => true;
     item.tracker.setTtsPlaying(true);
     assert.equal(item.advance(1000), 1000);
 });
@@ -86,14 +106,12 @@ test("TTS cannot bypass an explicit pause", () => {
     assert.deepEqual(item.deltas, []);
 });
 
-test("closed documents and non-reading screens do not count", () => {
+test("closed documents and non-reading screens freeze progress", () => {
     const item = fixture();
     item.tracker.setReadingScreen(false);
-    assert.equal(item.interruptions.at(-1).reason, "left-reader");
     assert.equal(item.advance(1000), 0);
     item.tracker.setReadingScreen(true);
     item.tracker.setDocumentOpen(false);
-    assert.equal(item.interruptions.at(-1).reason, "document-closed");
     assert.equal(item.advance(1000), 0);
 });
 

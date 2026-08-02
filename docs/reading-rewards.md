@@ -2,10 +2,10 @@
 
 Reading Trees starts automatically whenever a PDF or EPUB is open. There is no
 setup step and no Start button. Only active reading time accepted by
-`ActiveReadingTracker` grows the current tree: the document must be open, the
-reader screen visible, the tab visible, the window focused, and the session not
-paused or idle for more than four minutes. Interruptions stop the clock but
-retain progress in the current five-minute block.
+`ActiveReadingTracker` grows the current tree: TTS playback must be active, the
+document and reader screen must be open, and the tab and window must be visible
+and focused. Loading, speech generation, stopped playback, and intentional
+pauses never advance the clock.
 
 ## Default tree ladder
 
@@ -21,13 +21,13 @@ deterministically:
 | Later catalog trees | Each additional 5 minutes | 5 minutes |
 | Buriti Sun Palm | After the catalog is completed | Repeats every 5 minutes |
 
-Growth is based on accumulated verified active milliseconds. Pausing, hiding or
-leaving the tab, losing window focus, leaving the reader, changing or closing
-the document, becoming idle, or reloading the application stops counting but
-does not discard partial progress. At 20%, 45%, 75%, and 100%, the tree
-advances through its visual stages. When a tree reaches 100%, it is completed
-and placed automatically, and the next tier starts without interrupting
-reading.
+Growth is based on accumulated verified playback milliseconds. An intentional
+pause freezes the current tree, including while the reader switches away to
+search or take notes. Loading and other non-reading time also freeze it. Losing
+tab or window focus while playback is still active resets the current tree's
+five-minute clock to zero. At 20%, 45%, 75%, and 100%, the tree advances through
+its visual stages. When a tree reaches 100%, it is completed and placed
+automatically, and the next tier starts without interrupting reading.
 
 Every completed tree requires the reader to write a paragraph about what they
 read during that five-minute block. Phrase/TTS playback and the next tree's

@@ -64,10 +64,14 @@ export class ActiveReadingTracker {
     }
 
     setReadingScreen(reading) {
-        const wasReading = this.readingScreen;
-        this.readingScreen = !!reading;
-        if (!reading && wasReading) this._interrupt("left-reader");
-        else if (reading && this.isEligible()) this.continuityBroken = false;
+        const next = !!reading;
+        if (next === this.readingScreen) return;
+        const now = this.performanceNow();
+        if (!next && this.readingScreen && this.ttsPlaying) this.tick(now);
+        this.readingScreen = next;
+        this.lastTickAt = now;
+        if (!next) this.continuityBroken = true;
+        else if (this.isEligible()) this.continuityBroken = false;
     }
 
     setPaused(paused) {
@@ -81,8 +85,19 @@ export class ActiveReadingTracker {
     }
 
     setTtsPlaying(playing) {
-        this.ttsPlaying = !!playing;
-        if (playing) this.recordActivity("tts-playback");
+        const next = !!playing;
+        const now = this.performanceNow();
+        if (!next && this.ttsPlaying) this.tick(now);
+        this.ttsPlaying = next;
+        this.lastTickAt = now;
+        if (next) {
+            this.recordActivity("tts-playback");
+            if (this.isEligible()) this.continuityBroken = false;
+        } else {
+            // A stopped player is an allowed pause. It freezes the current tree
+            // and prevents a subsequent window blur from resetting its progress.
+            this.continuityBroken = true;
+        }
     }
 
     recordActivity(source = "interaction") {
@@ -96,14 +111,13 @@ export class ActiveReadingTracker {
     isEligible(now = this.performanceNow()) {
         const visible = !this.documentObject || this.documentObject.visibilityState !== "hidden";
         const focused = !this.documentObject?.hasFocus || this.documentObject.hasFocus();
-        const withinIdleWindow = this.ttsPlaying || now - this.lastActivityAt <= this.config.idleTimeoutMs;
         return (
             this.documentOpen &&
             this.readingScreen &&
             !this.explicitlyPaused &&
+            this.ttsPlaying &&
             visible &&
-            focused &&
-            withinIdleWindow
+            focused
         );
     }
 
@@ -121,7 +135,7 @@ export class ActiveReadingTracker {
             this.onIdle?.();
         }
         if (!this.isEligible(now)) {
-            if (!inactiveFromIdle && !this.explicitlyPaused) {
+            if (!inactiveFromIdle && !this.explicitlyPaused && this.ttsPlaying) {
                 this._interrupt(this._ineligibilityReason(now));
             }
             return 0;

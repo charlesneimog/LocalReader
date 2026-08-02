@@ -121,7 +121,7 @@ test("an explicit pause remains paused during automatic checks and records no ti
     assert.equal(item.tracker.paused, true);
 });
 
-test("focus interruptions pause counting without discarding automatic tree progress", async () => {
+test("focus interruptions reset automatic tree progress without erasing earned reading history", async () => {
     const item = await fixture();
     const session = await item.manager.ensureAutomatic();
     const partialProgressMs = AUTOMATIC_TREE_GOAL_MS * 0.1;
@@ -133,8 +133,8 @@ test("focus interruptions pause counting without discarding automatic tree progr
 
     const state = item.storage.getSnapshot();
     const plant = state.plants.find((candidate) => candidate.id === session.plantId);
-    assert.equal(state.currentSession.activeReadingMs, partialProgressMs);
-    assert.equal(plant.growthProgress, 0.1);
+    assert.equal(state.currentSession.activeReadingMs, 0);
+    assert.equal(plant.growthProgress, 0);
     assert.equal(plant.stage, "seed");
     assert.equal(state.totalActiveReadingMs, partialProgressMs);
 });

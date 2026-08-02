@@ -226,7 +226,6 @@ export class ReadingSessionManager {
         this.tracker.checkpoint();
         this.tracker.setPaused(true);
         await this.deltaQueue;
-        await this.resetContinuousProgress({ reason });
         await this._setState(session.id, SESSION_STATES.PAUSED, { pauseReason: reason });
         this.lifecycleState = SESSION_STATES.PAUSED;
         this.eventBus?.emit(EVENTS.READING_SESSION_PAUSED, this.getCurrentSession());
@@ -307,13 +306,6 @@ export class ReadingSessionManager {
             if (!session || [SESSION_STATES.COMPLETED, SESSION_STATES.ABANDONED].includes(session.state)) return;
             const previousActiveReadingMs = Math.max(0, Number(session.activeReadingMs) || 0);
             const plant = state.plants.find((candidate) => candidate.id === session.plantId);
-            if (session.automatic) {
-                session.lastInterruptionReason = reason;
-                session.lastInterruptedAt = timestamp;
-                session.updatedAt = timestamp;
-                state.currentSession = { ...session };
-                return;
-            }
             const hadPlantProgress = plant && plant.stage !== "mature" &&
                 (Number(plant.growthProgress) > 0 || plant.stage !== "seed");
             if (!previousActiveReadingMs && !hadPlantProgress) return;
@@ -413,8 +405,7 @@ export class ReadingSessionManager {
         const session = this.getCurrentSession();
         if (!session || session.state !== SESSION_STATES.ACTIVE) return;
         this.lifecycleState = SESSION_STATES.IDLE_TIMEOUT;
-        this.resetContinuousProgress({ reason: "idle" })
-            .then(() => this._setState(session.id, SESSION_STATES.IDLE_TIMEOUT, { pauseReason: "idle" }))
+        this._setState(session.id, SESSION_STATES.IDLE_TIMEOUT, { pauseReason: "idle" })
             .then(() => this.eventBus?.emit(EVENTS.READING_SESSION_IDLE, this.getCurrentSession()))
             .catch((error) => console.error("[ReadingSessionManager] Idle checkpoint failed", error));
     }

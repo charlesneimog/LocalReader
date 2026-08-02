@@ -773,10 +773,13 @@ export class TTSEngine {
     schedulePrefetch() {
         const { state, config } = this.app;
         if (!state.generationEnabled) return;
+        this._pruneAudioForLowMemory(state.currentSentenceIndex);
         const isPdf = state.currentDocumentType === "pdf";
-        const prefetchLimit = isPdf
-            ? Math.max(0, Number(config.PDF_PREFETCH_PHRASES) || 3)
-            : Math.max(0, Number(config.PREFETCH_AHEAD) || 0);
+        const prefetchLimit = isIOSLike()
+            ? 1
+            : isPdf
+              ? Math.max(0, Number(config.PDF_PREFETCH_PHRASES) || 3)
+              : Math.max(0, Number(config.PREFETCH_AHEAD) || 0);
         if (state.currentSentenceIndex >= 0) {
             this.app.ttsQueue.add(state.currentSentenceIndex, true);
             this.app.prefetchSentenceTranslationForTTS?.(state.currentSentenceIndex);
@@ -791,6 +794,39 @@ export class TTSEngine {
         for (let i = base + 1; i <= base + prefetchLimit && i < state.sentences.length; i++) {
             this.app.ttsQueue.add(i);
             this.app.prefetchSentenceTranslationForTTS?.(i);
+        }
+    }
+
+    _pruneAudioForLowMemory(centerIndex) {
+        if (!isIOSLike() || !Number.isFinite(centerIndex) || centerIndex < 0) return;
+        const { state } = this.app;
+        const nextAudioIndex = state.sentences.findIndex(
+            (sentence, index) =>
+                index > centerIndex &&
+                (sentence?.audioReady || sentence?.audioInProgress || sentence?.prefetchQueued),
+        );
+        const retainedIndices = new Set([centerIndex]);
+        if (nextAudioIndex >= 0) retainedIndices.add(nextAudioIndex);
+
+        // Sentence objects already own the active buffers, so retaining the same
+        // buffers in the global cache only lengthens their lifetime on iPadOS.
+        state.audioCache.clear();
+        for (let index = 0; index < state.sentences.length; index++) {
+            const sentence = state.sentences[index];
+            if (!sentence || sentence.audioInProgress || retainedIndices.has(index)) continue;
+            sentence.audioBlob = null;
+            sentence.wavBlob = null;
+            sentence.audioBuffer = null;
+            sentence.audioReady = false;
+            sentence.audioError = null;
+            sentence.prefetchQueued = false;
+            sentence.normalizedText = null;
+            sentence.wordBoundaries = [];
+            sentence.ttsPhraseTimings = [];
+        }
+
+        if (Array.isArray(this.app.ttsQueue?.queue)) {
+            this.app.ttsQueue.queue = this.app.ttsQueue.queue.filter((index) => retainedIndices.has(index));
         }
     }
 
@@ -816,10 +852,11 @@ export class TTSEngine {
             if (!sentence) continue;
 
             if (!sentence.layoutProcessed) {
-                await this.app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
+                const detector = this.app.getPdfHeaderFooterDetector();
+                if (!detector.lowMemoryMode) await this.app.pdfRenderer.ensureFullPageRendered(sentence.pageNumber);
                 if (requestId !== this._pdfPhrasePrefetchRequestId || state.pdf !== pdf) return;
 
-                await this.app.getPdfHeaderFooterDetector().ensureReadabilityForPage(sentence.pageNumber);
+                await detector.ensureReadabilityForPage(sentence.pageNumber);
                 if (requestId !== this._pdfPhrasePrefetchRequestId || state.pdf !== pdf) return;
                 sentence = state.sentences[index];
             }

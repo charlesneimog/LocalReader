@@ -1,4 +1,4 @@
-import { delay, waitFor, hasUsableSpeechText } from "../utils/helpers.js";
+import { delay, waitFor, hasUsableSpeechText, isIOSLike } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
 
 export class AudioManager {
@@ -401,7 +401,7 @@ export class AudioManager {
     async _waitForStartupBuffer(context) {
         if (context?.continuesReading) return true;
 
-        const target = Math.max(1, Number(this.app.config.TTS_START_BUFFER_PHRASES) || 2);
+        const target = isIOSLike() ? 1 : Math.max(1, Number(this.app.config.TTS_START_BUFFER_PHRASES) || 2);
         this.app.ttsEngine.schedulePrefetch();
 
         while (this._isContextActive(context) && !this.app.state.stopRequested) {

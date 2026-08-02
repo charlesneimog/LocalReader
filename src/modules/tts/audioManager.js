@@ -11,6 +11,8 @@ export class AudioManager {
         this._mediaBridgeAudio = null;
         this._mediaBridgeObjectUrl = null;
         this._mediaBridgeSyncing = false;
+        this._mediaElementUnlocked = false;
+        this._mediaUnlockPromise = null;
         this._waitingForAudioNoticeKey = null;
         this._setupMediaBridge();
         this._setupMediaSession();
@@ -125,7 +127,7 @@ export class AudioManager {
         if (!(await this._waitForStartupBuffer(context))) return;
         if (!this._isContextActive(context)) return;
 
-        await this.stopPlayback(false, { clearContext: false, emitEvent: false });
+        await this.stopPlayback(false, { clearContext: false, emitEvent: false, preserveMediaElement: true });
         if (!this._isContextActive(context)) return;
 
         state.stopRequested = false;
@@ -171,7 +173,7 @@ export class AudioManager {
                 if (state.audioCtx) await state.audioCtx.close();
             } catch {}
             state.audioCtx = null;
-            shouldRetry = !state.stopRequested && this._isContextActive(context);
+            shouldRetry = this._shouldRetryPlayback(context, err);
         } finally {
             if (shouldRetry) {
                 await delay(200);
@@ -261,7 +263,7 @@ export class AudioManager {
         if (!this._isContextActive(context)) return;
 
         this._updatePlaybackPreparationForStart(context);
-        await this.stopPlayback(false, { clearContext: false, emitEvent: false });
+        await this.stopPlayback(false, { clearContext: false, emitEvent: false, preserveMediaElement: true });
         if (!this._isContextActive(context)) return;
 
         state.stopRequested = false;
@@ -308,7 +310,7 @@ export class AudioManager {
                 if (state.audioCtx) await state.audioCtx.close();
             } catch {}
             state.audioCtx = null;
-            shouldRetry = !state.stopRequested && this._isContextActive(context);
+            shouldRetry = this._shouldRetryPlayback(context, err);
         } finally {
             if (shouldRetry) {
                 await delay(200);
@@ -427,7 +429,7 @@ export class AudioManager {
 
     async stopPlayback(fade = true, options = {}) {
         const { state, config } = this.app;
-        const { clearContext = true, emitEvent = true } = options;
+        const { clearContext = true, emitEvent = true, preserveMediaElement = false } = options;
 
         state.stopRequested = true;
 
@@ -490,7 +492,7 @@ export class AudioManager {
         state.playingSentenceIndex = -1;
         state.playingPhraseBlockKey = null;
         this._clearWaitingForAudio();
-        this._pauseMediaBridge();
+        if (!preserveMediaElement) this._pauseMediaBridge();
 
         const currentSentence = state.currentSentence;
         if (currentSentence) this.clearWordBoundaryTimers(currentSentence);
@@ -521,6 +523,9 @@ export class AudioManager {
             state.autoAdvanceActive = false;
             this.app.ui.updatePlayButton(state.playerState.PAUSE);
         } else {
+            // Must run synchronously inside the tap. iPadOS can reject the later
+            // play() after layout analysis and speech generation have completed.
+            this._primeMediaElementForUserGesture({ keepAlive: true });
             this.playCurrentSentence().catch((error) => {
                 console.error("Unable to start playback:", error);
                 this.app.ui.finishPlaybackPreparation();
@@ -602,6 +607,20 @@ export class AudioManager {
 
     _isContextActive(context) {
         return !!(context && this._playbackContext && context.id === this._playbackContext.id);
+    }
+
+    _shouldRetryPlayback(context, error) {
+        context.playbackRetryCount = (context.playbackRetryCount || 0) + 1;
+        const browserRejectedPlayback = error?.name === "NotAllowedError" || error?.name === "NotSupportedError";
+        if (browserRejectedPlayback && this._isContextActive(context)) {
+            this.app.ui.showInfo("iPadOS blocked audio startup. Tap Play once more.");
+        }
+        return (
+            !browserRejectedPlayback &&
+            context.playbackRetryCount <= 1 &&
+            !this.app.state.stopRequested &&
+            this._isContextActive(context)
+        );
     }
 
     _invalidateContext(context) {
@@ -713,6 +732,58 @@ export class AudioManager {
 
         document.body?.appendChild(audio);
         this._mediaBridgeAudio = audio;
+
+        // The first gesture may be the tap that opens a document rather than the
+        // toolbar Play button. Unlock the same audio element in either case.
+        const unlock = (event) =>
+            this._primeMediaElementForUserGesture({
+                keepAlive: !!event?.target?.closest?.("#play-toggle"),
+            });
+        document.addEventListener?.("pointerdown", unlock, { capture: true, once: true, passive: true });
+        document.addEventListener?.("touchstart", unlock, { capture: true, once: true, passive: true });
+    }
+
+    _primeMediaElementForUserGesture({ keepAlive = false } = {}) {
+        const audio = this._mediaBridgeAudio;
+        if (!audio || this._mediaUnlockPromise) return this._mediaUnlockPromise;
+        if (this._mediaElementUnlocked && !keepAlive) return null;
+
+        const blob = this._createSilentWavBlob(0.25);
+        this._mediaBridgeSyncing = true;
+        try {
+            if (this._mediaBridgeObjectUrl) URL.revokeObjectURL(this._mediaBridgeObjectUrl);
+            this._mediaBridgeObjectUrl = URL.createObjectURL(blob);
+            audio.src = this._mediaBridgeObjectUrl;
+            audio.currentTime = 0;
+            audio.loop = !!keepAlive;
+            audio.defaultMuted = false;
+            audio.muted = false;
+            audio.volume = 1;
+
+            // Calling play before leaving this stack preserves the user activation.
+            const playResult = audio.play();
+            this._mediaUnlockPromise = Promise.resolve(playResult)
+                .then(() => {
+                    this._mediaElementUnlocked = true;
+                    if (!keepAlive) {
+                        audio.pause();
+                        audio.currentTime = 0;
+                    }
+                })
+                .catch((error) => {
+                    console.debug("[HTMLAudio] User-gesture unlock failed", error);
+                })
+                .finally(() => {
+                    this._mediaUnlockPromise = null;
+                    this._mediaBridgeSyncing = false;
+                });
+            return this._mediaUnlockPromise;
+        } catch (error) {
+            this._mediaUnlockPromise = null;
+            this._mediaBridgeSyncing = false;
+            console.debug("[HTMLAudio] User-gesture unlock failed", error);
+            return null;
+        }
     }
 
     _setupMediaSession() {
@@ -781,6 +852,7 @@ export class AudioManager {
         this._setMediaSessionMetadata(sentence);
         this._setMediaSessionPlaybackState("playing");
 
+        await this._mediaUnlockPromise?.catch?.(() => {});
         this._mediaBridgeSyncing = true;
         try {
             if (this._mediaBridgeObjectUrl) {
@@ -791,6 +863,7 @@ export class AudioManager {
             this._mediaBridgeObjectUrl = URL.createObjectURL(blob);
             audio.src = this._mediaBridgeObjectUrl;
             audio.currentTime = 0;
+            audio.loop = false;
             audio.defaultMuted = false;
             audio.muted = false;
             audio.volume = 1;
@@ -902,6 +975,18 @@ export class AudioManager {
         }
 
         return new Blob([buffer], { type: "audio/wav" });
+    }
+
+    _createSilentWavBlob(durationSeconds = 0.25) {
+        const sampleRate = 8000;
+        const duration = Math.max(0.01, Number(durationSeconds) || 0.25);
+        const length = Math.max(1, Math.ceil(duration * sampleRate));
+        return this._audioBufferToWavBlob({
+            numberOfChannels: 1,
+            sampleRate,
+            length,
+            getChannelData: () => new Float32Array(length),
+        });
     }
 
     setupWordBoundaryTimers(s) {

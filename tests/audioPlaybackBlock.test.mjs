@@ -140,3 +140,51 @@ test("HTML audio is the audible player and owns sentence completion", async () =
         URL.createObjectURL = originalCreateObjectURL;
     }
 });
+
+test("playback rejection never enters an infinite retry loop", () => {
+    const manager = Object.create(AudioManager.prototype);
+    const context = { id: 7 };
+    manager._playbackContext = context;
+    manager.app = {
+        state: { stopRequested: false },
+        ui: { showInfo: () => {} },
+    };
+
+    assert.equal(manager._shouldRetryPlayback(context, { name: "NotAllowedError" }), false);
+
+    const recoverableContext = { id: 8 };
+    manager._playbackContext = recoverableContext;
+    assert.equal(manager._shouldRetryPlayback(recoverableContext, new Error("temporary")), true);
+    assert.equal(manager._shouldRetryPlayback(recoverableContext, new Error("still failing")), false);
+});
+
+test("the HTML audio element is primed synchronously by the Play gesture", async () => {
+    let playCalls = 0;
+    const audio = {
+        currentTime: 0,
+        loop: false,
+        play: () => {
+            playCalls += 1;
+            return Promise.resolve();
+        },
+        pause: () => {},
+    };
+    const manager = Object.create(AudioManager.prototype);
+    manager._mediaBridgeAudio = audio;
+    manager._mediaBridgeObjectUrl = null;
+    manager._mediaBridgeSyncing = false;
+    manager._mediaElementUnlocked = false;
+    manager._mediaUnlockPromise = null;
+
+    const originalCreateObjectURL = URL.createObjectURL;
+    URL.createObjectURL = () => "blob:silent-unlock";
+    try {
+        const unlockPromise = manager._primeMediaElementForUserGesture({ keepAlive: true });
+        assert.equal(playCalls, 1);
+        assert.equal(audio.loop, true);
+        await unlockPromise;
+        assert.equal(manager._mediaElementUnlocked, true);
+    } finally {
+        URL.createObjectURL = originalCreateObjectURL;
+    }
+});

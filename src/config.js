@@ -13,7 +13,6 @@ export function normalizeInferenceBackend(value, fallback = INFERENCE_BACKENDS.W
 
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
-    VERSION_LABEL: "0.38.7+16",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 40,
     VERSION_PATCH: 14,
@@ -49,13 +48,13 @@ export const CONFIG = {
     LINE_GAP_THRESHOLD: 2,
     // Optional fallback for splitting on unusually large word gaps.
     WORD_GAP_THRESHOLD_EM: 2.5,
-    SENTENCE_END: [".", ":", ";", "?", "!", ".\"", ":\"", ";\""],
+    SENTENCE_END: [".", ":", ";", "?", "!", '."', ':"', ';"'],
 
     // TTS
     // Inference backends must be either "wasm" or "webgpu". Runtime device
     // detection can change TTS_BACKEND, while layout keeps this configured value.
-    TTS_BACKEND: INFERENCE_BACKENDS.WEBGPU,
-    LAYOUT_DETECTION_BACKEND: INFERENCE_BACKENDS.WEBGPU,
+    TTS_BACKEND: INFERENCE_BACKENDS.WASM,
+    LAYOUT_DETECTION_BACKEND: INFERENCE_BACKENDS.WASM,
     PREFETCH_AHEAD: 10,
     // Keep three readable PDF phrases synthesized ahead of playback, including
     // across page boundaries, to avoid a pause when auto-advancing pages.

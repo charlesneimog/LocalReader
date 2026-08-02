@@ -1,11 +1,22 @@
 import { CURRENT_PHRASE_SPLIT_VERSION, PHRASE_SPLIT_HISTORY } from "./modules/phrases/phraseSplitVersions.js";
 
+export const INFERENCE_BACKENDS = Object.freeze({
+    WASM: "wasm",
+    WEBGPU: "webgpu",
+});
+
+export function normalizeInferenceBackend(value, fallback = INFERENCE_BACKENDS.WASM) {
+    if (value === INFERENCE_BACKENDS.WEBGPU) return INFERENCE_BACKENDS.WEBGPU;
+    if (value === INFERENCE_BACKENDS.WASM) return INFERENCE_BACKENDS.WASM;
+    return fallback === INFERENCE_BACKENDS.WEBGPU ? INFERENCE_BACKENDS.WEBGPU : INFERENCE_BACKENDS.WASM;
+}
+
 // Centralized configuration constants extracted from original render.js
 export const CONFIG = {
     VERSION_LABEL: "0.38.7+16",
     VERSION_MAJOR: 0,
     VERSION_MINOR: 40,
-    VERSION_PATCH: 12,
+    VERSION_PATCH: 14,
     VERSION_BUILD: 0,
 
     // Rendering
@@ -41,6 +52,10 @@ export const CONFIG = {
     SENTENCE_END: [".", ":", ";", "?", "!", ".\"", ":\"", ";\""],
 
     // TTS
+    // Inference backends must be either "wasm" or "webgpu". Runtime device
+    // detection can change TTS_BACKEND, while layout keeps this configured value.
+    TTS_BACKEND: INFERENCE_BACKENDS.WEBGPU,
+    LAYOUT_DETECTION_BACKEND: INFERENCE_BACKENDS.WEBGPU,
     PREFETCH_AHEAD: 10,
     // Keep three readable PDF phrases synthesized ahead of playback, including
     // across page boundaries, to avoid a pause when auto-advancing pages.
@@ -49,8 +64,6 @@ export const CONFIG = {
     PDF_LAYOUT_MAX_THREADS: 4,
     // Generate the selected sentence and one look-ahead sentence concurrently.
     MAX_CONCURRENT_SYNTH: 2,
-    // Runtime settings override this; smartphones always use parallel WASM workers.
-    PIPER_USE_WEBGPU: true,
     // Two independent workers provide two parallel synthesis lanes. Each worker
     // uses two WASM threads when cross-origin isolation is available, and safely
     // falls back to one thread when SharedArrayBuffer is unavailable.

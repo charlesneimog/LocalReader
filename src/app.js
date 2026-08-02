@@ -1,4 +1,4 @@
-import { CONFIG } from "./config.js";
+import { CONFIG, INFERENCE_BACKENDS, normalizeInferenceBackend } from "./config.js";
 import { EventBus } from "./core/eventBus.js";
 import { StateManager } from "./core/stateManager.js";
 import { CacheManager } from "./core/cacheManager.js";
@@ -245,9 +245,11 @@ export class PDFTTSApp {
             mobileBreakpoint: this.config.MOBILE_BREAKPOINT,
         };
         this._isSmartphoneRuntime = isSmartphoneEnvironment(ttsEnvironment);
-        const ttsWebGpuEnabled = resolveTtsWebGpuPreference(ttsEnvironment);
+        const configuredTtsBackend = normalizeInferenceBackend(this.config.TTS_BACKEND, INFERENCE_BACKENDS.WEBGPU);
+        const ttsWebGpuEnabled =
+            configuredTtsBackend === INFERENCE_BACKENDS.WEBGPU && resolveTtsWebGpuPreference(ttsEnvironment);
         this.state.ttsWebGpuEnabled = ttsWebGpuEnabled;
-        this.config.PIPER_USE_WEBGPU = ttsWebGpuEnabled;
+        this.config.TTS_BACKEND = ttsWebGpuEnabled ? INFERENCE_BACKENDS.WEBGPU : INFERENCE_BACKENDS.WASM;
         console.info(
             `[TTS] Automatic backend=${ttsWebGpuEnabled ? "WebGPU preferred" : "parallel WASM"} (${this._isSmartphoneRuntime ? "smartphone compatibility" : "desktop runtime detection"})`,
         );
@@ -302,7 +304,7 @@ export class PDFTTSApp {
         }
         const changed = value !== !!this.state.ttsWebGpuEnabled;
         this.state.ttsWebGpuEnabled = value;
-        this.config.PIPER_USE_WEBGPU = value;
+        this.config.TTS_BACKEND = value ? INFERENCE_BACKENDS.WEBGPU : INFERENCE_BACKENDS.WASM;
 
         if (changed && reconfigure && (this.ttsEngine?.initialized || this.ttsEngine?.client)) {
             this.audioManager?.stopPlayback?.(true);

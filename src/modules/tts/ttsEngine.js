@@ -7,6 +7,7 @@ import {
     hasUsableSpeechText,
 } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
+import { INFERENCE_BACKENDS, normalizeInferenceBackend } from "../../config.js";
 import {
     PiperWorkerPoolClient,
     getCachedJSON,
@@ -255,7 +256,8 @@ export class TTSEngine {
             const phonemizerWasmUrl = `${baseUrl}thirdparty/piper/piper_phonemize.wasm`;
             const phonemizerDataUrl = `${baseUrl}thirdparty/piper/piper_phonemize.data`;
             const maxThreads = Math.max(1, Number(this.app.config.PIPER_MAX_THREADS) || 1);
-            const useWebGpu = this.app.config.PIPER_USE_WEBGPU !== false;
+            const backend = normalizeInferenceBackend(this.app.config.TTS_BACKEND);
+            const useWebGpu = backend === INFERENCE_BACKENDS.WEBGPU;
 
             if (!this.initialized) {
                 const runtime = await this.client.init({

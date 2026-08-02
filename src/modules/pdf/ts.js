@@ -27,20 +27,52 @@ function ensureInitialized(config) {
             env.backends.onnx.logLevel = "error";
             env.allowLocalModels = false;
 
-            [model, processor] = await Promise.all([
-                AutoModel.from_pretrained(MODEL_VERSION, {
+            const processorPromise = AutoProcessor.from_pretrained(MODEL_VERSION);
+            const requestedBackend = config.backend === "webgpu" ? "webgpu" : "wasm";
+            let backend = requestedBackend;
+            let fallbackReason = null;
+
+            if (requestedBackend === "wasm") {
+                model = await AutoModel.from_pretrained(MODEL_VERSION, {
                     dtype: "fp32",
                     device: "wasm",
-                }),
-                AutoProcessor.from_pretrained(MODEL_VERSION),
-            ]);
+                });
+            } else {
+                try {
+                    if (!self.navigator?.gpu) throw new Error("WebGPU is not available in this browser");
+                    model = await AutoModel.from_pretrained(MODEL_VERSION, {
+                        dtype: "fp32",
+                        device: "webgpu",
+                    });
+                } catch (error) {
+                    backend = "wasm";
+                    fallbackReason = error?.message || String(error);
+                    console.warn(`[Layout] WebGPU initialization failed; falling back to WASM: ${fallbackReason}`);
+                    model = await AutoModel.from_pretrained(MODEL_VERSION, {
+                        dtype: "fp32",
+                        device: "wasm",
+                    });
+                }
+            }
+
+            processor = await processorPromise;
             return {
-                requestedThreads: Math.max(1, Number(config.threads) || 4),
-                threads: env.backends.onnx.wasm.numThreads,
+                backend,
+                requestedBackend,
+                requestedThreads,
+                threads: backend === "wasm" ? env.backends.onnx.wasm.numThreads : null,
+                fallbackReason,
             };
         })()
-            .then(({ requestedThreads, threads }) => {
-                self.postMessage({ status: "ready", backend: "wasm", requestedThreads, threads });
+            .then(({ backend, requestedBackend, requestedThreads, threads, fallbackReason }) => {
+                self.postMessage({
+                    status: "ready",
+                    backend,
+                    requestedBackend,
+                    requestedThreads,
+                    threads,
+                    fallbackReason,
+                });
             })
             .catch((error) => {
                 self.postMessage({ status: "error", error: serializeError(error) });

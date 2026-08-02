@@ -1,4 +1,5 @@
 import { hitTestSentence } from "../utils/coordinates.js";
+import { INFERENCE_BACKENDS, normalizeInferenceBackend } from "../../config.js";
 
 export class PDFHeaderFooterDetector {
     constructor(app) {
@@ -18,6 +19,10 @@ export class PDFHeaderFooterDetector {
         this._requestIdCounter = 0;
 
         const threads = Math.max(1, Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 4);
+        const requestedBackend = normalizeInferenceBackend(
+            this.app.config.LAYOUT_DETECTION_BACKEND,
+            INFERENCE_BACKENDS.WEBGPU,
+        );
         this.workerReadyPromise = new Promise((resolve, reject) => {
             this._resolveWorkerReady = resolve;
             this._rejectWorkerReady = reject;
@@ -26,9 +31,15 @@ export class PDFHeaderFooterDetector {
         this.worker.onmessage = (event) => {
             const { status, requestId } = event.data || {};
             if (status === "ready") {
-                console.info(
-                    `[Layout] Model ready; backend=${event.data.backend || "wasm"}; threads=${event.data.threads || 1}/${event.data.requestedThreads || threads}`,
-                );
+                const backend = event.data.backend || "unknown";
+                if (backend === "webgpu") {
+                    console.info("[Layout] Model ready; backend=webgpu");
+                } else {
+                    console.warn(
+                        `[Layout] Model ready; backend=${backend}; requested=${event.data.requestedBackend || requestedBackend}; threads=${event.data.threads || 1}/${event.data.requestedThreads || threads}`,
+                        event.data.fallbackReason || "",
+                    );
+                }
                 if (typeof this._resolveWorkerReady === "function") this._resolveWorkerReady();
                 return;
             }
@@ -64,8 +75,10 @@ export class PDFHeaderFooterDetector {
             this._pendingWorkerRequests.clear();
         };
 
-        console.info(`[Layout] Initializing model; backend=wasm; maxThreads=${threads}`);
-        this.worker?.postMessage({ action: "init", threads });
+        console.info(
+            `[Layout] Initializing model; requestedBackend=${requestedBackend}; wasmFallbackThreads=${threads}`,
+        );
+        this.worker?.postMessage({ action: "init", threads, backend: requestedBackend });
 
         // Detection configuration
         this.DETECTION_THRESHOLD = 0.35;

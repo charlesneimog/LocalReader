@@ -264,6 +264,7 @@ export class TTSEngine {
             const useWebGpu = backend === INFERENCE_BACKENDS.WEBGPU;
 
             if (!this.initialized) {
+                ui.updateBookLoading?.("Initializing two AI voice workers…");
                 const runtime = await this.client.init({
                     modelBuffer,
                     voiceConfig,

@@ -21,6 +21,9 @@ export class UIService {
         this.playbackPreparationActive = false;
         this.hideErrorTimeout = null;
         this.playBarIcon = document.querySelector("#play-toggle span.material-symbols-outlined");
+        this.bookLoadingOverlay = document.getElementById("book-loading-overlay");
+        this.bookLoadingStatus = document.getElementById("book-loading-status");
+        this.bookLoadingActive = false;
 
         this._translatePopupEl = null;
         this._translatePopupCleanup = null;
@@ -1011,6 +1014,7 @@ export class UIService {
     }
 
     showInfo(msg) {
+        this.updateBookLoading(msg);
         if (!this.infoBox) {
             console.log(msg);
             return;
@@ -1031,6 +1035,7 @@ export class UIService {
     }
 
     showMessage(msg, duration = 5000) {
+        this.updateBookLoading(msg);
         if (!this.infoBox) {
             console.log(msg);
             return;
@@ -1047,6 +1052,44 @@ export class UIService {
             this.hideMessageTimeout = setTimeout(() => {
                 this.infoBox.style.display = "none";
             }, ms);
+        }
+    }
+
+    beginBookLoading(message = "Loading book and AI models…") {
+        this.bookLoadingActive = true;
+        if (this.bookLoadingStatus) this.bookLoadingStatus.textContent = message;
+        if (this.bookLoadingOverlay) {
+            this.bookLoadingOverlay.classList.remove(
+                "bg-background-light/60",
+                "dark:bg-background-dark/60",
+                "backdrop-blur-sm",
+            );
+            this.bookLoadingOverlay.classList.add("bg-background-light", "dark:bg-background-dark");
+            this.bookLoadingOverlay.classList.remove("hidden");
+            this.bookLoadingOverlay.classList.add("flex");
+        }
+    }
+
+    updateBookLoading(message) {
+        if (!this.bookLoadingActive || !this.bookLoadingStatus || !message) return;
+        this.bookLoadingStatus.textContent = String(message);
+    }
+
+    setBookLoadingPageReady() {
+        if (!this.bookLoadingActive || !this.bookLoadingOverlay) return;
+        this.bookLoadingOverlay.classList.remove("bg-background-light", "dark:bg-background-dark");
+        this.bookLoadingOverlay.classList.add(
+            "bg-background-light/60",
+            "dark:bg-background-dark/60",
+            "backdrop-blur-sm",
+        );
+    }
+
+    finishBookLoading() {
+        this.bookLoadingActive = false;
+        if (this.bookLoadingOverlay) {
+            this.bookLoadingOverlay.classList.add("hidden");
+            this.bookLoadingOverlay.classList.remove("flex");
         }
     }
 

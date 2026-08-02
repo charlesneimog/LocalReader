@@ -635,6 +635,7 @@ export class PDFThumbnailCache {
 
             try {
                 await this.app.controlsManager?.requestSmartphoneReaderLock?.();
+                this.app.ui?.beginBookLoading?.("Loading book and AI models…");
 
                 let loadResult = null;
                 if (docType === "epub") {
@@ -672,6 +673,8 @@ export class PDFThumbnailCache {
                 const docLabel = docType === "epub" ? "EPUB" : "PDF";
                 console.error(`[PDFThumbnailCache] Failed to load ${docLabel} ${pdfName}:`, error);
                 this.app.ui?.showInfo?.(`Failed to load ${docLabel}: ${error.message}`);
+            } finally {
+                this.app.ui?.finishBookLoading?.();
             }
         });
     }

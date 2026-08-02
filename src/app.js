@@ -1088,6 +1088,7 @@ export class PDFTTSApp {
                 : Promise.resolve(null);
 
         const result = await this.pdfLoader.loadPDF(file, options);
+        this.ui?.setBookLoadingPageReady?.();
         this._setReaderScrollbarsHidden(this.state.currentDocumentType === "pdf" && !!this.state.pdf);
         if (setup.setup?.docKey) {
             await this._persistTranslationSettingsForDocument(setup.setup.docKey, "pdf", setup.setup);
@@ -1127,6 +1128,7 @@ export class PDFTTSApp {
             if (overlay) overlay.style.display = "none";
         }
         const result = await this.epubLoader.loadEPUB(file, options);
+        this.ui?.setBookLoadingPageReady?.();
         this._setReaderScrollbarsHidden(this.state.currentDocumentType === "epub" && !!this.state.epub);
         if (setup.setup?.docKey) {
             await this._persistTranslationSettingsForDocument(setup.setup.docKey, "epub", setup.setup);

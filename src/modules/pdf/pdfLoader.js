@@ -1,5 +1,5 @@
 import { EVENTS } from "../../constants/events.js";
-import { normalizeText, cooperativeYield } from "../utils/helpers.js";
+import { normalizeText, cooperativeYield, isIOSLike } from "../utils/helpers.js";
 
 function getTextItemSegmentGeometry(item, viewport, startFraction = 0, endFraction = 1) {
     const transform = pdfjsLib.Util.transform(viewport.transform, item.transform);
@@ -159,7 +159,9 @@ export class PDFLoader {
     async _preprocessPages(pageCount) {
         // PDF.js can extract independent pages concurrently. Keep the pool small so
         // large documents load faster without creating a large memory/CPU spike.
-        const workerCount = Math.min(4, pageCount);
+        // WebKit on iPad has a comparatively low per-tab memory ceiling, and each
+        // concurrent PDF.js page can temporarily retain fonts, operators and text.
+        const workerCount = Math.min(isIOSLike() ? 1 : 4, pageCount);
         let nextPage = 1;
         const worker = async () => {
             while (nextPage <= pageCount) {
@@ -260,6 +262,16 @@ export class PDFLoader {
                 }
             }
 
+            // A newly opened document replaces the previous PDF.js worker and its
+            // font/operator caches. Waiting for GC here is unreliable on iPadOS.
+            if (state.pdf?.destroy) {
+                try {
+                    await state.pdf.destroy();
+                } catch (error) {
+                    console.debug("[PDFLoader] Previous PDF cleanup failed", error);
+                }
+                state.pdf = null;
+            }
             app.cache.clearAll();
             state.layoutDetectionCache.clear();
             state.layoutDetectionInProgress.clear();

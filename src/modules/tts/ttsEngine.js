@@ -5,6 +5,7 @@ import {
     normalizeText,
     formatTextToSpeech,
     hasUsableSpeechText,
+    isIOSLike,
 } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
 import { INFERENCE_BACKENDS, normalizeInferenceBackend } from "../../config.js";
@@ -189,8 +190,9 @@ export class TTSEngine {
 
         try {
             if (!this.client) {
+                const workerCount = isIOSLike() ? 1 : Math.max(1, Number(this.app.config.PIPER_WORKERS) || 2);
                 this.client = new PiperWorkerPoolClient({
-                    size: Math.max(1, Number(this.app.config.PIPER_WORKERS) || 2),
+                    size: workerCount,
                     workerUrl: "./src/modules/tts/piper.worker.js",
                     onBackendChange: ({ backend, reason }) => {
                         if (backend !== "wasm" || !this.app.isTtsWebGpuEnabled?.()) return;
@@ -259,12 +261,13 @@ export class TTSEngine {
             const phonemizerJsUrl = `${baseUrl}thirdparty/piper/piper-o91UDS6e.js`;
             const phonemizerWasmUrl = `${baseUrl}thirdparty/piper/piper_phonemize.wasm`;
             const phonemizerDataUrl = `${baseUrl}thirdparty/piper/piper_phonemize.data`;
-            const maxThreads = Math.max(1, Number(this.app.config.PIPER_MAX_THREADS) || 1);
+            const maxThreads = isIOSLike() ? 1 : Math.max(1, Number(this.app.config.PIPER_MAX_THREADS) || 1);
             const backend = normalizeInferenceBackend(this.app.config.TTS_BACKEND);
             const useWebGpu = backend === INFERENCE_BACKENDS.WEBGPU;
 
             if (!this.initialized) {
-                ui.updateBookLoading?.("Initializing two AI voice workers…");
+                const workerLabel = this.client.size === 1 ? "AI voice worker" : `${this.client.size} AI voice workers`;
+                ui.updateBookLoading?.(`Initializing ${workerLabel}…`);
                 const runtime = await this.client.init({
                     modelBuffer,
                     voiceConfig,

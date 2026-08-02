@@ -1,4 +1,5 @@
 import { hitTestSentence } from "../utils/coordinates.js";
+import { isIOSLike } from "../utils/helpers.js";
 import { INFERENCE_BACKENDS, normalizeInferenceBackend } from "../../config.js";
 
 export class PDFHeaderFooterDetector {
@@ -26,7 +27,7 @@ export class PDFHeaderFooterDetector {
         this._detectionQueue = Promise.resolve();
         this._requestIdCounter = 0;
 
-        const threads = Math.max(1, Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 4);
+        const threads = isIOSLike() ? 1 : Math.max(1, Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 4);
         const requestedBackend = normalizeInferenceBackend(
             this.app.config.LAYOUT_DETECTION_BACKEND,
             INFERENCE_BACKENDS.WASM,
@@ -353,20 +354,30 @@ export class PDFHeaderFooterDetector {
                 throw new Error(`[Layout] No canvas available for page ${pageNumber} after render attempt.`);
             }
 
-            const tmpCanvas = document.createElement("canvas");
-            tmpCanvas.width = Math.max(1, Math.floor(canvas.width * scaleFactor));
-            tmpCanvas.height = Math.max(1, Math.floor(canvas.height * scaleFactor));
-            const tmpCtx = tmpCanvas.getContext("2d");
-            if (!tmpCtx) {
+            const scaledWidth = Math.max(1, Math.floor(canvas.width * scaleFactor));
+            const scaledHeight = Math.max(1, Math.floor(canvas.height * scaleFactor));
+            const needsScaledCopy = scaledWidth !== canvas.width || scaledHeight !== canvas.height;
+            const imageCanvas = needsScaledCopy ? document.createElement("canvas") : canvas;
+            if (needsScaledCopy) {
+                imageCanvas.width = scaledWidth;
+                imageCanvas.height = scaledHeight;
+            }
+            const imageCtx = imageCanvas.getContext("2d");
+            if (!imageCtx) {
                 throw new Error(`[Layout] Failed to acquire temp canvas context for page ${pageNumber}`);
             }
-            tmpCtx.drawImage(canvas, 0, 0, tmpCanvas.width, tmpCanvas.height);
+            if (needsScaledCopy) imageCtx.drawImage(canvas, 0, 0, scaledWidth, scaledHeight);
 
             let imageData;
             try {
-                imageData = tmpCtx.getImageData(0, 0, tmpCanvas.width, tmpCanvas.height);
+                imageData = imageCtx.getImageData(0, 0, scaledWidth, scaledHeight);
             } catch (error) {
                 throw new Error(`[Layout] Could not extract image data for page ${pageNumber}`, { cause: error });
+            } finally {
+                if (needsScaledCopy) {
+                    imageCanvas.width = 0;
+                    imageCanvas.height = 0;
+                }
             }
 
             const totalPages = Number(state.pdf?.numPages) || "?";
@@ -378,8 +389,8 @@ export class PDFHeaderFooterDetector {
                 imageData,
                 originalWidth: canvas.width,
                 originalHeight: canvas.height,
-                scaledWidth: tmpCanvas.width,
-                scaledHeight: tmpCanvas.height,
+                scaledWidth,
+                scaledHeight,
                 detectionThreshold: this.DETECTION_THRESHOLD,
                 detectionClasses: this.DETECTION_CLASSES,
             }).then((payload) => {

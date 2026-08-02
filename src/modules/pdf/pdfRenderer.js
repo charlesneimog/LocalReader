@@ -1,4 +1,4 @@
-import { isMobile, clamp, hexToRgb } from "../utils/helpers.js";
+import { isMobile, isIOSLike, clamp, hexToRgb } from "../utils/helpers.js";
 import { getPageDisplayScale } from "../utils/responsive.js";
 import { EVENTS } from "../../constants/events.js";
 import {
@@ -56,6 +56,65 @@ export class PDFRenderer {
         };
     }
 
+    _getMaxRenderedPages() {
+        return isIOSLike() ? 2 : 5;
+    }
+
+    _getRenderDeviceScale(viewportDisplay) {
+        const rawScale = window.devicePixelRatio || 1;
+        if (!isIOSLike()) return rawScale;
+
+        // Keep a rendered iOS page near 12 MB (RGBA) at most. This still allows
+        // Retina rendering for small pages while avoiding Safari tab termination.
+        const cssPixels = Math.max(1, viewportDisplay.width * viewportDisplay.height);
+        const pixelBudgetScale = Math.sqrt(3_000_000 / cssPixels);
+        return Math.max(1, Math.min(rawScale, pixelBudgetScale));
+    }
+
+    releaseCanvas(canvas) {
+        if (!canvas) return;
+        canvas.remove?.();
+        // Merely removing a canvas does not reliably release its backing store in
+        // WebKit. Resizing it does, and is safe after it leaves the render cache.
+        canvas.width = 0;
+        canvas.height = 0;
+    }
+
+    acquireCanvas() {
+        return document.createElement("canvas");
+    }
+
+    _removeCachedPage(pageNumber, container = null) {
+        const { state } = this.app;
+        const canvas = state.fullPageRenderCache.get(pageNumber);
+        const wrapper = container?.querySelector?.(`.pdf-page-wrapper[data-page-number="${pageNumber}"]`);
+        const mounted = wrapper?.querySelector?.("canvas.page-canvas");
+        state.fullPageRenderCache.delete(pageNumber);
+        if (mounted && mounted !== canvas) this.releaseCanvas(mounted);
+        this.releaseCanvas(canvas);
+    }
+
+    _cacheFullPageCanvas(pageNumber, canvas) {
+        const { state } = this.app;
+        if (state.fullPageRenderCache.has(pageNumber)) {
+            state.fullPageRenderCache.delete(pageNumber);
+        }
+        state.fullPageRenderCache.set(pageNumber, canvas);
+
+        const container = document.getElementById("pdf-doc-container");
+        while (state.fullPageRenderCache.size > this._getMaxRenderedPages()) {
+            const oldest = state.fullPageRenderCache.keys().next().value;
+            if (oldest === undefined) break;
+            this._removeCachedPage(oldest, container);
+        }
+    }
+
+    clearRenderedPageCache() {
+        const { state } = this.app;
+        for (const canvas of state.fullPageRenderCache.values()) this.releaseCanvas(canvas);
+        state.fullPageRenderCache.clear();
+    }
+
     _getAmoledTextColor() {
         try {
             return AMOLED_TEXT_COLORS[this._getAmoledTextLevel()];
@@ -93,11 +152,11 @@ export class PDFRenderer {
         const { state } = this.app;
         if (!state?.pdf || state.currentDocumentType !== "pdf") return;
 
-        state.fullPageRenderCache?.clear?.();
+        this.clearRenderedPageCache();
 
         const container = document.getElementById("pdf-doc-container");
         if (container) {
-            container.querySelectorAll("canvas.page-canvas").forEach((canvas) => canvas.remove());
+            container.querySelectorAll("canvas.page-canvas").forEach((canvas) => this.releaseCanvas(canvas));
         }
         this.clearFullDocHighlights?.();
 
@@ -561,23 +620,30 @@ export class PDFRenderer {
 
     async ensureFullPageRendered(pageNumber) {
         const { state } = this.app;
-        if (state.fullPageRenderCache.has(pageNumber)) return state.fullPageRenderCache.get(pageNumber);
+        if (state.fullPageRenderCache.has(pageNumber)) {
+            const cached = state.fullPageRenderCache.get(pageNumber);
+            // Refresh insertion order so eviction behaves as an LRU cache.
+            state.fullPageRenderCache.delete(pageNumber);
+            state.fullPageRenderCache.set(pageNumber, cached);
+            return cached;
+        }
         if (this._pageRenderPromises.has(pageNumber)) return this._pageRenderPromises.get(pageNumber);
 
         const renderPromise = (async () => {
             const page = state.pagesCache.get(pageNumber) || (await state.pdf.getPage(pageNumber));
             const viewportDisplay = state.viewportDisplayByPage.get(pageNumber);
             if (!viewportDisplay) throw new Error(`Missing viewport for PDF page ${pageNumber}`);
-            const fullW = Math.round(viewportDisplay.width * state.deviceScale);
-            const fullH = Math.round(viewportDisplay.height * state.deviceScale);
-            const scale = (viewportDisplay.width / page.getViewport({ scale: 1 }).width) * state.deviceScale;
+            const deviceScale = this._getRenderDeviceScale(viewportDisplay);
+            const fullW = Math.round(viewportDisplay.width * deviceScale);
+            const fullH = Math.round(viewportDisplay.height * deviceScale);
+            const scale = (viewportDisplay.width / page.getViewport({ scale: 1 }).width) * deviceScale;
             const viewportRender = page.getViewport({ scale });
             const off = document.createElement("canvas");
             off.width = fullW;
             off.height = fullH;
             const offCtx = off.getContext("2d");
             await page.render({ canvasContext: offCtx, viewport: viewportRender, ...this._getRenderOptions() }).promise;
-            state.fullPageRenderCache.set(pageNumber, off);
+            this._cacheFullPageCanvas(pageNumber, off);
             return off;
         })();
 
@@ -599,7 +665,6 @@ export class PDFRenderer {
         if (!container) return;
         this._fullDocumentObserver?.disconnect();
         container.innerHTML = "";
-        const MAX_RENDERED_PAGES = 5;
 
         const observer = new IntersectionObserver(
             async (entries) => {
@@ -620,38 +685,12 @@ export class PDFRenderer {
                             if (!cExisting) {
                                 const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
                                 if (!wrapper.isConnected || !wrapper._isNearViewport) return;
-                                const c = document.createElement("canvas");
-                                c.className = "page-canvas";
-                                c.width = Math.round(fullPageCanvas.width);
-                                c.height = Math.round(fullPageCanvas.height);
-                                const ctx = c.getContext("2d");
-                                ctx.drawImage(
-                                    fullPageCanvas,
-                                    0,
-                                    0,
-                                    fullPageCanvas.width,
-                                    fullPageCanvas.height,
-                                    0,
-                                    0,
-                                    c.width,
-                                    c.height,
-                                );
-                                c.style.width = "100%";
-                                c.style.height = "100%";
-                                wrapper.insertBefore(c, wrapper.firstChild);
-
-                                // Adiciona ao cache
-                                state.fullPageRenderCache.set(pageNumber, fullPageCanvas);
-
-                                // Limita cache a MAX_RENDERED_PAGES
-                                if (state.fullPageRenderCache.size > MAX_RENDERED_PAGES) {
-                                    const oldest = state.fullPageRenderCache.keys().next().value;
-                                    const wrapperOld = container.querySelector(
-                                        `.pdf-page-wrapper[data-page-number="${oldest}"]`,
-                                    );
-                                    if (wrapperOld) wrapperOld.querySelector("canvas.page-canvas")?.remove();
-                                    state.fullPageRenderCache.delete(oldest);
-                                }
+                                // Mount the cached canvas itself. Cloning it here used to
+                                // double the backing-store memory for every visible page.
+                                fullPageCanvas.className = "page-canvas";
+                                fullPageCanvas.style.width = "100%";
+                                fullPageCanvas.style.height = "100%";
+                                wrapper.insertBefore(fullPageCanvas, wrapper.firstChild);
                             }
                         }, this.app.config.MS_ON_FOCUS_TO_RENDER);
                     } else {
@@ -660,9 +699,7 @@ export class PDFRenderer {
                             clearTimeout(wrapper._focusTimer);
                             wrapper._focusTimer = null;
                         }
-                        const c = wrapper.querySelector("canvas.page-canvas");
-                        if (c) c.remove();
-                        state.fullPageRenderCache.delete(pageNumber);
+                        this._removeCachedPage(pageNumber, container);
                     }
 
                     const scaledWidth = viewportDisplay.width * scale;
@@ -752,15 +789,14 @@ export class PDFRenderer {
                         try {
                             const fullPageCanvas = await this.ensureFullPageRendered(p);
                             let c = wrapper.querySelector("canvas.page-canvas");
-                            if (!c) {
-                                c = document.createElement("canvas");
+                            if (c !== fullPageCanvas) {
+                                if (c) this.releaseCanvas(c);
+                                c = fullPageCanvas;
                                 c.className = "page-canvas";
+                                c.style.width = "100%";
+                                c.style.height = "100%";
                                 wrapper.insertBefore(c, wrapper.firstChild);
                             }
-                            c.width = Math.round(fullPageCanvas.width);
-                            c.height = Math.round(fullPageCanvas.height);
-                            const ctx = c.getContext("2d");
-                            ctx.drawImage(fullPageCanvas, 0, 0);
                         } catch (e) {
                             // skip errors per page to keep UI responsive
                         }
@@ -768,9 +804,7 @@ export class PDFRenderer {
                 );
             } else {
                 // Drop heavy canvas for far pages
-                const c = wrapper.querySelector("canvas.page-canvas");
-                if (c) c.remove();
-                state.fullPageRenderCache.delete(p);
+                this._removeCachedPage(p, container);
             }
         }
 
@@ -822,13 +856,13 @@ export class PDFRenderer {
             }
         }
 
-        state.fullPageRenderCache.clear();
+        this.clearRenderedPageCache();
         state.deviceScale = window.devicePixelRatio || 1;
         this.pageCoordinateSystems.clear();
 
         let containerReset = false;
         if (container) {
-            container.querySelectorAll(".page-canvas").forEach((canvas) => canvas.remove());
+            container.querySelectorAll(".page-canvas").forEach((canvas) => this.releaseCanvas(canvas));
             container.querySelectorAll(".ignored-overlay").forEach((overlay) => overlay.remove());
             this.clearFullDocHighlights();
 
@@ -900,26 +934,11 @@ export class PDFRenderer {
 
         try {
             const fullPageCanvas = await this.ensureFullPageRendered(pageNumber);
-            canvas = document.createElement("canvas");
+            canvas = fullPageCanvas;
             canvas.className = "page-canvas";
-            canvas.width = Math.round(fullPageCanvas.width);
-            canvas.height = Math.round(fullPageCanvas.height);
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(fullPageCanvas, 0, 0);
             canvas.style.width = "100%";
             canvas.style.height = "100%";
             wrapper.insertBefore(canvas, wrapper.firstChild);
-
-            const MAX_RENDERED_PAGES = 5;
-            state.fullPageRenderCache.set(pageNumber, fullPageCanvas);
-            if (state.fullPageRenderCache.size > MAX_RENDERED_PAGES) {
-                const oldest = state.fullPageRenderCache.keys().next().value;
-                if (oldest !== undefined && oldest !== pageNumber) {
-                    const oldWrapper = container.querySelector(`.pdf-page-wrapper[data-page-number="${oldest}"]`);
-                    if (oldWrapper) oldWrapper.querySelector("canvas.page-canvas")?.remove();
-                    state.fullPageRenderCache.delete(oldest);
-                }
-            }
         } catch (err) {
             console.warn("[ensurePageCanvasMounted] Failed to prepare canvas for page", pageNumber, err);
             return null;

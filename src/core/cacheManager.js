@@ -4,6 +4,14 @@ export class CacheManager {
     }
 
     clearAll() {
+        for (const canvas of this.state.fullPageRenderCache.values()) {
+            canvas?.remove?.();
+            // Force WebKit to discard the canvas backing store immediately.
+            if (canvas) {
+                canvas.width = 0;
+                canvas.height = 0;
+            }
+        }
         this.state.pagesCache.clear();
         this.state.viewportDisplayByPage.clear();
         this.state.fullPageRenderCache.clear();

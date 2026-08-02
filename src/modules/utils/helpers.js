@@ -83,8 +83,19 @@ export function hasUsableSpeechText(text) {
     return /[^\s.,;:!?()[\]{}'"“”‘’…—–\-•]/.test(cleaned);
 }
 
+export function isIOSLike() {
+    if (typeof navigator === "undefined") return false;
+    const userAgent = navigator.userAgent || "";
+    // iPadOS may request the desktop site and identify itself as a Macintosh.
+    return /iPhone|iPad|iPod/i.test(userAgent) || (/Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1);
+}
+
 export function isMobile() {
-    return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (typeof navigator === "undefined") return false;
+    return (
+        /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || "") ||
+        isIOSLike()
+    );
 }
 
 
@@ -104,4 +115,3 @@ export function getWebsiteRoot() {
     // Keep the first segment as the app root.
     return `${origin}/${firstSegment}/`;
 }
-

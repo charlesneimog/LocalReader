@@ -1,4 +1,5 @@
 import { EVENTS } from "../../constants/events.js";
+import { isIOSLike } from "../utils/helpers.js";
 
 export class TTSQueueManager {
     constructor(app) {
@@ -46,7 +47,8 @@ export class TTSQueueManager {
 
     run() {
         const { config } = this.app;
-        while (this.active < config.MAX_CONCURRENT_SYNTH && this.queue.length) {
+        const maxConcurrent = isIOSLike() ? 1 : config.MAX_CONCURRENT_SYNTH;
+        while (this.active < maxConcurrent && this.queue.length) {
             const idx = this.queue.shift();
             this.startTask(idx);
         }

@@ -1316,6 +1316,13 @@ export class PDFTTSApp {
             console.debug("closeCurrentDocument: pdf cleanup failed", err);
         }
 
+        try {
+            // Terminate the PDF.js worker and release decoded fonts/operator lists.
+            await state?.pdf?.destroy?.();
+        } catch (err) {
+            console.debug("closeCurrentDocument: PDF.js destroy failed", err);
+        }
+
         // Reset shared state fields
         if (state) {
             try {

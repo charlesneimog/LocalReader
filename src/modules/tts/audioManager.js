@@ -53,7 +53,7 @@ export class AudioManager {
     }
 
     async _playEPUBSentence(context) {
-        const { config, state } = this.app;
+        const { state } = this.app;
 
         await this.app.epubLoader.ensureLayoutFilteringReady();
         if (!this._isContextActive(context)) return;
@@ -132,47 +132,25 @@ export class AudioManager {
 
         let shouldRetry = false;
         try {
-            const audioCtx = state.audioCtx;
-            if (!audioCtx) {
-                throw new Error("Audio context not ready");
-            }
-
-            const source = audioCtx.createBufferSource();
-            const gain = audioCtx.createGain();
-
-            source.buffer = sentence.audioBuffer;
-            gain.gain.setValueAtTime(config.MIN_GAIN, audioCtx.currentTime);
-            source.connect(gain).connect(audioCtx.destination);
-            gain.gain.exponentialRampToValueAtTime(1.0, audioCtx.currentTime + config.FADE_IN_SEC);
-
-            state.currentSource = source;
-            state.currentGain = gain;
+            state.currentSource = null;
+            state.currentGain = null;
             state.playingSentenceIndex = state.currentSentenceIndex;
 
             this.setupWordBoundaryTimers(sentence);
 
-            source.onended = () => {
-                this._handleSourceEnded(context, sentence);
-            };
-
             await delay(10);
             if (!this._isContextActive(context) || state.stopRequested) {
-                source.onended = null;
-                try {
-                    source.stop();
-                } catch {}
                 state.playingSentenceIndex = -1;
                 state.playingPhraseBlockKey = null;
                 return;
             }
 
-            source.start();
-            this.app.finishBookOpenPlaybackTimer?.({ sentenceIndex: state.currentSentenceIndex });
-            this._clearWaitingForAudio();
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
-            await this._activateMediaBridge(sentence);
+            await this._activateMediaBridge(sentence, context);
+            this.app.finishBookOpenPlaybackTimer?.({ sentenceIndex: state.currentSentenceIndex });
+            this._clearWaitingForAudio();
             this._finishPlaybackPreparationForStart(context);
             this.app.ui.updatePlayButton(state.playerState.PLAY);
             this.app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_START, { index: state.currentSentenceIndex });
@@ -181,6 +159,11 @@ export class AudioManager {
             }
         } catch (err) {
             console.error("Playback error:", err);
+            state.isPlaying = false;
+            state.autoAdvanceActive = false;
+            state.playingSentenceIndex = -1;
+            this.clearWordBoundaryTimers(sentence);
+            this._pauseMediaBridge();
             if (this._isContextActive(context)) {
                 this.app.ui.showInfo("Playback error; resetting context.");
             }
@@ -200,7 +183,7 @@ export class AudioManager {
     }
 
     async _playPDFSentence(context) {
-        const { config, state } = this.app;
+        const { state } = this.app;
         try {
             await this.app.pdfLoader.ensureLayoutFilteringReady();
         } catch (err) {
@@ -285,47 +268,25 @@ export class AudioManager {
 
         let shouldRetry = false;
         try {
-            const audioCtx = state.audioCtx;
-            if (!audioCtx) {
-                throw new Error("Audio context not ready");
-            }
-
-            const source = audioCtx.createBufferSource();
-            const gain = audioCtx.createGain();
-
-            source.buffer = sentence.audioBuffer;
-            gain.gain.setValueAtTime(config.MIN_GAIN, audioCtx.currentTime);
-            source.connect(gain).connect(audioCtx.destination);
-            gain.gain.exponentialRampToValueAtTime(1.0, audioCtx.currentTime + config.FADE_IN_SEC);
-
-            state.currentSource = source;
-            state.currentGain = gain;
+            state.currentSource = null;
+            state.currentGain = null;
             state.playingSentenceIndex = state.currentSentenceIndex;
 
             this.setupWordBoundaryTimers(sentence);
 
-            source.onended = () => {
-                this._handleSourceEnded(context, sentence);
-            };
-
             await delay(10);
             if (!this._isContextActive(context) || state.stopRequested) {
-                source.onended = null;
-                try {
-                    source.stop();
-                } catch {}
                 state.playingSentenceIndex = -1;
                 state.playingPhraseBlockKey = null;
                 return;
             }
 
-            source.start();
-            this.app.finishBookOpenPlaybackTimer?.({ sentenceIndex: state.currentSentenceIndex });
-            this._clearWaitingForAudio();
             state.isPlaying = true;
             state.autoAdvanceActive = true;
             state.playingSentenceIndex = state.currentSentenceIndex;
-            await this._activateMediaBridge(sentence);
+            await this._activateMediaBridge(sentence, context);
+            this.app.finishBookOpenPlaybackTimer?.({ sentenceIndex: state.currentSentenceIndex });
+            this._clearWaitingForAudio();
             this.app.pdfRenderer.updateHighlightFullDoc();
             this._finishPlaybackPreparationForStart(context);
             this.app.ui.updatePlayButton(state.playerState.PLAY);
@@ -335,6 +296,11 @@ export class AudioManager {
             }
         } catch (err) {
             console.error("Playback error:", err);
+            state.isPlaying = false;
+            state.autoAdvanceActive = false;
+            state.playingSentenceIndex = -1;
+            this.clearWordBoundaryTimers(sentence);
+            this._pauseMediaBridge();
             if (this._isContextActive(context)) {
                 this.app.ui.showInfo("Playback error; resetting context.");
             }
@@ -723,7 +689,10 @@ export class AudioManager {
         audio.setAttribute("aria-hidden", "true");
         audio.tabIndex = -1;
         audio.controls = false;
-        audio.volume = 0;
+        audio.defaultMuted = false;
+        audio.muted = false;
+        audio.volume = 1;
+        audio.setAttribute("playsinline", "");
         audio.style.display = "none";
 
         audio.addEventListener("play", () => {
@@ -734,7 +703,9 @@ export class AudioManager {
         });
 
         audio.addEventListener("pause", () => {
-            if (this._mediaBridgeSyncing || !this.app.state.isPlaying) return;
+            // Natural completion can emit `pause` immediately before `ended` in
+            // WebKit. Let `onended` own auto-advance in that case.
+            if (this._mediaBridgeSyncing || audio.ended || !this.app.state.isPlaying) return;
             this.stopPlayback(true).catch((error) => {
                 console.warn("[MediaBridge] Failed to pause playback", error);
             });
@@ -800,12 +771,12 @@ export class AudioManager {
         if (wasPlaying) await this.playCurrentSentence();
     }
 
-    async _activateMediaBridge(sentence) {
+    async _activateMediaBridge(sentence, context) {
         const audio = this._mediaBridgeAudio;
-        if (!audio || !sentence?.audioBuffer) return;
+        if (!audio || !sentence?.audioBuffer) throw new Error("HTML audio player is unavailable");
 
         const blob = sentence.audioBlob || sentence.wavBlob || this._audioBufferToWavBlob(sentence.audioBuffer);
-        if (!blob) return;
+        if (!blob) throw new Error("Unable to prepare HTML audio playback");
 
         this._setMediaSessionMetadata(sentence);
         this._setMediaSessionPlaybackState("playing");
@@ -820,8 +791,16 @@ export class AudioManager {
             this._mediaBridgeObjectUrl = URL.createObjectURL(blob);
             audio.src = this._mediaBridgeObjectUrl;
             audio.currentTime = 0;
-            audio.volume = 0;
-            await audio.play().catch(() => {});
+            audio.defaultMuted = false;
+            audio.muted = false;
+            audio.volume = 1;
+            audio.removeAttribute("muted");
+            audio.onended = () => {
+                this._handleSourceEnded(context, sentence).catch((error) => {
+                    console.warn("HTML audio completion failed", error);
+                });
+            };
+            await audio.play();
         } finally {
             this._mediaBridgeSyncing = false;
         }
@@ -833,6 +812,7 @@ export class AudioManager {
 
         this._mediaBridgeSyncing = true;
         try {
+            audio.onended = null;
             audio.pause();
             audio.currentTime = 0;
         } catch {

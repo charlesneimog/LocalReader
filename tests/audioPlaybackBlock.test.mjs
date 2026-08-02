@@ -79,3 +79,64 @@ test("startup buffering permits a single remaining phrase at document end", () =
         unresolved: false,
     });
 });
+
+test("HTML audio receives the synthesized speech as PCM WAV", async () => {
+    const manager = Object.create(AudioManager.prototype);
+    const samples = new Float32Array([0.75, -0.5]);
+    const blob = manager._audioBufferToWavBlob({
+        duration: 0.00025,
+        length: samples.length,
+        sampleRate: 8000,
+        numberOfChannels: 1,
+        getChannelData: () => samples,
+    });
+
+    assert.equal(blob.type, "audio/wav");
+    const bytes = await blob.arrayBuffer();
+    const view = new DataView(bytes);
+    assert.equal(bytes.byteLength, 48);
+    assert.equal(view.getInt16(44, true), Math.trunc(0.75 * 0x7fff));
+    assert.equal(view.getInt16(46, true), Math.trunc(-0.5 * 0x8000));
+});
+
+test("HTML audio is the audible player and owns sentence completion", async () => {
+    let playCalls = 0;
+    let endedCalls = 0;
+    const audio = {
+        currentTime: 10,
+        defaultMuted: true,
+        muted: true,
+        volume: 0,
+        removeAttribute: () => {},
+        play: async () => {
+            playCalls += 1;
+            assert.equal(audio.muted, false);
+            assert.equal(audio.volume, 1);
+        },
+    };
+    const manager = Object.create(AudioManager.prototype);
+    manager.app = { state: { currentSentenceIndex: 2 } };
+    manager._mediaBridgeAudio = audio;
+    manager._mediaBridgeObjectUrl = null;
+    manager._mediaBridgeSyncing = false;
+    manager._setMediaSessionMetadata = () => {};
+    manager._setMediaSessionPlaybackState = () => {};
+    manager._handleSourceEnded = async () => {
+        endedCalls += 1;
+    };
+
+    const originalCreateObjectURL = URL.createObjectURL;
+    URL.createObjectURL = () => "blob:test-audio";
+    try {
+        await manager._activateMediaBridge(
+            { audioBuffer: {}, audioBlob: new Blob(["speech"], { type: "audio/wav" }) },
+            { id: 1 },
+        );
+        assert.equal(playCalls, 1);
+        assert.equal(audio.src, "blob:test-audio");
+        await audio.onended();
+        assert.equal(endedCalls, 1);
+    } finally {
+        URL.createObjectURL = originalCreateObjectURL;
+    }
+});

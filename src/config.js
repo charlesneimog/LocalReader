@@ -76,10 +76,10 @@ export const CONFIG = {
     TTS_START_BUFFER_PHRASES: 2,
     // Independent worker thread caps for layout inference and Piper synthesis.
     PDF_LAYOUT_MAX_THREADS: 4,
-    // Use one sequential Piper lane and build a short audio buffer before playback.
-    MAX_CONCURRENT_SYNTH: 1,
-    PIPER_WORKERS: 1,
-    PIPER_MAX_THREADS: 1,
+    // Initialize two Piper lanes up front and render the startup buffer in parallel.
+    MAX_CONCURRENT_SYNTH: 2,
+    PIPER_WORKERS: 2,
+    PIPER_MAX_THREADS: 2,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,
     PIPER_VOICES: [

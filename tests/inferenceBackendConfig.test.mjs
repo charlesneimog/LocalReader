@@ -18,9 +18,9 @@ test("configures TTS and layout detection with explicit inference backends", () 
     assert.equal(CONFIG.LAYOUT_DETECTION_BACKEND, INFERENCE_BACKENDS.WASM);
 });
 
-test("uses one Piper lane with a two-phrase startup buffer", () => {
-    assert.equal(CONFIG.MAX_CONCURRENT_SYNTH, 1);
-    assert.equal(CONFIG.PIPER_WORKERS, 1);
-    assert.equal(CONFIG.PIPER_MAX_THREADS, 1);
+test("uses two eager Piper lanes with a two-phrase startup buffer", () => {
+    assert.equal(CONFIG.MAX_CONCURRENT_SYNTH, 2);
+    assert.equal(CONFIG.PIPER_WORKERS, 2);
+    assert.equal(CONFIG.PIPER_MAX_THREADS, 2);
     assert.equal(CONFIG.TTS_START_BUFFER_PHRASES, 2);
 });

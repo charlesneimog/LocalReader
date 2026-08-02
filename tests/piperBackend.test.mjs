@@ -89,7 +89,7 @@ test("tracks a runtime recovery from WebGPU to WASM", () => {
     assert.deepEqual(backendChange, { backend: "wasm", reason: "GPU device lost" });
 });
 
-test("initializes only one Piper worker until synthesis makes it busy", async () => {
+test("initializes both Piper workers before synthesis begins", async () => {
     const firstNewWorker = MockWorker.instances.length;
     const pool = new PiperWorkerPoolClient({ size: 2, workerUrl: "piper.worker.js" });
     const modelLoads = [];
@@ -104,43 +104,28 @@ test("initializes only one Piper worker until synthesis makes it busy", async ()
         maxThreads: 2,
     });
 
-    let workers = MockWorker.instances.slice(firstNewWorker);
-    assert.equal(workers.length, 1);
-    const primaryInit = workers[0].messages[0].message;
-    assert.equal(primaryInit.payload.maxThreads, 2);
-    workers[0].onmessage({
-        data: { id: primaryInit.id, type: "init-ok", backend: "wasm", ortVersion: "1.27.0", threads: 2 },
-    });
+    const workers = MockWorker.instances.slice(firstNewWorker);
+    assert.equal(workers.length, 2);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(modelLoads, ["secondary"]);
+    const initCalls = workers.map((worker) => worker.messages[0].message);
+    assert.ok(initCalls.every((message) => message.type === "init"));
+    assert.ok(initCalls.every((message) => message.payload.maxThreads === 2));
+    for (let index = 0; index < workers.length; index++) {
+        workers[index].onmessage({
+            data: { id: initCalls[index].id, type: "init-ok", backend: "wasm", ortVersion: "1.27.0", threads: 2 },
+        });
+    }
     const runtime = await initialization;
-    assert.equal(runtime.workers, 1);
+    assert.equal(runtime.workers, 2);
     assert.equal(runtime.configuredWorkers, 2);
     assert.equal(runtime.threadsPerWorker, 2);
 
     const first = pool.synthesize("first", 1, undefined, { createBlob: false });
-    workers = MockWorker.instances.slice(firstNewWorker);
-    assert.equal(workers.length, 2);
-    assert.deepEqual(modelLoads, ["secondary"]);
-
-    const firstCall = workers[0].messages.at(-1).message;
-    assert.equal(firstCall.payload.text, "first");
-
-    // Complete lazy initialization while the first synthesis is still active.
-    await new Promise((resolve) => setImmediate(resolve));
-    const secondaryInit = workers[1].messages[0].message;
-    assert.equal(secondaryInit.type, "init");
-    assert.equal(secondaryInit.payload.maxThreads, 2);
-
     const second = pool.synthesize("second", 1, undefined, { createBlob: false });
-    assert.equal(workers[0].messages.at(-1).message.payload.text, "first");
-    assert.equal(workers[1].messages.length, 1);
-
-    workers[1].onmessage({
-        data: { id: secondaryInit.id, type: "init-ok", backend: "wasm", ortVersion: "1.27.0", threads: 2 },
-    });
-    await pool._lazyWorkerInitPromise;
-    await Promise.resolve();
-
+    const firstCall = workers[0].messages.at(-1).message;
     const secondCall = workers[1].messages.at(-1).message;
+    assert.equal(firstCall.payload.text, "first");
     assert.equal(secondCall.payload.text, "second");
 
     workers[0].onmessage({
@@ -154,7 +139,7 @@ test("initializes only one Piper worker until synthesis makes it busy", async ()
     assert.ok(workers.every((worker) => worker.terminated));
 });
 
-test("a deferred worker initializes with the latest voice and original runtime options", async () => {
+test("voice changes update both initialized workers", async () => {
     const firstNewWorker = MockWorker.instances.length;
     const pool = new PiperWorkerPoolClient({ size: 2, workerUrl: "piper.worker.js" });
     const initialization = pool.init({
@@ -169,11 +154,17 @@ test("a deferred worker initializes with the latest voice and original runtime o
         maxThreads: 2,
         useWebGpu: false,
     });
-    let workers = MockWorker.instances.slice(firstNewWorker);
-    const primaryInit = workers[0].messages[0].message;
-    workers[0].onmessage({
-        data: { id: primaryInit.id, type: "init-ok", backend: "wasm", threads: 2 },
-    });
+    const workers = MockWorker.instances.slice(firstNewWorker);
+    await new Promise((resolve) => setImmediate(resolve));
+    const initCalls = workers.map((worker) => worker.messages[0].message);
+    assert.ok(initCalls.every((message) => message.payload.ortJsUrl === "/ort/ort.js"));
+    assert.ok(initCalls.every((message) => message.payload.phonemizerDataUrl === "/piper/phonemizer.data"));
+    assert.ok(initCalls.every((message) => message.payload.maxThreads === 2));
+    for (let index = 0; index < workers.length; index++) {
+        workers[index].onmessage({
+            data: { id: initCalls[index].id, type: "init-ok", backend: "wasm", threads: 2 },
+        });
+    }
     await initialization;
 
     const voiceChange = pool.changeVoice({
@@ -181,29 +172,15 @@ test("a deferred worker initializes with the latest voice and original runtime o
         modelBufferFactory: async () => new ArrayBuffer(20),
         voiceConfig: { voice: "new" },
     });
-    const primaryChange = workers[0].messages.at(-1).message;
-    assert.equal(primaryChange.type, "change-voice");
-    workers[0].onmessage({
-        data: { id: primaryChange.id, type: "change-voice-ok", backend: "wasm" },
-    });
-    await voiceChange;
-
-    const synthesis = pool.synthesize("first with new voice", 1, undefined, { createBlob: false });
-    workers = MockWorker.instances.slice(firstNewWorker);
     await new Promise((resolve) => setImmediate(resolve));
-    const secondaryInit = workers[1].messages[0].message;
-    assert.equal(secondaryInit.payload.ortJsUrl, "/ort/ort.js");
-    assert.equal(secondaryInit.payload.phonemizerDataUrl, "/piper/phonemizer.data");
-    assert.equal(secondaryInit.payload.maxThreads, 2);
-    assert.deepEqual(secondaryInit.payload.voiceConfig, { voice: "new" });
-
-    workers[1].onmessage({
-        data: { id: secondaryInit.id, type: "init-ok", backend: "wasm", threads: 2 },
-    });
-    const synthesisCall = workers[0].messages.at(-1).message;
-    workers[0].onmessage({
-        data: { id: synthesisCall.id, type: "synthesize-ok", wavBuffer: new ArrayBuffer(4), sampleRate: 22050 },
-    });
-    await Promise.all([synthesis, pool._lazyWorkerInitPromise]);
+    const changeCalls = workers.map((worker) => worker.messages.at(-1).message);
+    assert.ok(changeCalls.every((message) => message.type === "change-voice"));
+    assert.ok(changeCalls.every((message) => message.payload.voiceConfig.voice === "new"));
+    for (let index = 0; index < workers.length; index++) {
+        workers[index].onmessage({
+            data: { id: changeCalls[index].id, type: "change-voice-ok", backend: "wasm" },
+        });
+    }
+    await voiceChange;
     pool.terminate();
 });

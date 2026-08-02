@@ -181,17 +181,10 @@ export class PiperWorkerPoolClient {
         this._ready = [];
         this._cursor = 0;
         this.clients = [];
-        this._lazyWorkerInitPromise = null;
-        this._lazyWorkerOptions = null;
-        this._lazyModelBuffer = null;
-        this._modelBufferFactory = null;
-        this._availabilityWaiters = [];
         this._terminated = false;
         this.availableVoices = null;
 
-        // Only the primary worker belongs on the cold-start critical path. Extra
-        // synthesis lanes are created after the primary starts doing useful work.
-        this._appendClient();
+        for (let index = 0; index < this.size; index++) this._appendClient();
     }
 
     get backend() {
@@ -217,16 +210,6 @@ export class PiperWorkerPoolClient {
         return this.clients.length - 1;
     }
 
-    _configureLazyWorkers(options) {
-        const { modelBuffer, modelBufferFactory, ...workerOptions } = options;
-        if (!(modelBuffer instanceof ArrayBuffer)) throw new Error("modelBuffer must be an ArrayBuffer");
-
-        this._lazyWorkerOptions = { ...(this._lazyWorkerOptions || {}), ...workerOptions };
-        this._modelBufferFactory = typeof modelBufferFactory === "function" ? modelBufferFactory : null;
-        this._lazyModelBuffer =
-            this.clients.length < this.size && !this._modelBufferFactory ? modelBuffer.slice(0) : null;
-    }
-
     _runtimeResult(result) {
         const readyWorkers = this._ready.filter(Boolean).length;
         return {
@@ -238,112 +221,48 @@ export class PiperWorkerPoolClient {
         };
     }
 
-    async _getLazyModelBuffer() {
-        if (this._modelBufferFactory) {
-            const modelBuffer = await this._modelBufferFactory();
-            if (!(modelBuffer instanceof ArrayBuffer)) {
-                throw new Error("modelBufferFactory must resolve to an ArrayBuffer");
-            }
-            return modelBuffer;
-        }
-
-        const modelBuffer = this._lazyModelBuffer;
-        if (!(modelBuffer instanceof ArrayBuffer)) {
-            throw new Error("No model buffer is available for the lazy Piper worker");
-        }
-        this._lazyModelBuffer = null;
-        return modelBuffer;
-    }
-
-    _initializeNextWorker() {
-        if (this._terminated || this.clients.length >= this.size) return null;
-        if (this._lazyWorkerInitPromise) return this._lazyWorkerInitPromise;
-
-        const workerIndex = this._appendClient();
-        const client = this.clients[workerIndex];
-        this._lazyWorkerInitPromise = (async () => {
-            const modelBuffer = await this._getLazyModelBuffer();
-            if (this._terminated) throw new Error("Piper worker pool is terminated");
-
-            // Preserve one copy only when a pool larger than two still has another
-            // deferred lane and no IndexedDB-backed factory can provide it later.
-            if (!this._modelBufferFactory && this.clients.length < this.size) {
-                this._lazyModelBuffer = modelBuffer.slice(0);
-            }
-
-            const result = await client.init({
-                ...this._lazyWorkerOptions,
-                modelBuffer,
-                transferModel: true,
-            });
-            this._ready[workerIndex] = true;
-            this._notifyWorkerAvailable();
-            console.info(`[TTS] Lazy Piper worker ${workerIndex + 1}/${this.size} ready`);
-            return result;
-        })()
-            .catch((error) => {
-                client.terminate();
-                this.clients.splice(workerIndex, 1);
-                this._active.splice(workerIndex, 1);
-                this._ready.splice(workerIndex, 1);
-                console.warn(`[TTS] Lazy Piper worker ${workerIndex + 1}/${this.size} failed to initialize`, error);
-                throw error;
-            })
-            .finally(() => {
-                this._lazyWorkerInitPromise = null;
-                this._notifyWorkerAvailable();
-            });
-
-        return this._lazyWorkerInitPromise;
-    }
-
-    _waitForWorkerAvailability() {
-        const hasIdleWorker = this.clients.some((_, index) => this._ready[index] && this._active[index] === 0);
-        if (hasIdleWorker || !this._lazyWorkerInitPromise) return null;
-        return new Promise((resolve) => this._availabilityWaiters.push(resolve));
-    }
-
-    _notifyWorkerAvailable() {
-        const waiters = this._availabilityWaiters.splice(0);
-        for (const resolve of waiters) resolve();
-    }
-
-    async _changeVoiceOnReadyWorkers(options) {
-        const modelBuffer = options.modelBuffer;
+    async _prepareModelBuffers(options) {
+        const { modelBuffer, modelBufferFactory } = options;
         if (!(modelBuffer instanceof ArrayBuffer)) throw new Error("modelBuffer must be an ArrayBuffer");
 
-        const readyIndices = this.clients.map((_, index) => index).filter((index) => this._ready[index]);
-        const results = await Promise.all(
-            readyIndices.map((clientIndex, index) => {
-                const workerModel = index === readyIndices.length - 1 ? modelBuffer : modelBuffer.slice(0);
-                return this.clients[clientIndex].changeVoice({
-                    ...options,
-                    modelBuffer: workerModel,
-                    transferModel: true,
-                });
+        const additional = await Promise.all(
+            Array.from({ length: Math.max(0, this.clients.length - 1) }, async () => {
+                const buffer = typeof modelBufferFactory === "function"
+                    ? await modelBufferFactory()
+                    : modelBuffer.slice(0);
+                if (!(buffer instanceof ArrayBuffer)) {
+                    throw new Error("modelBufferFactory must resolve to an ArrayBuffer");
+                }
+                return buffer;
             }),
         );
-        return this._runtimeResult(results[0] || {});
+        return [modelBuffer, ...additional];
     }
 
     async init(options) {
         if (this._terminated) throw new Error("Piper worker pool is terminated");
-        this._configureLazyWorkers(options);
-        const result = await this.clients[0].init({ ...options, transferModel: true });
-        this._ready[0] = true;
-        return this._runtimeResult(result);
+        const buffers = await this._prepareModelBuffers(options);
+        const results = await Promise.all(this.clients.map(async (client, index) => {
+            const result = await client.init({
+                ...options,
+                modelBuffer: buffers[index],
+                transferModel: true,
+            });
+            this._ready[index] = true;
+            return result;
+        }));
+        return this._runtimeResult(results[0] || {});
     }
 
     async changeVoice(options) {
         if (this._terminated) throw new Error("Piper worker pool is terminated");
-
-        // Do not let an older voice finish initializing after the active workers
-        // have already switched to the new voice.
-        if (this._lazyWorkerInitPromise) {
-            await this._lazyWorkerInitPromise.catch(() => {});
-        }
-        this._configureLazyWorkers(options);
-        return this._changeVoiceOnReadyWorkers(options);
+        const buffers = await this._prepareModelBuffers(options);
+        const results = await Promise.all(this.clients.map((client, index) => client.changeVoice({
+            ...options,
+            modelBuffer: buffers[index],
+            transferModel: true,
+        })));
+        return this._runtimeResult(results[0] || {});
     }
 
     _nextWorkerIndex() {
@@ -359,23 +278,15 @@ export class PiperWorkerPoolClient {
     }
 
     async synthesize(text, speed = 1.0, espeakVoice, options = {}) {
-        const availabilityPromise = this._waitForWorkerAvailability();
-        if (availabilityPromise) await availabilityPromise;
-
         const workerIndex = this._nextWorkerIndex();
         const startedAt = performance.now();
         this._active[workerIndex] += 1;
         console.info(`[TTS] Worker ${workerIndex + 1}/${this.size} start: ${JSON.stringify(text)}`);
 
-        // Start the next lane without delaying this synthesis. Calls arriving while
-        // it initializes continue using ready workers; later prefetch work can use
-        // the new lane as soon as it reports ready.
-        this._initializeNextWorker()?.catch(() => {});
         try {
             return await this.clients[workerIndex].synthesize(text, speed, espeakVoice, options);
         } finally {
             this._active[workerIndex] = Math.max(0, this._active[workerIndex] - 1);
-            this._notifyWorkerAvailable();
             console.info(
                 `[TTS] Worker ${workerIndex + 1}/${this.size} done (${Math.round(performance.now() - startedAt)} ms)`,
             );
@@ -391,10 +302,6 @@ export class PiperWorkerPoolClient {
         for (const client of this.clients) client.terminate();
         this._active.fill(0);
         this._ready.fill(false);
-        this._lazyWorkerOptions = null;
-        this._lazyModelBuffer = null;
-        this._modelBufferFactory = null;
-        this._notifyWorkerAvailable();
     }
 }
 

@@ -247,9 +247,8 @@ export class TTSEngine {
                 modelBuffer = await getCachedModel(modelFile, modelUrl, {
                     onProgress: (pct) => ui.showMessage(`Downloading model: ${pct.toFixed(2)}%`, 1200),
                 });
-                // A secondary Piper lane is initialized lazily. Re-read its model
-                // from IndexedDB when needed instead of retaining another full ONNX
-                // ArrayBuffer on the main thread throughout the cold start.
+                // Re-read the model from IndexedDB for the second worker so both
+                // workers can initialize together without cloning the first buffer.
                 modelBufferFactory = () => getCachedModel(modelFile, modelUrl);
                 voiceConfig = await getCachedJSON(configFile, configUrl);
             }

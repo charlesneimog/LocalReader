@@ -33,3 +33,49 @@ test("a playback block prevents delayed auto-advance from restarting speech", as
     await manager.playCurrentSentence();
     assert.equal(starts, 1);
 });
+
+test("startup buffering requires the current and next readable phrase", () => {
+    const manager = Object.create(AudioManager.prototype);
+    manager.app = {
+        state: {
+            currentSentenceIndex: 0,
+            sentences: [
+                { layoutProcessed: true, isTextToRead: true, text: "First.", audioReady: true, audioBuffer: {} },
+                { layoutProcessed: true, isTextToRead: false, text: "Header." },
+                { layoutProcessed: true, isTextToRead: true, text: "Second.", audioReady: false, audioBuffer: null },
+            ],
+        },
+    };
+
+    assert.deepEqual(manager._startupBufferStatus(2), {
+        ready: 1,
+        required: 2,
+        unresolved: false,
+    });
+
+    manager.app.state.sentences[2].audioReady = true;
+    manager.app.state.sentences[2].audioBuffer = {};
+    assert.deepEqual(manager._startupBufferStatus(2), {
+        ready: 2,
+        required: 2,
+        unresolved: false,
+    });
+});
+
+test("startup buffering permits a single remaining phrase at document end", () => {
+    const manager = Object.create(AudioManager.prototype);
+    manager.app = {
+        state: {
+            currentSentenceIndex: 0,
+            sentences: [
+                { layoutProcessed: true, isTextToRead: true, text: "Only phrase.", audioReady: true, audioBuffer: {} },
+            ],
+        },
+    };
+
+    assert.deepEqual(manager._startupBufferStatus(2), {
+        ready: 1,
+        required: 1,
+        unresolved: false,
+    });
+});

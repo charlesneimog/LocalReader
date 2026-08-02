@@ -24,6 +24,9 @@ export class AudioManager {
         if (state.isPlaying) {
             return;
         }
+        if (this._playPromise) {
+            return this._playPromise;
+        }
 
         const context = {
             id: this._playbackContextId++,
@@ -118,6 +121,8 @@ export class AudioManager {
             return;
         }
 
+        if (!this._isContextActive(context)) return;
+        if (!(await this._waitForStartupBuffer(context))) return;
         if (!this._isContextActive(context)) return;
 
         await this.stopPlayback(false, { clearContext: false, emitEvent: false });
@@ -269,6 +274,8 @@ export class AudioManager {
         }
 
         if (!this._isContextActive(context)) return;
+        if (!(await this._waitForStartupBuffer(context))) return;
+        if (!this._isContextActive(context)) return;
 
         this._updatePlaybackPreparationForStart(context);
         await this.stopPlayback(false, { clearContext: false, emitEvent: false });
@@ -390,6 +397,66 @@ export class AudioManager {
         if (!context?.continuesReading) {
             this.app.ui.updatePlaybackPreparation("Starting reading…");
         }
+    }
+
+    _startupBufferStatus(targetSize) {
+        const { state } = this.app;
+        const target = Math.max(1, Number(targetSize) || 1);
+        const candidates = [];
+        let unresolved = false;
+
+        for (let index = state.currentSentenceIndex; index < state.sentences.length; index++) {
+            const sentence = state.sentences[index];
+            if (!sentence) continue;
+
+            // PDF layout filtering is ordered. Until the next phrase is classified,
+            // a later phrase cannot safely stand in for it in the startup buffer.
+            if (!sentence.layoutProcessed) {
+                unresolved = true;
+                break;
+            }
+            if (!sentence.isTextToRead || !hasUsableSpeechText(this._extractSpeechText(sentence))) {
+                continue;
+            }
+
+            candidates.push(sentence);
+            if (candidates.length >= target) break;
+        }
+
+        const required = unresolved ? target : Math.min(target, candidates.length);
+        const ready = candidates.filter(
+            (sentence) => sentence.audioReady && sentence.audioBuffer && !sentence.audioError,
+        ).length;
+        return { ready, required, unresolved };
+    }
+
+    async _waitForStartupBuffer(context) {
+        if (context?.continuesReading) return true;
+
+        const target = Math.max(1, Number(this.app.config.TTS_START_BUFFER_PHRASES) || 2);
+        this.app.ttsEngine.schedulePrefetch();
+
+        while (this._isContextActive(context) && !this.app.state.stopRequested) {
+            const status = this._startupBufferStatus(target);
+            if (status.required > 0 && status.ready >= status.required) return true;
+
+            this.app.ui.updatePlaybackPreparation(
+                `Preparing speech buffer… ${status.ready}/${status.required || target} phrases ready`,
+            );
+            try {
+                await waitFor(() => {
+                    if (!this._isContextActive(context) || this.app.state.stopRequested) return true;
+                    const next = this._startupBufferStatus(target);
+                    return next.required > 0 && next.ready >= next.required;
+                }, 5000);
+            } catch {
+                // Layout work or a long synthesis may exceed one polling window.
+                // Re-assert prefetch so the single worker keeps filling the buffer.
+                this.app.ttsEngine.schedulePrefetch();
+            }
+        }
+
+        return false;
     }
 
     async stopPlayback(fade = true, options = {}) {

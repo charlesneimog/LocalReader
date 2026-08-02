@@ -27,7 +27,7 @@ export function normalizeInferenceBackend(value, fallback = INFERENCE_BACKENDS.W
 export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 41,
-    VERSION_PATCH: 0,
+    VERSION_PATCH: 1,
     VERSION_BUILD: 0,
 
     // Rendering
@@ -71,15 +71,15 @@ export const CONFIG = {
     // Keep three readable PDF phrases synthesized ahead of playback, including
     // across page boundaries, to avoid a pause when auto-advancing pages.
     PDF_PREFETCH_PHRASES: 3,
+    // Do not begin a new reading until this many readable phrases have audio.
+    // Near the document end, use the number of phrases actually remaining.
+    TTS_START_BUFFER_PHRASES: 2,
     // Independent worker thread caps for layout inference and Piper synthesis.
     PDF_LAYOUT_MAX_THREADS: 4,
-    // Generate the selected sentence and one look-ahead sentence concurrently.
-    MAX_CONCURRENT_SYNTH: 2,
-    // Two independent workers provide two parallel synthesis lanes. The primary
-    // worker initializes on the critical path; the second starts lazily when the
-    // primary begins synthesis. Each worker uses two WASM threads when available.
-    PIPER_WORKERS: 2,
-    PIPER_MAX_THREADS: 2,
+    // Use one sequential Piper lane and build a short audio buffer before playback.
+    MAX_CONCURRENT_SYNTH: 1,
+    PIPER_WORKERS: 1,
+    PIPER_MAX_THREADS: 1,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,
     PIPER_VOICES: [

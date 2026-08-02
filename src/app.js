@@ -432,12 +432,30 @@ export class PDFTTSApp {
         if (!targetRaw && !modeRaw) return null;
 
         return {
+            originalLanguage: this._normalizeTranslationTarget(entry.originalLanguage || this._getDefaultOriginalLanguage()),
             target: this._normalizeTranslationTarget(targetRaw),
             mode: this._normalizeTranslationMode(modeRaw),
+            speed: Number.isFinite(Number(entry.readingSpeed))
+                ? Math.min(2, Math.max(0.5, Number(entry.readingSpeed)))
+                : this._getCurrentSpeedControlValue(),
         };
     }
 
-    _saveTranslationSettingsForDocumentLocal(docKey, docType = "pdf", { target, mode } = {}) {
+    _getDefaultOriginalLanguage() {
+        const voiceSelect = document.getElementById("voice-select");
+        const voice =
+            voiceSelect?.value ||
+            this.ttsEngine?.preferredVoiceId ||
+            this.state?.currentPiperVoice ||
+            this.config.DEFAULT_PIPER_VOICE;
+        return this._normalizeTranslationTarget(this._getVoicePrimaryLanguage(voice) || "en");
+    }
+
+    _saveTranslationSettingsForDocumentLocal(
+        docKey,
+        docType = "pdf",
+        { originalLanguage, target, mode, speed } = {},
+    ) {
         if (!docKey) return;
         const type = docType === "epub" ? "epub" : "pdf";
 
@@ -447,8 +465,12 @@ export class PDFTTSApp {
 
         map[compoundKey] = {
             ...existing,
+            originalLanguage: this._normalizeTranslationTarget(originalLanguage || this._getDefaultOriginalLanguage()),
             translationTarget: this._normalizeTranslationTarget(target),
             translationMode: this._normalizeTranslationMode(mode),
+            readingSpeed: Number.isFinite(Number(speed))
+                ? Math.min(2, Math.max(0.5, Number(speed)))
+                : this._getCurrentSpeedControlValue(),
             updated: Date.now(),
             docType: type,
         };
@@ -459,7 +481,11 @@ export class PDFTTSApp {
         this.progressManager.setProgressMap(map);
     }
 
-    async _persistTranslationSettingsForDocument(docKey, docType = "pdf", { target, mode } = {}) {
+    async _persistTranslationSettingsForDocument(
+        docKey,
+        docType = "pdf",
+        { originalLanguage, target, mode, speed } = {},
+    ) {
         if (!docKey) return;
         const type = docType === "epub" ? "epub" : "pdf";
 
@@ -467,8 +493,10 @@ export class PDFTTSApp {
         const modeNorm = this._normalizeTranslationMode(mode);
 
         this._saveTranslationSettingsForDocumentLocal(docKey, type, {
+            originalLanguage,
             target: targetNorm,
             mode: modeNorm,
+            speed,
         });
 
         if (this.serverSync?.isEnabled?.()) {
@@ -512,10 +540,11 @@ export class PDFTTSApp {
         const bookTitle = String(file.name || "").trim();
         const label = type === "epub" ? "EPUB" : "PDF";
         const subtitle = bookTitle
-            ? `Choose how translations should work for "${bookTitle}"`
-            : `Choose how translations should work for this ${label}`;
+            ? `Set up how "${bookTitle}" should be read`
+            : `Set up how this ${label} should be read`;
         const savedPrefs = this._getSavedTranslationSettingsForDocument(docKey, type);
-        const hasOpenedBefore = !!this.progressManager?.loadSavedPosition?.(docKey, type);
+        const configured = !!savedPrefs;
+        const initialOriginalLanguage = savedPrefs?.originalLanguage || this._getDefaultOriginalLanguage();
         const initialTarget = savedPrefs?.target || this._getTranslationTargetLanguage();
         const translationAvailable = await this._canReachTranslationService(initialTarget);
         const promptSubtitle = translationAvailable
@@ -524,41 +553,55 @@ export class PDFTTSApp {
 
         const response = await this.ui?.showTranslationSetupPrompt?.({
             subtitle: promptSubtitle,
-            languageLabel: translationAvailable
-                ? `${label} language / translation target`
-                : `${label} original language`,
+            initialOriginalLanguage,
             initialTarget,
-            initialSpeed: this._getCurrentSpeedControlValue(),
+            initialMode: savedPrefs?.mode || "off",
+            initialSpeed: savedPrefs?.speed || this._getCurrentSpeedControlValue(),
             translationAvailable,
+            configured: configured && (translationAvailable || savedPrefs?.mode === "off"),
         });
 
         if (!response) return { proceed: false, shouldPlay: false, setup: null };
 
-        if (response.action === "keep") {
-            return { proceed: true, shouldPlay: false, setup: null };
-        }
-
-        const mode = this._normalizeTranslationMode(response.mode);
-        if (!translationAvailable) {
-            this._applyReadingSpeedFromPopup(response.speed);
-            this._applyTranslationMode("off", "");
-            return {
-                proceed: true,
-                shouldPlay: hasOpenedBefore,
-                setup: null,
-            };
-        }
-
+        const originalLanguage = this._normalizeTranslationTarget(response.originalLanguage);
+        const mode = translationAvailable ? this._normalizeTranslationMode(response.mode) : "off";
         const target = this._setTranslationTargetLanguage(response.target);
         this._applyReadingSpeedFromPopup(response.speed);
-        await this._persistTranslationSettingsForDocument(docKey, type, { target, mode });
+        await this._persistTranslationSettingsForDocument(docKey, type, {
+            originalLanguage,
+            target,
+            mode,
+            speed: response.speed,
+        });
         this._applyTranslationMode(mode, target);
+
+        const setup = {
+            docKey,
+            docType: type,
+            originalLanguage,
+            target,
+            mode,
+            speed: response.speed,
+        };
+        this._applyReadingSetupVoicePreference(setup);
 
         return {
             proceed: true,
-            shouldPlay: hasOpenedBefore,
-            setup: { docKey, docType: type, target, mode, speed: response.speed },
+            shouldPlay: response.action === "start" || response.action === "keep",
+            setup,
         };
+    }
+
+    _applyReadingSetupVoicePreference({ originalLanguage, target, mode } = {}) {
+        const spokenLanguage = mode === "read" ? target : originalLanguage;
+        const voice = this._pickVoiceForLanguage(spokenLanguage);
+        if (!voice) return;
+
+        this.ttsEngine.preferredVoiceId = voice;
+        const voiceSelect = document.getElementById("voice-select");
+        if (voiceSelect && Array.from(voiceSelect.options || []).some((option) => option.value === voice)) {
+            voiceSelect.value = voice;
+        }
     }
 
     _applyTranslationMode(mode, target) {
@@ -600,9 +643,13 @@ export class PDFTTSApp {
     async _ensureVoiceForTranslationSetup(setup) {
         if (!this.state?.sentences?.length) return;
 
-        if (setup?.mode === "read") {
-            await this.ensureReadTranslationVoiceReady?.();
-            return;
+        if (setup) {
+            const spokenLanguage = setup.mode === "read" ? setup.target : setup.originalLanguage;
+            const setupVoice = this._pickVoiceForLanguage(spokenLanguage);
+            if (setupVoice) {
+                await this.ttsEngine.ensurePiper(setupVoice);
+                return;
+            }
         }
 
         const voiceSelect = document.getElementById("voice-select");
@@ -611,8 +658,9 @@ export class PDFTTSApp {
     }
 
     _resolveVoiceForDocumentWarmup(file, options = {}, setup = null) {
-        if (setup?.mode === "read") {
-            return this._pickVoiceForLanguage(setup.target) || this.config.DEFAULT_PIPER_VOICE;
+        if (setup) {
+            const spokenLanguage = setup.mode === "read" ? setup.target : setup.originalLanguage;
+            return this._pickVoiceForLanguage(spokenLanguage) || this.config.DEFAULT_PIPER_VOICE;
         }
 
         const docKey = setup?.docKey || this._getDocumentKeyBeforeLoad(file, "pdf", options);
@@ -634,6 +682,11 @@ export class PDFTTSApp {
         const voice = this._resolveVoiceForDocumentWarmup(file, options, setup);
         console.info(`[TTS] Starting PDF voice warm-up: ${voice}`);
         return this.ttsEngine.ensurePiper(voice);
+    }
+
+    _warmLayoutForPdf() {
+        console.info("[Layout] Starting PDF layout-model warm-up before document setup");
+        return this.getPdfHeaderFooterDetector().prepare();
     }
 
     setAutoTranslateEnabled(enabled) {
@@ -1061,6 +1114,16 @@ export class PDFTTSApp {
 
     // Public API methods preserving original signatures:
     async loadPDF(file = null, options = {}) {
+        // Layout initialization does not depend on the selected language, voice,
+        // or parsed PDF pages. Start it before awaiting the setup popup so model
+        // download/cache lookup and ONNX session creation overlap user choice.
+        // Detector preparation is idempotent; PDFLoader reuses this same promise.
+        if (file instanceof File) {
+            this._warmLayoutForPdf().catch((error) => {
+                console.warn("[Layout] Early PDF model warm-up failed", error);
+            });
+        }
+
         const setup = await this._promptTranslationSetupBeforeOpen(file, "pdf", options);
         if (!setup.proceed) return null;
         if (setup.shouldPlay) {

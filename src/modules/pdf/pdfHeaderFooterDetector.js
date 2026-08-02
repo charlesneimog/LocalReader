@@ -1,5 +1,5 @@
 import { hitTestSentence } from "../utils/coordinates.js";
-import { isIOSLike } from "../utils/helpers.js";
+import { getInferenceConcurrencyProfile } from "../utils/helpers.js";
 import { INFERENCE_BACKENDS, normalizeInferenceBackend } from "../../config.js";
 
 export class PDFHeaderFooterDetector {
@@ -26,7 +26,7 @@ export class PDFHeaderFooterDetector {
         this.worker = new Worker("./src/modules/pdf/ts.js", { type: "module" });
         this.app.ui.showInfo("AI Layout model loaded...");
 
-        const threads = isIOSLike() ? 1 : Math.max(1, Number(this.app.config.PDF_LAYOUT_MAX_THREADS) || 4);
+        const threads = getInferenceConcurrencyProfile(this.app.config).layoutThreads;
         const requestedBackend = normalizeInferenceBackend(
             this.app.config.LAYOUT_DETECTION_BACKEND,
             INFERENCE_BACKENDS.WASM,

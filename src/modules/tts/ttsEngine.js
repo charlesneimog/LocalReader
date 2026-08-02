@@ -6,6 +6,7 @@ import {
     formatTextToSpeech,
     hasUsableSpeechText,
     isIOSLike,
+    getInferenceConcurrencyProfile,
 } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
 import { INFERENCE_BACKENDS, normalizeInferenceBackend } from "../../config.js";
@@ -190,7 +191,7 @@ export class TTSEngine {
 
         try {
             if (!this.client) {
-                const workerCount = isIOSLike() ? 1 : Math.max(1, Number(this.app.config.PIPER_WORKERS) || 2);
+                const workerCount = getInferenceConcurrencyProfile(this.app.config).piperWorkers;
                 this.client = new PiperWorkerPoolClient({
                     size: workerCount,
                     workerUrl: "./src/modules/tts/piper.worker.js",
@@ -261,7 +262,7 @@ export class TTSEngine {
             const phonemizerJsUrl = `${baseUrl}thirdparty/piper/piper-o91UDS6e.js`;
             const phonemizerWasmUrl = `${baseUrl}thirdparty/piper/piper_phonemize.wasm`;
             const phonemizerDataUrl = `${baseUrl}thirdparty/piper/piper_phonemize.data`;
-            const maxThreads = isIOSLike() ? 1 : Math.max(1, Number(this.app.config.PIPER_MAX_THREADS) || 1);
+            const maxThreads = getInferenceConcurrencyProfile(this.app.config).piperThreads;
             const backend = normalizeInferenceBackend(this.app.config.TTS_BACKEND);
             const useWebGpu = backend === INFERENCE_BACKENDS.WEBGPU;
 

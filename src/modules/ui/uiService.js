@@ -141,12 +141,14 @@ export class UIService {
     }
 
     async showTranslationSetupPrompt({
-        title = "Translation Setup",
-        subtitle = "Choose how translations should work for this document",
-        languageLabel = "Document language / translation target",
+        title = "Reading Setup",
+        subtitle = "Choose how this document should be read",
+        initialOriginalLanguage = "en",
         initialTarget = "pt",
+        initialMode = "off",
         initialSpeed = 1,
         translationAvailable = true,
+        configured = false,
     } = {}) {
         this._hideTranslationSetupPrompt();
 
@@ -163,8 +165,12 @@ export class UIService {
 
             const panel = document.createElement("div");
             panel.className =
-                "translation-setup-prompt w-[94vw] max-w-xl rounded-xl border border-slate-200 dark:border-slate-700 " +
-                "bg-background-light dark:bg-background-dark shadow-2xl";
+                "translation-setup-prompt w-[94vw] max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl " +
+                "border border-slate-200 dark:border-slate-700 bg-background-light dark:bg-background-dark shadow-2xl";
+            panel.setAttribute("role", "dialog");
+            panel.setAttribute("aria-modal", "true");
+            panel.setAttribute("aria-labelledby", "reading-setup-title");
+            panel.setAttribute("aria-describedby", "reading-setup-subtitle");
 
             const header = document.createElement("div");
             header.className =
@@ -173,10 +179,12 @@ export class UIService {
             const titleWrap = document.createElement("div");
 
             const titleEl = document.createElement("div");
-            titleEl.className = "text-sm font-semibold text-slate-900 dark:text-slate-100";
+            titleEl.id = "reading-setup-title";
+            titleEl.className = "text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100";
             titleEl.textContent = title;
 
             const subtitleEl = document.createElement("div");
+            subtitleEl.id = "reading-setup-subtitle";
             subtitleEl.className = "mt-1 text-xs text-slate-600 dark:text-slate-300";
             subtitleEl.textContent = subtitle;
 
@@ -185,6 +193,7 @@ export class UIService {
 
             const closeBtn = document.createElement("button");
             closeBtn.type = "button";
+            closeBtn.setAttribute("aria-label", "Close reading setup");
             closeBtn.className =
                 "p-1 rounded-full text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary";
             const closeIcon = document.createElement("span");
@@ -200,66 +209,94 @@ export class UIService {
             header.appendChild(titleWrap);
             header.appendChild(closeBtn);
 
-            const body = document.createElement("div");
-            body.className = "px-4 py-4 space-y-4";
-
-            const langWrap = document.createElement("label");
-            langWrap.className = "block space-y-1";
-
-            const langLabel = document.createElement("div");
-            langLabel.className = "text-xs font-medium text-slate-700 dark:text-slate-200";
-            langLabel.textContent = languageLabel;
-
-            const langHelper = document.createElement("div");
-            langHelper.className = "text-xs text-slate-500 dark:text-slate-400";
-            langHelper.textContent = canTranslate
-                ? "Used as the translation target when translation is enabled."
-                : "Offline mode: choose the language of the original document for reading.";
-
-            const langSelect = document.createElement("select");
-            langSelect.className =
-                "w-full rounded-md border border-slate-200 dark:border-slate-700 " +
-                "bg-white/80 dark:bg-black/20 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm " +
-                "outline-none focus:ring-2 focus:ring-primary";
-
             const languageOptions = [
-                { value: "pt", label: "🇧🇷 Portuguese (pt)" },
-                { value: "en", label: "🇺🇸 English (en)" },
-                { value: "es", label: "🇪🇸 Spanish (es)" },
-                { value: "fr", label: "🇫🇷 French (fr)" },
-                { value: "de", label: "🇩🇪 German (de)" },
-                { value: "it", label: "🇮🇹 Italian (it)" },
-                { value: "ja", label: "🇯🇵 Japanese (ja)" },
-                { value: "zh-CN", label: "🇨🇳 Chinese Simplified (zh-CN)" },
+                { value: "pt", label: "🇧🇷 Portuguese" },
+                { value: "en", label: "🇺🇸 English" },
+                { value: "es", label: "🇪🇸 Spanish" },
+                { value: "fr", label: "🇫🇷 French" },
+                { value: "de", label: "🇩🇪 German" },
+                { value: "zh-CN", label: "🇨🇳 Chinese (Simplified)" },
             ];
 
-            for (const optionDef of languageOptions) {
-                const option = document.createElement("option");
-                option.value = optionDef.value;
-                option.textContent = optionDef.label;
-                langSelect.appendChild(option);
-            }
+            const normalizeLanguage = (value, fallback) => String(value || fallback).trim() || fallback;
+            const normalizedOriginal = normalizeLanguage(initialOriginalLanguage, "en");
+            const normalizedTarget = normalizeLanguage(initialTarget, "pt");
+            let selectedMode = canTranslate && ["read", "show", "off"].includes(initialMode)
+                ? initialMode
+                : "off";
 
-            const normalizedTarget = String(initialTarget || "pt").trim();
-            const hasPreset = languageOptions.some((entry) => entry.value === normalizedTarget);
-            if (!hasPreset && normalizedTarget) {
-                const custom = document.createElement("option");
-                custom.value = normalizedTarget;
-                custom.textContent = `${normalizedTarget} (custom)`;
-                langSelect.appendChild(custom);
-            }
-            langSelect.value = normalizedTarget || "pt";
+            const languageName = (value) =>
+                languageOptions.find((entry) => entry.value === value)?.label || value || "Not selected";
 
-            langWrap.appendChild(langLabel);
-            langWrap.appendChild(langHelper);
-            langWrap.appendChild(langSelect);
+            const buildLanguageSelect = (value, ariaLabel) => {
+                const select = document.createElement("select");
+                select.setAttribute("aria-label", ariaLabel);
+                select.className =
+                    "w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-black/20 " +
+                    "text-slate-900 dark:text-slate-100 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary";
+                for (const optionDef of languageOptions) {
+                    const option = document.createElement("option");
+                    option.value = optionDef.value;
+                    option.textContent = optionDef.label;
+                    select.appendChild(option);
+                }
+                if (!languageOptions.some((entry) => entry.value === value) && value) {
+                    const custom = document.createElement("option");
+                    custom.value = value;
+                    custom.textContent = value;
+                    select.appendChild(custom);
+                }
+                select.value = value;
+                return select;
+            };
 
-            const speedWrap = document.createElement("label");
-            speedWrap.className = "block space-y-1";
+            const setupBody = document.createElement("div");
+            setupBody.className = "px-5 py-5 space-y-6";
+
+            const languageSection = document.createElement("section");
+            languageSection.className = "space-y-3";
+            languageSection.innerHTML = `
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Language</h3>
+                    <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Tell us the document language and the final language you want to hear.</p>
+                </div>
+            `;
+
+            const languageGrid = document.createElement("div");
+            languageGrid.className = "grid grid-cols-1 sm:grid-cols-2 gap-3";
+
+            const originalWrap = document.createElement("label");
+            originalWrap.className = "block space-y-1.5";
+            const originalLabel = document.createElement("span");
+            originalLabel.className = "block text-xs font-medium text-slate-700 dark:text-slate-200";
+            originalLabel.textContent = "Original PDF language";
+            const originalSelect = buildLanguageSelect(normalizedOriginal, "Original PDF language");
+            originalWrap.append(originalLabel, originalSelect);
+
+            const targetWrap = document.createElement("label");
+            targetWrap.className = "block space-y-1.5 transition-opacity";
+            const targetLabel = document.createElement("span");
+            targetLabel.className = "block text-xs font-medium text-slate-700 dark:text-slate-200";
+            targetLabel.textContent = "Translate to";
+            const targetSelect = buildLanguageSelect(normalizedTarget, "Translate to");
+            targetWrap.append(targetLabel, targetSelect);
+            languageGrid.append(originalWrap, targetWrap);
+
+            const finalLanguage = document.createElement("div");
+            finalLanguage.className =
+                "rounded-lg border border-primary/25 bg-primary/5 dark:bg-primary/10 px-3 py-2.5 " +
+                "text-sm font-medium text-slate-900 dark:text-slate-100";
+
+            languageSection.append(languageGrid, finalLanguage);
+
+            const speedSection = document.createElement("section");
+            speedSection.className = "space-y-3";
 
             const speedLabel = document.createElement("div");
-            speedLabel.className = "text-xs font-medium text-slate-700 dark:text-slate-200";
-            speedLabel.textContent = "Reading speed";
+            speedLabel.innerHTML = `
+                <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Reading Speed</h3>
+                <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Adjust how quickly the document is read aloud.</p>
+            `;
 
             const speedRow = document.createElement("div");
             speedRow.className = "flex items-center gap-3";
@@ -303,7 +340,7 @@ export class UIService {
             speedRow.appendChild(speedIncreaseBtn);
 
             const speedValue = document.createElement("div");
-            speedValue.className = "text-xs text-slate-600 dark:text-slate-300";
+            speedValue.className = "min-w-11 text-right text-sm font-semibold text-primary";
             speedValue.textContent = `${normalizedSpeed.toFixed(1)}x`;
 
             speedInput.addEventListener("input", () => {
@@ -333,9 +370,8 @@ export class UIService {
                 adjustPopupSpeed(1);
             });
 
-            speedWrap.appendChild(speedLabel);
-            speedWrap.appendChild(speedRow);
-            speedWrap.appendChild(speedValue);
+            speedRow.appendChild(speedValue);
+            speedSection.append(speedLabel, speedRow);
 
             const offlineNotice = document.createElement("div");
             offlineNotice.className =
@@ -344,114 +380,195 @@ export class UIService {
             offlineNotice.textContent =
                 "Offline Mode: translation is unavailable. Choose the original document language and read the original text.";
 
+            const modeSection = document.createElement("section");
+            modeSection.className = "space-y-3";
+            modeSection.innerHTML = `
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Reading Mode</h3>
+                    <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Choose whether the document should be translated.</p>
+                </div>
+            `;
             const optionsWrap = document.createElement("div");
-            optionsWrap.className = "grid grid-cols-1 sm:grid-cols-3 gap-2";
+            optionsWrap.className = "grid grid-cols-1 sm:grid-cols-3 gap-3";
+            const modeCards = new Map();
 
-            const buildModeBtn = ({ mode, label, helper, className = "", disabled = false }) => {
-                const btn = document.createElement("button");
-                btn.type = "button";
-                btn.disabled = disabled;
-                btn.className =
-                    "rounded-lg border px-3 py-3 text-left transition-colors " +
-                    className +
-                    (disabled ? " opacity-45 cursor-not-allowed" : "");
-                if (disabled) {
-                    btn.setAttribute("aria-disabled", "true");
-                }
+            const buildModeCard = ({ mode, label, helper, disabled = false }) => {
+                const card = document.createElement("label");
+                card.className =
+                    "relative flex min-h-24 cursor-pointer items-start gap-3 rounded-xl border px-3.5 py-3.5 " +
+                    "transition-colors focus-within:ring-2 focus-within:ring-primary";
+                if (disabled) card.classList.add("opacity-45", "cursor-not-allowed");
 
-                const labelEl = document.createElement("div");
-                labelEl.className = "text-sm font-medium";
-                labelEl.textContent = label;
+                const radio = document.createElement("input");
+                radio.type = "radio";
+                radio.name = "reading-setup-mode";
+                radio.value = mode;
+                radio.disabled = disabled;
+                radio.checked = selectedMode === mode;
+                radio.className = "mt-0.5 h-4 w-4 shrink-0 accent-primary";
 
-                const helperEl = document.createElement("div");
-                helperEl.className = "mt-1 text-xs opacity-80";
-                helperEl.textContent = helper;
-
-                btn.appendChild(labelEl);
-                btn.appendChild(helperEl);
-
-                btn.addEventListener("click", (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (disabled) return;
-                    closeWith({
-                        mode,
-                        action: "mode",
-                        target: String(langSelect.value || "pt").trim() || "pt",
-                        speed: Number.parseFloat(speedInput.value || "1") || 1,
-                    });
+                const copy = document.createElement("span");
+                copy.innerHTML = `
+                    <span class="block text-sm font-semibold text-slate-900 dark:text-slate-100">${label}</span>
+                    <span class="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">${helper}</span>
+                `;
+                card.append(radio, copy);
+                modeCards.set(mode, card);
+                radio.addEventListener("change", () => {
+                    if (!radio.checked) return;
+                    selectedMode = mode;
+                    updateModePresentation();
                 });
-                return btn;
+                return card;
             };
 
-            const readBtn = buildModeBtn({
-                mode: "read",
-                label: "Read translation",
-                helper: canTranslate ? "Read document in translated language" : "Unavailable while offline",
-                className:
-                    "border-primary/40 text-slate-900 dark:text-slate-100 hover:bg-primary/10 dark:hover:bg-primary/20",
-                disabled: !canTranslate,
-            });
+            optionsWrap.append(
+                buildModeCard({
+                    mode: "off",
+                    label: "Read original",
+                    helper: "No translation. Read the PDF in its original language.",
+                }),
+                buildModeCard({
+                    mode: "read",
+                    label: "Read translation",
+                    helper: canTranslate ? "Translate the text and read it in the selected language." : "Unavailable offline.",
+                    disabled: !canTranslate,
+                }),
+                buildModeCard({
+                    mode: "show",
+                    label: "Show translation",
+                    helper: canTranslate ? "Read the original and display translated phrases." : "Unavailable offline.",
+                    disabled: !canTranslate,
+                }),
+            );
+            modeSection.appendChild(optionsWrap);
 
-            const showBtn = buildModeBtn({
-                mode: "show",
-                label: "Show translation",
-                helper: canTranslate ? "Read original + show translated phrases" : "Unavailable while offline",
-                className:
-                    "border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-white/5",
-                disabled: !canTranslate,
-            });
+            const updateModePresentation = () => {
+                modeCards.forEach((card, mode) => {
+                    const selected = mode === selectedMode;
+                    card.classList.toggle("border-primary", selected);
+                    card.classList.toggle("bg-primary/5", selected);
+                    card.classList.toggle("dark:bg-primary/10", selected);
+                    card.classList.toggle("border-slate-200", !selected);
+                    card.classList.toggle("dark:border-slate-700", !selected);
+                });
+                const usesTranslation = selectedMode !== "off";
+                targetSelect.disabled = !usesTranslation || !canTranslate;
+                targetWrap.classList.toggle("opacity-45", !usesTranslation || !canTranslate);
+                const finalValue = selectedMode === "read" ? targetSelect.value : originalSelect.value;
+                const prefix = selectedMode === "show" ? "Spoken language" : "Final reading language";
+                finalLanguage.textContent = `${prefix}: ${languageName(finalValue)}`;
+            };
+            originalSelect.addEventListener("change", updateModePresentation);
+            targetSelect.addEventListener("change", updateModePresentation);
 
-            const offBtn = buildModeBtn({
-                mode: "off",
-                label: "Read original",
-                helper: canTranslate ? "Read original language only" : "Offline mode uses original document text only",
-                className:
-                    (canTranslate
-                        ? "border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
-                        : "border-primary/60 text-slate-900 dark:text-slate-100 bg-primary/10 dark:bg-primary/20"),
-            });
-
-            optionsWrap.appendChild(readBtn);
-            optionsWrap.appendChild(showBtn);
-            optionsWrap.appendChild(offBtn);
-
-            const footer = document.createElement("div");
-            footer.className = "px-4 pb-4 flex justify-end";
-
-            const keepCurrentBtn = document.createElement("button");
-            keepCurrentBtn.type = "button";
-            keepCurrentBtn.disabled = !canTranslate;
-            keepCurrentBtn.className =
-                "rounded-md px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 " +
-                "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5" +
-                (canTranslate ? "" : " opacity-45 cursor-not-allowed");
+            setupBody.append(languageSection);
             if (!canTranslate) {
-                keepCurrentBtn.setAttribute("aria-disabled", "true");
+                setupBody.appendChild(offlineNotice);
             }
-            keepCurrentBtn.textContent = "Keep current";
-            keepCurrentBtn.addEventListener("click", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!canTranslate) return;
+            setupBody.append(modeSection, speedSection);
+
+            const setupFooter = document.createElement("div");
+            setupFooter.className = "px-5 pb-5 flex justify-end";
+            const startBtn = document.createElement("button");
+            startBtn.type = "button";
+            startBtn.className =
+                "w-full sm:w-auto rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white " +
+                "shadow-sm hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2";
+            startBtn.textContent = "Start Reading";
+            startBtn.addEventListener("click", (event) => {
+                event.preventDefault();
                 closeWith({
-                    action: "keep",
-                    target: String(langSelect.value || "pt").trim() || "pt",
+                    action: "start",
+                    originalLanguage: originalSelect.value,
+                    target: targetSelect.value,
+                    mode: selectedMode,
                     speed: Number.parseFloat(speedInput.value || "1") || 1,
                 });
             });
+            setupFooter.appendChild(startBtn);
 
-            footer.appendChild(keepCurrentBtn);
+            const confirmBody = document.createElement("div");
+            confirmBody.className = "px-5 py-5 space-y-4";
+            const summary = document.createElement("div");
+            summary.className =
+                "rounded-xl border border-primary/25 bg-primary/5 dark:bg-primary/10 px-4 py-4 space-y-3";
+            const modeLabels = {
+                off: "Read original — no translation",
+                read: "Translate and read aloud",
+                show: "Read original and show translation",
+            };
+            const languageSummary = selectedMode === "off"
+                ? languageName(normalizedOriginal)
+                : `${languageName(normalizedOriginal)} → ${languageName(normalizedTarget)}`;
+            summary.innerHTML = `
+                <div>
+                    <div class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Language</div>
+                    <div data-summary-language class="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-3 border-t border-primary/15 pt-3">
+                    <div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Reading mode</div>
+                        <div data-summary-mode class="mt-0.5 text-sm font-medium text-slate-800 dark:text-slate-100"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Speed</div>
+                        <div data-summary-speed class="mt-0.5 text-sm font-medium text-slate-800 dark:text-slate-100"></div>
+                    </div>
+                </div>
+            `;
+            summary.querySelector("[data-summary-language]").textContent = languageSummary;
+            summary.querySelector("[data-summary-mode]").textContent = modeLabels[selectedMode];
+            summary.querySelector("[data-summary-speed]").textContent = `${normalizedSpeed.toFixed(1)}x`;
+            const confirmHint = document.createElement("p");
+            confirmHint.className = "text-sm text-slate-600 dark:text-slate-300";
+            confirmHint.textContent = "This document already has a reading setup. Continue with it or make changes.";
+            confirmBody.append(confirmHint, summary);
 
-            body.appendChild(langWrap);
-            body.appendChild(speedWrap);
-            if (!canTranslate) {
-                body.appendChild(offlineNotice);
+            const confirmFooter = document.createElement("div");
+            confirmFooter.className = "px-5 pb-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2";
+            const reconfigureBtn = document.createElement("button");
+            reconfigureBtn.type = "button";
+            reconfigureBtn.className =
+                "rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm font-medium " +
+                "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5";
+            reconfigureBtn.textContent = "Reconfigure";
+            const keepBtn = document.createElement("button");
+            keepBtn.type = "button";
+            keepBtn.className =
+                "rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm " +
+                "hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2";
+            keepBtn.textContent = "Keep Current & Read";
+            keepBtn.addEventListener("click", () => {
+                closeWith({
+                    action: "keep",
+                    originalLanguage: normalizedOriginal,
+                    target: normalizedTarget,
+                    mode: selectedMode,
+                    speed: normalizedSpeed,
+                });
+            });
+            reconfigureBtn.addEventListener("click", () => {
+                confirmBody.classList.add("hidden");
+                confirmFooter.classList.add("hidden");
+                setupBody.classList.remove("hidden");
+                setupFooter.classList.remove("hidden");
+                subtitleEl.textContent = "Update how this document should be read";
+                originalSelect.focus();
+            });
+            confirmFooter.append(reconfigureBtn, keepBtn);
+
+            updateModePresentation();
+            if (configured) {
+                setupBody.classList.add("hidden");
+                setupFooter.classList.add("hidden");
+            } else {
+                confirmBody.classList.add("hidden");
+                confirmFooter.classList.add("hidden");
             }
-            body.appendChild(optionsWrap);
+
             panel.appendChild(header);
-            panel.appendChild(body);
-            panel.appendChild(footer);
+            panel.append(setupBody, setupFooter, confirmBody, confirmFooter);
             backdrop.appendChild(panel);
             document.body.appendChild(backdrop);
 
@@ -476,10 +593,7 @@ export class UIService {
     }
 
     async showPdfTranslationPrompt(options = {}) {
-        return await this.showTranslationSetupPrompt({
-            languageLabel: "PDF language / translation target",
-            ...options,
-        });
+        return await this.showTranslationSetupPrompt(options);
     }
 
     showHighlightPopup() {

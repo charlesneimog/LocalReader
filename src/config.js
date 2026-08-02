@@ -28,7 +28,7 @@ export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 41,
     VERSION_PATCH: 9,
-    VERSION_BUILD: 0,
+    VERSION_BUILD: 3,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -74,12 +74,13 @@ export const CONFIG = {
     // Do not begin a new reading until this many readable phrases have audio.
     // Near the document end, use the number of phrases actually remaining.
     TTS_START_BUFFER_PHRASES: 2,
-    // Independent worker thread caps for layout inference and Piper synthesis.
+    // Maximums for the adaptive shared inference budget. High-core computers
+    // can use four threads per Piper lane; iPad remains fixed at one thread.
     PDF_LAYOUT_MAX_THREADS: 4,
     // Initialize two Piper lanes up front and render the startup buffer in parallel.
     MAX_CONCURRENT_SYNTH: 2,
     PIPER_WORKERS: 2,
-    PIPER_MAX_THREADS: 2,
+    PIPER_MAX_THREADS: 4,
     WORD_BOUNDARY_CHUNK_SIZE: 40,
     YIELD_AFTER_MS: 32,
     PIPER_VOICES: [

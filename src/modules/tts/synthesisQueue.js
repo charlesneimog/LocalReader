@@ -1,5 +1,5 @@
 import { EVENTS } from "../../constants/events.js";
-import { isIOSLike } from "../utils/helpers.js";
+import { getInferenceConcurrencyProfile } from "../utils/helpers.js";
 
 export class TTSQueueManager {
     constructor(app) {
@@ -47,7 +47,11 @@ export class TTSQueueManager {
 
     run() {
         const { config } = this.app;
-        const maxConcurrent = isIOSLike() ? 1 : config.MAX_CONCURRENT_SYNTH;
+        const profile = getInferenceConcurrencyProfile(config);
+        const maxConcurrent = Math.min(
+            Math.max(1, Number(config.MAX_CONCURRENT_SYNTH) || 1),
+            profile.piperWorkers,
+        );
         while (this.active < maxConcurrent && this.queue.length) {
             const idx = this.queue.shift();
             this.startTask(idx);

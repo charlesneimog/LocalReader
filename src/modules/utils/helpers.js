@@ -83,11 +83,49 @@ export function hasUsableSpeechText(text) {
     return /[^\s.,;:!?()[\]{}'"“”‘’…—–\-•]/.test(cleaned);
 }
 
-export function isIOSLike() {
-    if (typeof navigator === "undefined") return false;
-    const userAgent = navigator.userAgent || "";
+export function isIOSLike(navigatorLike = typeof navigator === "undefined" ? null : navigator) {
+    if (!navigatorLike) return false;
+    const userAgent = navigatorLike.userAgent || "";
     // iPadOS may request the desktop site and identify itself as a Macintosh.
-    return /iPhone|iPad|iPod/i.test(userAgent) || (/Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1);
+    return (
+        /iPhone|iPad|iPod/i.test(userAgent) ||
+        (/Macintosh/i.test(userAgent) && navigatorLike.maxTouchPoints > 1)
+    );
+}
+
+/**
+ * Divide the browser's CPU budget between the independent ONNX runtimes.
+ *
+ * Piper owns one runtime per worker, while PDF layout owns another. Giving
+ * every runtime its configured maximum oversubscribes smaller computers; using
+ * the old fixed two-thread Piper cap leaves high-core computers underused.
+ * Keep one logical CPU outside the inference budget for the browser/UI.
+ */
+export function getInferenceConcurrencyProfile(
+    config = {},
+    navigatorLike = typeof navigator === "undefined" ? null : navigator,
+) {
+    if (isIOSLike(navigatorLike)) {
+        return { hardwareThreads: 1, piperWorkers: 1, piperThreads: 1, layoutThreads: 1 };
+    }
+
+    const reportedThreads = Number(navigatorLike?.hardwareConcurrency);
+    const hardwareThreads = Number.isFinite(reportedThreads) && reportedThreads > 0
+        ? Math.floor(reportedThreads)
+        : 8;
+    const inferenceBudget = Math.max(1, hardwareThreads - 1);
+    const configuredWorkers = Math.max(1, Number(config.PIPER_WORKERS) || 2);
+    const configuredPiperThreads = Math.max(1, Number(config.PIPER_MAX_THREADS) || 1);
+    const configuredLayoutThreads = Math.max(1, Number(config.PDF_LAYOUT_MAX_THREADS) || 1);
+
+    // Reserve up to one third of the budget for layout, capped by its setting.
+    // Piper receives the rest evenly because each worker has its own ORT pool.
+    const layoutThreads = Math.min(configuredLayoutThreads, Math.max(1, Math.floor(inferenceBudget / 3)));
+    const piperBudget = Math.max(1, inferenceBudget - layoutThreads);
+    const piperWorkers = Math.min(configuredWorkers, piperBudget);
+    const piperThreads = Math.min(configuredPiperThreads, Math.max(1, Math.floor(piperBudget / piperWorkers)));
+
+    return { hardwareThreads, piperWorkers, piperThreads, layoutThreads };
 }
 
 export function isMobile() {

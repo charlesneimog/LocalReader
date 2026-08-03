@@ -1445,6 +1445,20 @@ def get_highlights(file_id, owner_email=None):
     return out
 
 
+def _sanitize_reward_snapshot(snapshot):
+    """Keep garden history but never persist a live reading session."""
+    if not isinstance(snapshot, dict):
+        return None
+    safe = json.loads(json.dumps(snapshot, ensure_ascii=False))
+    safe["currentSession"] = None
+    safe["sessions"] = [
+        session
+        for session in safe.get("sessions", [])
+        if isinstance(session, dict) and session.get("state") == "completed"
+    ]
+    return safe
+
+
 def get_reward_state(owner_email):
     """Return the account-scoped mergeable reward snapshot."""
     owner_n = _normalize_email(owner_email)
@@ -1459,7 +1473,7 @@ def get_reward_state(owner_email):
         return None
     try:
         value = json.loads(row[0])
-        return value if isinstance(value, dict) else None
+        return _sanitize_reward_snapshot(value)
     except (TypeError, ValueError, json.JSONDecodeError):
         logger.warning("Malformed reward snapshot for owner=%s", owner_n)
         return None
@@ -1469,6 +1483,9 @@ def update_reward_state(owner_email, snapshot):
     """Store an account-scoped snapshot after client-side ID-based merging."""
     owner_n = _normalize_email(owner_email)
     if not owner_n or not isinstance(snapshot, dict):
+        return False
+    snapshot = _sanitize_reward_snapshot(snapshot)
+    if snapshot is None:
         return False
     serialized = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
     if len(serialized.encode("utf-8")) > 5 * 1024 * 1024:

@@ -49,31 +49,29 @@ export class ReadingSessionManager {
         if (!state.currentSession) return null;
         const session = state.sessions.find((candidate) => candidate.id === state.currentSession.id);
         if (!session || [SESSION_STATES.COMPLETED, SESSION_STATES.ABANDONED].includes(session.state)) return null;
+        const timestamp = this.now();
         await this.storage.transaction((draft) => {
             const stored = draft.sessions.find((candidate) => candidate.id === session.id);
-            const preservedPauseReason =
-                session.state === SESSION_STATES.PAUSED &&
-                ["explicit", "reflection"].includes(session.pauseReason || "explicit")
-                    ? (session.pauseReason || "explicit")
-                    : null;
-            stored.state = SESSION_STATES.PAUSED;
-            stored.pauseReason = preservedPauseReason || "restore";
-            if (!stored.automatic) {
-                stored.activeReadingMs = 0;
-                stored.goalReachedAt = null;
-            }
-            stored.updatedAt = this.now();
-            draft.currentSession = { ...stored };
+            if (!stored) return;
+            stored.state = SESSION_STATES.ABANDONED;
+            stored.pauseReason = "new-app-session";
+            stored.activeReadingMs = 0;
+            stored.goalReachedAt = null;
+            stored.abandonedAt = timestamp;
+            stored.updatedAt = timestamp;
+            draft.currentSession = null;
             const plant = draft.plants.find((candidate) => candidate.id === stored.plantId);
-            if (plant && plant.stage !== "mature" && !stored.automatic) {
+            if (plant && plant.stage !== "mature") {
                 plant.growthProgress = 0;
                 plant.stage = "seed";
-                plant.updatedAt = this.now();
+                plant.updatedAt = timestamp;
             }
         });
         this.tracker.setPaused(true);
-        this.lifecycleState = SESSION_STATES.PAUSED;
-        return this.getCurrentSession();
+        this.tracker.stop();
+        this.lock.release();
+        this.lifecycleState = SESSION_STATES.IDLE;
+        return null;
     }
 
     prepare() {
@@ -124,6 +122,11 @@ export class ReadingSessionManager {
                         timestamp,
                     });
                     draft.plants.push(plant);
+                } else {
+                    plant.sessionId = sessionId;
+                    plant.sourceDocumentId = document.id;
+                    plant.sourceDocumentType = document.type;
+                    plant.updatedAt = timestamp;
                 }
                 session = {
                     id: sessionId,

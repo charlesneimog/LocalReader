@@ -465,7 +465,7 @@ export class RewardsController {
     }
 
     async mergeRemote(snapshot) {
-        const merged = await this.storage.merge(snapshot);
+        const merged = await this.storage.merge(this._syncSafeSnapshot(snapshot));
         await this.storage.transaction((state) => this.rewardEngine.recomputeBalance(state));
         if (
             (this.app.state?.isPlaying || this.app.state?.autoAdvanceActive) &&
@@ -478,7 +478,20 @@ export class RewardsController {
     }
 
     getSyncSnapshot() {
-        return this.storage.getSnapshot();
+        return this._syncSafeSnapshot(this.storage.getSnapshot());
+    }
+
+    _syncSafeSnapshot(snapshot) {
+        const safe = typeof structuredClone === "function"
+            ? structuredClone(snapshot || {})
+            : JSON.parse(JSON.stringify(snapshot || {}));
+        // Reading sessions are device/runtime state. Completed sessions remain
+        // only because reflections and mature trees refer to them; unfinished
+        // sessions must never be restored from an account snapshot.
+        safe.currentSession = null;
+        safe.sessions = (Array.isArray(safe.sessions) ? safe.sessions : [])
+            .filter((session) => session?.state === "completed");
+        return safe;
     }
 
     _refresh() {

@@ -1,4 +1,4 @@
-const APP_VERSION = "0.42.8+0";
+const APP_VERSION = "0.42.9+0";
 const IDB_VERSION = 1;
 const cacheName = `PocketReader-v${APP_VERSION}`;
 const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;

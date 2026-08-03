@@ -235,3 +235,41 @@ test("a prefetched phrase starts before auto-advance rendering work", async () =
 
     assert.deepEqual(order, ["play", "render"]);
 });
+
+test("desktop playback hands a prepared sentence off 20 ms before audio ends", async () => {
+    const context = { id: 9, sentenceIndex: 0 };
+    const manager = Object.create(AudioManager.prototype);
+    manager._playbackContext = context;
+    manager._playbackBlocks = new Set();
+    manager.app = {
+        state: {
+            stopRequested: false,
+            sentences: [
+                { audioBuffer: { duration: 0.05 } },
+                {
+                    text: "Second.",
+                    layoutProcessed: true,
+                    isTextToRead: true,
+                    audioReady: true,
+                    audioBuffer: {},
+                },
+            ],
+        },
+    };
+
+    let preparedIndex = -1;
+    let overlap = false;
+    manager._prepareNextMediaBridge = (index) => {
+        preparedIndex = index;
+    };
+    manager._handleSourceEnded = async (_context, _sentence, options) => {
+        overlap = options.overlap;
+    };
+
+    manager._scheduleGaplessHandoff({}, context, manager.app.state.sentences[0]);
+    assert.equal(preparedIndex, 1);
+    assert.equal(overlap, false);
+
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    assert.equal(overlap, true);
+});

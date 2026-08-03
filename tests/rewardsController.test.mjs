@@ -29,6 +29,24 @@ test("continuous TTS resumes a stale automatic reward pause", async () => {
     assert.equal(session.state, "active");
 });
 
+test("account snapshots preserve trees but exclude unfinished sessions", () => {
+    const controller = Object.create(RewardsController.prototype);
+    const safe = controller._syncSafeSnapshot({
+        currentSession: { id: "live", state: "active" },
+        sessions: [
+            { id: "live", state: "active" },
+            { id: "paused", state: "paused" },
+            { id: "done", state: "completed" },
+        ],
+        plants: [{ id: "tree", speciesId: "minute-sprout", stage: "mature" }],
+    });
+
+    assert.equal(safe.currentSession, null);
+    assert.deepEqual(safe.sessions, []);
+    assert.equal(safe.plants.length, 1);
+    assert.equal(safe.plants[0].id, "tree");
+});
+
 test("historical trees do not become mandatory reflection popups on startup", () => {
     const controller = Object.create(RewardsController.prototype);
     controller.pendingTreeNotifications = [];

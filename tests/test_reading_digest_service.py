@@ -45,6 +45,19 @@ class FakeRepository:
 
 
 class ReadingDigestServiceTests(unittest.TestCase):
+    def test_reward_snapshot_sanitizer_keeps_trees_but_removes_live_sessions(self):
+        sanitized = app._sanitize_reward_snapshot({
+            "currentSession": {"id": "live", "state": "active"},
+            "sessions": [
+                {"id": "live", "state": "active"},
+                {"id": "done", "state": "completed"},
+            ],
+            "plants": [{"id": "tree", "stage": "mature"}],
+        })
+        self.assertIsNone(sanitized["currentSession"])
+        self.assertEqual(sanitized["sessions"], [])
+        self.assertEqual(sanitized["plants"], [{"id": "tree", "stage": "mature"}])
+
     def test_database_preferences_default_to_enabled_and_delivery_is_idempotent(self):
         original_path = app.DB_PATH
         try:

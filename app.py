@@ -1451,11 +1451,7 @@ def _sanitize_reward_snapshot(snapshot):
         return None
     safe = json.loads(json.dumps(snapshot, ensure_ascii=False))
     safe["currentSession"] = None
-    safe["sessions"] = [
-        session
-        for session in safe.get("sessions", [])
-        if isinstance(session, dict) and session.get("state") == "completed"
-    ]
+    safe["sessions"] = []
     return safe
 
 

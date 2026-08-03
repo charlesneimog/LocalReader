@@ -1,6 +1,8 @@
 import { delay, waitFor, hasUsableSpeechText, isIOSLike } from "../utils/helpers.js";
 import { EVENTS } from "../../constants/events.js";
 
+const SENTENCE_OVERLAP_SECONDS = 0.02;
+
 export class AudioManager {
     constructor(app) {
         this.app = app;
@@ -10,6 +12,8 @@ export class AudioManager {
         this._playbackBlocks = new Set();
         this._mediaBridgeAudio = null;
         this._mediaBridgeObjectUrl = null;
+        this._overlappingMediaElements = new Set();
+        this._preparedMediaBridge = null;
         this._mediaBridgeSyncing = false;
         this._mediaElementUnlocked = false;
         this._mediaUnlockPromise = null;
@@ -639,13 +643,19 @@ export class AudioManager {
         return -1;
     }
 
-    async _handleSourceEnded(context, sentence) {
+    async _handleSourceEnded(context, sentence, { overlap = false } = {}) {
         const { state } = this.app;
         const finishedIndex =
             typeof context?.sentenceIndex === "number" ? context.sentenceIndex : state.currentSentenceIndex;
 
         if (!this._isContextActive(context)) {
             return;
+        }
+        if (context.completionStarted) return;
+        context.completionStarted = true;
+        if (context.gaplessTimer) {
+            clearTimeout(context.gaplessTimer);
+            context.gaplessTimer = null;
         }
 
         this.clearWordBoundaryTimers(sentence);
@@ -662,7 +672,9 @@ export class AudioManager {
         state.isPlaying = false;
         state.playingSentenceIndex = -1;
         state.playingPhraseBlockKey = null;
-        this._pauseMediaBridge();
+        // During the desktop gapless handoff the outgoing element must be
+        // allowed to play its final 20 ms while a second element starts.
+        if (!overlap) this._pauseMediaBridge();
         this.app.pdfRenderer.updateHighlightFullDoc();
 
         const hasNextSentence =
@@ -729,8 +741,23 @@ export class AudioManager {
     _setupMediaBridge() {
         if (typeof document === "undefined") return;
 
+        this._mediaBridgeAudio = this._createMediaBridgeElement();
+
+        // The first gesture may be the tap that opens a document rather than the
+        // toolbar Play button. Unlock the same audio element in either case.
+        const unlock = (event) =>
+            this._primeMediaElementForUserGesture({
+                keepAlive: !!event?.target?.closest?.("#play-toggle"),
+            });
+        document.addEventListener?.("pointerdown", unlock, { capture: true, once: true, passive: true });
+        document.addEventListener?.("touchstart", unlock, { capture: true, once: true, passive: true });
+    }
+
+    _createMediaBridgeElement() {
+        if (typeof document === "undefined") return null;
+
         const audio = document.createElement("audio");
-        audio.id = "localreader-media-bridge";
+        if (!this._mediaBridgeAudio) audio.id = "localreader-media-bridge";
         audio.preload = "auto";
         audio.setAttribute("aria-hidden", "true");
         audio.tabIndex = -1;
@@ -758,16 +785,7 @@ export class AudioManager {
         });
 
         document.body?.appendChild(audio);
-        this._mediaBridgeAudio = audio;
-
-        // The first gesture may be the tap that opens a document rather than the
-        // toolbar Play button. Unlock the same audio element in either case.
-        const unlock = (event) =>
-            this._primeMediaElementForUserGesture({
-                keepAlive: !!event?.target?.closest?.("#play-toggle"),
-            });
-        document.addEventListener?.("pointerdown", unlock, { capture: true, once: true, passive: true });
-        document.addEventListener?.("touchstart", unlock, { capture: true, once: true, passive: true });
+        return audio;
     }
 
     _primeMediaElementForUserGesture({ keepAlive = false } = {}) {
@@ -870,8 +888,28 @@ export class AudioManager {
     }
 
     async _activateMediaBridge(sentence, context) {
-        const audio = this._mediaBridgeAudio;
+        let audio = this._mediaBridgeAudio;
         if (!audio || !sentence?.audioBuffer) throw new Error("HTML audio player is unavailable");
+
+        const prepared = this._preparedMediaBridge;
+        const usePrepared = prepared?.sentenceIndex === this.app.state.currentSentenceIndex;
+
+        // A single HTMLAudioElement cannot overlap two sources. On desktop,
+        // retain the outgoing element for its final 20 ms and start the next
+        // sentence on a fresh element.
+        const outgoingAudio = audio.paused === false && !audio.ended && !isIOSLike();
+        if (outgoingAudio || usePrepared) {
+            const previousAudio = audio;
+            this._overlappingMediaElements ||= new Set();
+            if (outgoingAudio) this._overlappingMediaElements.add(previousAudio);
+            audio = usePrepared ? prepared.audio : this._createMediaBridgeElement();
+            if (!audio) throw new Error("Unable to create gapless HTML audio player");
+            this._mediaBridgeAudio = audio;
+            if (usePrepared) {
+                this._preparedMediaBridge = null;
+                if (!outgoingAudio) this._releaseOverlappingMediaElement(previousAudio);
+            }
+        }
 
         const blob = sentence.audioBlob || sentence.wavBlob || this._audioBufferToWavBlob(sentence.audioBuffer);
         if (!blob) throw new Error("Unable to prepare HTML audio playback");
@@ -882,28 +920,99 @@ export class AudioManager {
         await this._mediaUnlockPromise?.catch?.(() => {});
         this._mediaBridgeSyncing = true;
         try {
-            if (this._mediaBridgeObjectUrl) {
+            if (!outgoingAudio && !usePrepared && this._mediaBridgeObjectUrl) {
                 URL.revokeObjectURL(this._mediaBridgeObjectUrl);
                 this._mediaBridgeObjectUrl = null;
             }
 
-            this._mediaBridgeObjectUrl = URL.createObjectURL(blob);
-            audio.src = this._mediaBridgeObjectUrl;
+            this._mediaBridgeObjectUrl = usePrepared ? prepared.objectUrl : URL.createObjectURL(blob);
+            if (!usePrepared) {
+                audio._pocketReaderObjectUrl = this._mediaBridgeObjectUrl;
+                audio.src = this._mediaBridgeObjectUrl;
+            }
             audio.currentTime = 0;
             audio.loop = false;
             audio.defaultMuted = false;
             audio.muted = false;
             audio.volume = 1;
             audio.removeAttribute("muted");
-            audio.onended = () => {
-                this._handleSourceEnded(context, sentence).catch((error) => {
+            audio.onended = async () => {
+                try {
+                    await this._handleSourceEnded(context, sentence);
+                } catch (error) {
                     console.warn("HTML audio completion failed", error);
-                });
+                } finally {
+                    if (audio !== this._mediaBridgeAudio) this._releaseOverlappingMediaElement(audio);
+                }
             };
             await audio.play();
+            this._scheduleGaplessHandoff(audio, context, sentence);
         } finally {
             this._mediaBridgeSyncing = false;
         }
+    }
+
+    _scheduleGaplessHandoff(audio, context, sentence) {
+        if (isIOSLike() || !context || !audio) return;
+        const duration = Number(sentence?.audioBuffer?.duration || audio.duration);
+        if (!Number.isFinite(duration) || duration <= SENTENCE_OVERLAP_SECONDS) return;
+
+        const finishedIndex = context.sentenceIndex;
+        const nextIndex = this._findPreparedNextSentenceIndex(finishedIndex);
+        if (nextIndex < 0) return;
+        this._prepareNextMediaBridge(nextIndex);
+
+        context.gaplessTimer = setTimeout(() => {
+            context.gaplessTimer = null;
+            if (
+                !this._isContextActive(context) ||
+                context.completionStarted ||
+                this.app.state.stopRequested ||
+                this._playbackBlocks.size ||
+                this._findPreparedNextSentenceIndex(finishedIndex) < 0
+            ) {
+                return;
+            }
+            this._handleSourceEnded(context, sentence, { overlap: true }).catch((error) => {
+                console.warn("Gapless HTML audio handoff failed", error);
+            });
+        }, Math.max(0, (duration - SENTENCE_OVERLAP_SECONDS) * 1000));
+    }
+
+    _prepareNextMediaBridge(sentenceIndex) {
+        if (isIOSLike() || this._preparedMediaBridge?.sentenceIndex === sentenceIndex) return;
+        this._releasePreparedMediaBridge();
+
+        const sentence = this.app.state.sentences[sentenceIndex];
+        const blob = sentence?.audioBlob || sentence?.wavBlob || this._audioBufferToWavBlob(sentence?.audioBuffer);
+        const audio = blob ? this._createMediaBridgeElement() : null;
+        if (!audio) return;
+
+        const objectUrl = URL.createObjectURL(blob);
+        audio._pocketReaderObjectUrl = objectUrl;
+        audio.src = objectUrl;
+        audio.preload = "auto";
+        audio.load?.();
+        this._preparedMediaBridge = { sentenceIndex, audio, objectUrl };
+    }
+
+    _releasePreparedMediaBridge() {
+        const prepared = this._preparedMediaBridge;
+        this._preparedMediaBridge = null;
+        if (!prepared) return;
+        try {
+            prepared.audio.pause();
+        } catch {}
+        this._releaseOverlappingMediaElement(prepared.audio);
+    }
+
+    _releaseOverlappingMediaElement(audio) {
+        if (!audio) return;
+        this._overlappingMediaElements?.delete(audio);
+        const objectUrl = audio._pocketReaderObjectUrl;
+        audio.onended = null;
+        audio.remove?.();
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
     }
 
     _pauseMediaBridge() {
@@ -915,6 +1024,14 @@ export class AudioManager {
             audio.onended = null;
             audio.pause();
             audio.currentTime = 0;
+            for (const overlappingAudio of this._overlappingMediaElements || []) {
+                try {
+                    overlappingAudio.onended = null;
+                    overlappingAudio.pause();
+                } catch {}
+                this._releaseOverlappingMediaElement(overlappingAudio);
+            }
+            this._releasePreparedMediaBridge();
         } catch {
             // ignore
         } finally {

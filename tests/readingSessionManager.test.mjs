@@ -75,30 +75,32 @@ test("abandoned sessions retain active rewards but receive no completion bonus",
     assert.equal(item.storage.getSnapshot().rewardLedger.some((entry) => entry.rewardType === "session-completion"), false);
 });
 
-test("application restart restores an unfinished active session as paused", async () => {
+test("application restart discards an unfinished reading session", async () => {
     const first = await fixture();
     const session = await first.manager.start({ goalMinutes: 10, speciesId: "daisy-patch" });
     await first.engine.recordActiveReading({ milliseconds: 60000, sessionId: session.id, documentId: "doc" });
     const second = await fixture(first.backing);
     const restored = await second.manager.restore();
-    assert.equal(restored.state, "paused");
-    assert.equal(restored.pauseReason, "restore");
-    assert.equal(restored.activeReadingMs, 0);
+    const state = second.storage.getSnapshot();
+    assert.equal(restored, null);
+    assert.equal(state.currentSession, null);
+    assert.equal(state.sessions.find((candidate) => candidate.id === session.id).state, "abandoned");
 });
 
-test("application restart retains partial progress for an automatic tree", async () => {
+test("application restart keeps the tree but resets its unfinished growth", async () => {
     const first = await fixture();
-    await first.manager.ensureAutomatic();
+    const session = await first.manager.ensureAutomatic();
     first.tracker.onDelta(AUTOMATIC_TREE_GOAL_MS * 0.3);
     await first.manager.deltaQueue;
 
     const second = await fixture(first.backing);
     const restored = await second.manager.restore();
-    assert.equal(restored.activeReadingMs, AUTOMATIC_TREE_GOAL_MS * 0.3);
-    assert.equal(restored.goalMs, AUTOMATIC_TREE_GOAL_MS);
-    assert.equal(second.storage.getSnapshot().plants.find(
-        (plant) => plant.id === restored.plantId,
-    ).growthProgress, 0.3);
+    const state = second.storage.getSnapshot();
+    const plant = state.plants.find((candidate) => candidate.id === session.plantId);
+    assert.equal(restored, null);
+    assert.equal(state.currentSession, null);
+    assert.equal(plant.growthProgress, 0);
+    assert.equal(plant.stage, "seed");
 });
 
 test("an explicit pause remains paused during automatic checks and records no time", async () => {
@@ -141,18 +143,15 @@ test("focus interruptions reset automatic tree progress without erasing earned r
     assert.equal(state.totalActiveReadingMs, partialProgressMs);
 });
 
-test("an explicit pause survives application restart until Resume is selected", async () => {
+test("an explicit pause does not survive application restart", async () => {
     const first = await fixture();
     await first.manager.ensureAutomatic();
     await first.manager.pause();
 
     const second = await fixture(first.backing);
     const restored = await second.manager.restore();
-    const automaticCheck = await second.manager.ensureAutomatic();
-
-    assert.equal(restored.pauseReason, "explicit");
-    assert.equal(automaticCheck.state, "paused");
-    assert.equal(automaticCheck.pauseReason, "explicit");
+    assert.equal(restored, null);
+    assert.equal(second.manager.getCurrentSession(), null);
     assert.equal(second.tracker.paused, true);
 });
 

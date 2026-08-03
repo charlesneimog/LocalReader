@@ -485,12 +485,10 @@ export class RewardsController {
         const safe = typeof structuredClone === "function"
             ? structuredClone(snapshot || {})
             : JSON.parse(JSON.stringify(snapshot || {}));
-        // Reading sessions are device/runtime state. Completed sessions remain
-        // only because reflections and mature trees refer to them; unfinished
-        // sessions must never be restored from an account snapshot.
+        // Reading sessions are device/runtime state and never belong in account
+        // persistence. Trees and reflections carry their own durable data.
         safe.currentSession = null;
-        safe.sessions = (Array.isArray(safe.sessions) ? safe.sessions : [])
-            .filter((session) => session?.state === "completed");
+        safe.sessions = [];
         return safe;
     }
 

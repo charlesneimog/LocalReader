@@ -31,6 +31,33 @@ test("a late phrase-end event does not stop an already-playing replacement", () 
     adapter.destroy();
 });
 
+test("phrase end keeps continuous TTS active while auto-advance is running", () => {
+    const playingStates = [];
+    const app = {
+        eventBus: new EventBus(),
+        state: {
+            currentDocumentType: null,
+            isPlaying: false,
+            autoAdvanceActive: true,
+        },
+    };
+    const adapter = new ReadingEventAdapter({
+        app,
+        tracker: {
+            setTtsPlaying: (playing) => playingStates.push(playing),
+        },
+    });
+    adapter.start();
+
+    app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END);
+    assert.deepEqual(playingStates, [true]);
+
+    app.state.autoAdvanceActive = false;
+    app.eventBus.emit(EVENTS.AUDIO_PLAYBACK_END);
+    assert.deepEqual(playingStates, [true, false]);
+    adapter.destroy();
+});
+
 test("playback start refreshes stale document and reading-screen eligibility", () => {
     const calls = [];
     const originalDocument = globalThis.document;

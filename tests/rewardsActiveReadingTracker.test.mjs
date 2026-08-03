@@ -182,13 +182,12 @@ test("TTS cannot bypass an explicit pause", () => {
     assert.deepEqual(item.deltas, []);
 });
 
-test("closed documents and non-reading screens freeze progress", () => {
+test("reader overlays do not override active TTS eligibility", () => {
     const item = fixture();
     item.tracker.setReadingScreen(false);
-    assert.equal(item.advance(1000), 0);
-    item.tracker.setReadingScreen(true);
+    assert.equal(item.advance(1000), 1000);
     item.tracker.setDocumentOpen(false);
-    assert.equal(item.advance(1000), 0);
+    assert.equal(item.advance(1000), 1000);
 });
 
 test("default reading-clock timers keep the native global receiver", () => {

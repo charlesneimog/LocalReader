@@ -38,7 +38,12 @@ export class RewardsController {
             config: this.config,
             onDelta: () => {},
             onIdle: () => {},
-            getPlaybackActive: () => !!app.state?.isPlaying,
+            // autoAdvanceActive is the user-visible continuous TTS state used
+            // by the Pause control. isPlaying can briefly become false between
+            // phrase sources, especially on Firefox and lower-power phones.
+            getPlaybackActive: () => !!(
+                app.state?.isPlaying || app.state?.autoAdvanceActive
+            ),
         });
         this.adapter = new ReadingEventAdapter({ app, tracker: this.tracker });
         this.sessions = new ReadingSessionManager({
@@ -199,7 +204,18 @@ export class RewardsController {
     async _ensureAutomaticTree() {
         if (this.automaticStartPromise) return this.automaticStartPromise;
         this.automaticStartPromise = this.sessions.ensureAutomatic()
-            .then((session) => {
+            .then(async (session) => {
+                // There is no separate reward-session control in the current
+                // UI. If continuous TTS is running, a stale explicit/restore
+                // pause must not silently keep the automatic clock disabled.
+                if (
+                    session &&
+                    (this.app.state?.isPlaying || this.app.state?.autoAdvanceActive) &&
+                    ["paused", "idle-timeout"].includes(session.state) &&
+                    session.pauseReason !== "reflection"
+                ) {
+                    session = await this.sessions.resume();
+                }
                 this._refresh();
                 return session;
             })

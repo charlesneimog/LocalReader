@@ -52,7 +52,9 @@ export class ReadingEventAdapter {
             // Auto-advance can start the replacement source before the prior
             // phrase publishes its END event. Do not let that stale END turn
             // off the clock (and status dot) for audio that is already playing.
-            this.tracker.setTtsPlaying(!!this.app.state.isPlaying);
+            this.tracker.setTtsPlaying(!!(
+                this.app.state.isPlaying || this.app.state.autoAdvanceActive
+            ));
         }));
         const activityEvents = ["pointerdown", "touchstart", "keydown", "scroll", "wheel"];
         for (const eventName of activityEvents) {

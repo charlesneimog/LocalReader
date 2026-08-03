@@ -120,8 +120,6 @@ export class ActiveReadingTracker {
     isEligible(now = this.performanceNow()) {
         const visible = !this.documentObject || this.documentObject.visibilityState !== "hidden";
         return (
-            this.documentOpen &&
-            this.readingScreen &&
             !this.explicitlyPaused &&
             this.isPlaybackActive() &&
             visible
@@ -159,8 +157,6 @@ export class ActiveReadingTracker {
     }
 
     _ineligibilityReason(now = this.performanceNow()) {
-        if (!this.documentOpen) return "document-closed";
-        if (!this.readingScreen) return "left-reader";
         if (this.documentObject?.visibilityState === "hidden") return "tab-hidden";
         if (!this.isPlaybackActive() && now - this.lastActivityAt > this.config.idleTimeoutMs) return "idle";
         return "interrupted";

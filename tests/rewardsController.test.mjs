@@ -2,6 +2,33 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { RewardsController } from "../src/modules/rewards/index.js";
 
+test("continuous TTS resumes a stale automatic reward pause", async () => {
+    let resumed = false;
+    const controller = Object.create(RewardsController.prototype);
+    controller.automaticStartPromise = null;
+    controller.app = {
+        state: { isPlaying: true, autoAdvanceActive: true },
+        ui: { showInfo() {} },
+    };
+    controller.sessions = {
+        ensureAutomatic: async () => ({
+            id: "session-1",
+            state: "paused",
+            pauseReason: "explicit",
+        }),
+        resume: async () => {
+            resumed = true;
+            return { id: "session-1", state: "active", pauseReason: null };
+        },
+    };
+    controller._refresh = () => {};
+
+    const session = await controller._ensureAutomaticTree();
+
+    assert.equal(resumed, true);
+    assert.equal(session.state, "active");
+});
+
 test("historical trees do not become mandatory reflection popups on startup", () => {
     const controller = Object.create(RewardsController.prototype);
     controller.pendingTreeNotifications = [];

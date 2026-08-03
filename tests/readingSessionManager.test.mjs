@@ -134,6 +134,8 @@ test("focus interruptions reset automatic tree progress without erasing earned r
     const state = item.storage.getSnapshot();
     const plant = state.plants.find((candidate) => candidate.id === session.plantId);
     assert.equal(state.currentSession.activeReadingMs, 0);
+    assert.equal(state.currentSession.lastResetReadingMs, partialProgressMs);
+    assert.equal(state.currentSession.lastInterruptionReason, "focus-lost");
     assert.equal(plant.growthProgress, 0);
     assert.equal(plant.stage, "seed");
     assert.equal(state.totalActiveReadingMs, partialProgressMs);

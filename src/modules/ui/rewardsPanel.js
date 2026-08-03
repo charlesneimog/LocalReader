@@ -6,8 +6,11 @@ export class RewardsPanel {
         this.element.className = "fixed top-2 right-1 z-30 flex items-center gap-2";
         this.element.innerHTML = `
             <button type="button" data-garden aria-label="Open reading garden"
-                class="flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-background-light/80 dark:bg-background-dark/80 p-2 text-sm font-semibold text-slate-700 dark:text-slate-200 shadow-lg backdrop-blur-md hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors">
-                <img data-current-tree class="hidden h-8" alt="">
+                class="flex items-center justify-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-background-light/90 dark:bg-background-dark/90 p-2 text-sm font-semibold text-slate-700 dark:text-slate-200 shadow-lg backdrop-blur-md hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors">
+                <span data-tree-status class="hidden flex-col items-center self-stretch">
+                    <img data-current-tree class="h-8" alt="">
+                    <span data-counting-dot class="reward-counting-dot reward-counting-dot--inactive" aria-hidden="true"></span>
+                </span>
                 <span data-progress class="reward-visually-hidden">Garden</span>
             </button>
             <div class="reward-visually-hidden" data-accessible></div>
@@ -17,17 +20,26 @@ export class RewardsPanel {
         this.announced = new Set();
     }
 
-    update({ documentOpen, session, summary, currentPlantStage }) {
+    update({ documentOpen, session, summary, currentPlantStage, activelyCounting = false }) {
         this.element.querySelector("[data-garden]").disabled = !summary;
         const currentDefinition = summary.currentPlant
             ? getPlantDefinition(summary.currentPlant.speciesId)
             : null;
         const image = this.element.querySelector("[data-current-tree]");
-        image.classList.toggle("hidden", !currentDefinition?.image);
+        this.element.querySelector("[data-tree-status]").classList.toggle("hidden", !currentDefinition?.image);
+        this.element.querySelector("[data-tree-status]").classList.toggle("flex", !!currentDefinition?.image);
         if (image.getAttribute("src") !== (currentDefinition?.image || "")) {
             image.src = currentDefinition?.image || "";
         }
         image.alt = currentDefinition ? `${currentDefinition.name} being grown` : "";
+        const countingDot = this.element.querySelector("[data-counting-dot]");
+        countingDot.classList.toggle("reward-counting-dot--active", activelyCounting);
+        countingDot.classList.toggle("reward-counting-dot--inactive", !activelyCounting);
+        countingDot.title = activelyCounting ? "Reading time is counting" : "Reading time is not counting";
+        this.element.querySelector("[data-garden]").setAttribute(
+            "aria-label",
+            `Open reading garden. Reading time is ${activelyCounting ? "counting" : "not counting"}.`,
+        );
         this.element.querySelector("[data-progress]").textContent =
             currentDefinition
                 ? currentDefinition.name

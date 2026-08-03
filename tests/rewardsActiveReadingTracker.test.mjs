@@ -49,16 +49,92 @@ test("counts active reading but not explicit pause", () => {
     assert.deepEqual(item.deltas, [1000, 1000]);
 });
 
-test("hidden tabs and unfocused windows do not count", () => {
+test("hidden tabs do not count while harmless window blur does", () => {
     const item = fixture();
-    item.documentObject.visibilityState = "hidden";
-    assert.equal(item.advance(1000), 0);
-    item.documentObject.visibilityState = "visible";
-    item.documentObject.hasFocus = () => false;
-    assert.equal(item.advance(1000), 0);
-    item.documentObject.hasFocus = () => true;
+    item.tracker.blurHandler();
     assert.equal(item.advance(1000), 1000);
+    assert.deepEqual(item.interruptions, []);
+
+    item.documentObject.visibilityState = "hidden";
+    item.tracker.visibilityHandler();
+    assert.equal(item.advance(1000), 0);
     assert.deepEqual(item.interruptions, [{ reason: "tab-hidden" }]);
+});
+
+test("does not reject active Chromium playback because hasFocus polling is stale", () => {
+    const item = fixture();
+    item.documentObject.hasFocus = () => false;
+
+    assert.equal(item.advance(1000), 1000);
+    assert.deepEqual(item.interruptions, []);
+});
+
+test("visible mobile reading keeps counting when hasFocus is unreliable", () => {
+    let now = 0;
+    const interruptions = [];
+    const documentObject = {
+        visibilityState: "visible",
+        hasFocus: () => false,
+        addEventListener() {},
+        removeEventListener() {},
+    };
+    const windowObject = {
+        matchMedia: () => ({ matches: true }),
+        addEventListener() {},
+        removeEventListener() {},
+    };
+    const tracker = new ActiveReadingTracker({
+        config,
+        onInterrupted: (interruption) => interruptions.push(interruption),
+        performanceNow: () => now,
+        documentObject,
+        windowObject,
+        setIntervalFn: () => 1,
+        clearIntervalFn: () => {},
+    });
+    tracker.setDocumentOpen(true);
+    tracker.setReadingScreen(true);
+    tracker.setPaused(false);
+    tracker.start();
+    tracker.setTtsPlaying(true);
+
+    now += 1000;
+    assert.equal(tracker.tick(now), 1000);
+    tracker.blurHandler();
+    assert.deepEqual(interruptions, []);
+
+    documentObject.visibilityState = "hidden";
+    tracker.visibilityHandler();
+    assert.deepEqual(interruptions, [{ reason: "tab-hidden" }]);
+    now += 1000;
+    assert.equal(tracker.tick(now), 0);
+});
+
+test("live player state is authoritative when browser event ordering is stale", () => {
+    let now = 0;
+    let playbackActive = true;
+    const deltas = [];
+    const tracker = new ActiveReadingTracker({
+        config,
+        getPlaybackActive: () => playbackActive,
+        onDelta: (delta) => deltas.push(delta),
+        performanceNow: () => now,
+        documentObject: { visibilityState: "visible" },
+        setIntervalFn: () => 1,
+        clearIntervalFn: () => {},
+    });
+    tracker.setDocumentOpen(true);
+    tracker.setReadingScreen(true);
+    tracker.setPaused(false);
+    tracker.start();
+
+    // No synthetic TTS event is required: the live player is already active.
+    now += 1000;
+    assert.equal(tracker.tick(now), 1000);
+    playbackActive = false;
+    now += 1000;
+    assert.equal(tracker.tick(now), 0);
+    assert.deepEqual(deltas, [1000]);
 });
 
 test("idle timeout permits normal reading pauses then stops", () => {

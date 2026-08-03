@@ -38,6 +38,7 @@ export class RewardsController {
             config: this.config,
             onDelta: () => {},
             onIdle: () => {},
+            getPlaybackActive: () => !!app.state?.isPlaying,
         });
         this.adapter = new ReadingEventAdapter({ app, tracker: this.tracker });
         this.sessions = new ReadingSessionManager({
@@ -112,6 +113,9 @@ export class RewardsController {
             EVENTS.REWARD_GRANTED,
             EVENTS.PLANT_STAGE_CHANGED,
             EVENTS.GARDEN_UPDATED,
+            EVENTS.AUDIO_PLAYBACK_START,
+            EVENTS.AUDIO_PLAYBACK_PAUSE,
+            EVENTS.AUDIO_PLAYBACK_END,
         ];
         for (const eventName of refreshEvents) {
             this.unsubscribers.push(this.app.eventBus.on(eventName, () => {
@@ -126,7 +130,7 @@ export class RewardsController {
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_RESUMED, () => {
             this.app.ui.showInfo("Activity resumed.");
         }));
-        this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_RESET, ({ reason }) => {
+        this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_RESET, ({ reason, previousActiveReadingMs }) => {
             const labels = {
                 "document-changed": "changing documents",
                 "document-closed": "closing the document",
@@ -138,7 +142,10 @@ export class RewardsController {
                 "explicit": "pausing",
             };
             const cause = labels[reason] || "an interruption";
-            const message = `Focus streak reset after ${cause}.`;
+            const readMinutes = Math.floor((Number(previousActiveReadingMs) || 0) / 60000);
+            const readSeconds = Math.floor(((Number(previousActiveReadingMs) || 0) % 60000) / 1000);
+            const duration = `${readMinutes}:${String(readSeconds).padStart(2, "0")}`;
+            const message = `Focus streak reset after ${cause}. ${duration} of reading remains in your history.`;
             this.app.ui.showInfo(message);
             this.panel.announce(`focus-reset:${Date.now()}`, message);
         }));
@@ -146,7 +153,10 @@ export class RewardsController {
             this._ensureAutomaticTree();
         }));
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_ACTIVITY, () => {
-            if (!this.sessions.getCurrentSession()) this._ensureAutomaticTree();
+            // Reconcile on every trusted reading activity, not only when the
+            // session is missing. This resumes restore/idle sessions whose
+            // persisted state otherwise leaves live TTS uncounted.
+            this._ensureAutomaticTree();
         }));
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.READING_SESSION_GOAL_REACHED, () => {
             this._completeAutomaticTree();
@@ -457,6 +467,7 @@ export class RewardsController {
             session,
             summary,
             currentPlantStage: stage,
+            activelyCounting: this.tracker.isEligible(),
         });
         if (this.gardenDialog?.dialog.open) this.gardenDialog.update(state, summary);
         this.app.eventBus.emit(EVENTS.REWARDS_UPDATED, { session, summary });

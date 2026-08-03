@@ -33,12 +33,27 @@ export class ReadingEventAdapter {
             this.unsubscribers.push(this.app.eventBus.on(eventName, () => this.activity(eventName)));
         }
         this.unsubscribers.push(this.app.eventBus.on(EVENTS.AUDIO_PLAYBACK_START, () => {
+            // PDF loading publishes its event before the gallery overlay is
+            // finally hidden. Re-evaluate the live DOM here so a stale
+            // readingScreen=false value cannot keep a real playback red and
+            // uncounted for the entire session.
+            if (this.getDocumentDescriptor()) {
+                this.tracker.setDocumentOpen(true);
+                this._updateReadingScreen();
+            }
             this.tracker.setTtsPlaying(true);
             this.activity("tts-start");
         }));
-        for (const eventName of [EVENTS.AUDIO_PLAYBACK_PAUSE, EVENTS.AUDIO_PLAYBACK_END]) {
-            this.unsubscribers.push(this.app.eventBus.on(eventName, () => this.tracker.setTtsPlaying(false)));
-        }
+        this.unsubscribers.push(this.app.eventBus.on(
+            EVENTS.AUDIO_PLAYBACK_PAUSE,
+            () => this.tracker.setTtsPlaying(false),
+        ));
+        this.unsubscribers.push(this.app.eventBus.on(EVENTS.AUDIO_PLAYBACK_END, () => {
+            // Auto-advance can start the replacement source before the prior
+            // phrase publishes its END event. Do not let that stale END turn
+            // off the clock (and status dot) for audio that is already playing.
+            this.tracker.setTtsPlaying(!!this.app.state.isPlaying);
+        }));
         const activityEvents = ["pointerdown", "touchstart", "keydown", "scroll", "wheel"];
         for (const eventName of activityEvents) {
             const handler = (event) => {

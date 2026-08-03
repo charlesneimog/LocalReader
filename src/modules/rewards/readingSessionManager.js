@@ -313,6 +313,7 @@ export class ReadingSessionManager {
             session.goalReachedAt = null;
             session.lastInterruptionReason = reason;
             session.lastInterruptedAt = timestamp;
+            session.lastResetReadingMs = previousActiveReadingMs;
             session.updatedAt = timestamp;
             state.currentSession = { ...session };
             if (plant && plant.stage !== "mature") {

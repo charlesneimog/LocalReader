@@ -9,6 +9,7 @@ export class ActiveReadingTracker {
         onIdle,
         onActivityResumed,
         onInterrupted,
+        getPlaybackActive,
         performanceNow = () => performance.now(),
         documentObject = globalThis.document,
         windowObject = globalThis.window,
@@ -22,6 +23,7 @@ export class ActiveReadingTracker {
         this.onIdle = onIdle;
         this.onActivityResumed = onActivityResumed;
         this.onInterrupted = onInterrupted;
+        this.getPlaybackActive = getPlaybackActive;
         this.performanceNow = performanceNow;
         this.documentObject = documentObject;
         this.windowObject = windowObject;
@@ -100,6 +102,13 @@ export class ActiveReadingTracker {
         }
     }
 
+    isPlaybackActive() {
+        if (typeof this.getPlaybackActive === "function") {
+            return !!this.getPlaybackActive();
+        }
+        return this.ttsPlaying;
+    }
+
     recordActivity(source = "interaction") {
         const wasIdle = this.idle;
         this.lastActivityAt = this.performanceNow();
@@ -110,14 +119,12 @@ export class ActiveReadingTracker {
 
     isEligible(now = this.performanceNow()) {
         const visible = !this.documentObject || this.documentObject.visibilityState !== "hidden";
-        const focused = !this.documentObject?.hasFocus || this.documentObject.hasFocus();
         return (
             this.documentOpen &&
             this.readingScreen &&
             !this.explicitlyPaused &&
-            this.ttsPlaying &&
-            visible &&
-            focused
+            this.isPlaybackActive() &&
+            visible
         );
     }
 
@@ -128,14 +135,15 @@ export class ActiveReadingTracker {
         }
         const rawDelta = Math.max(0, now - this.lastTickAt);
         this.lastTickAt = now;
-        const inactiveFromIdle = !this.ttsPlaying && now - this.lastActivityAt > this.config.idleTimeoutMs;
+        const playbackActive = this.isPlaybackActive();
+        const inactiveFromIdle = !playbackActive && now - this.lastActivityAt > this.config.idleTimeoutMs;
         if (inactiveFromIdle && !this.idle && !this.explicitlyPaused) {
             this.idle = true;
             this.continuityBroken = true;
             this.onIdle?.();
         }
         if (!this.isEligible(now)) {
-            if (!inactiveFromIdle && !this.explicitlyPaused && this.ttsPlaying) {
+            if (!inactiveFromIdle && !this.explicitlyPaused && playbackActive) {
                 this._interrupt(this._ineligibilityReason(now));
             }
             return 0;
@@ -154,8 +162,7 @@ export class ActiveReadingTracker {
         if (!this.documentOpen) return "document-closed";
         if (!this.readingScreen) return "left-reader";
         if (this.documentObject?.visibilityState === "hidden") return "tab-hidden";
-        if (this.documentObject?.hasFocus && !this.documentObject.hasFocus()) return "focus-lost";
-        if (!this.ttsPlaying && now - this.lastActivityAt > this.config.idleTimeoutMs) return "idle";
+        if (!this.isPlaybackActive() && now - this.lastActivityAt > this.config.idleTimeoutMs) return "idle";
         return "interrupted";
     }
 
@@ -172,7 +179,10 @@ export class ActiveReadingTracker {
             if (this.documentObject?.visibilityState === "hidden") this._interrupt("tab-hidden");
             else this._restartContinuityClock();
         };
-        this.blurHandler = () => this._interrupt("focus-lost");
+        // Page Visibility is the interoperable lifecycle signal. Window blur
+        // also fires for browser chrome and focus-management interactions in
+        // browser-specific ways, so it must not invalidate reading.
+        this.blurHandler = () => {};
         this.focusHandler = () => this._restartContinuityClock();
         this.pageHideHandler = () => this._interrupt("page-left");
         this.documentObject?.addEventListener?.("visibilitychange", this.visibilityHandler);

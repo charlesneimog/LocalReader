@@ -43,3 +43,19 @@
 .reward-plant-radio {
     accent-color: var(--color-primary);
 }
+
+.reward-counting-dot {
+    width: 0.35rem;
+    height: 0.35rem;
+    margin-top: 0.1rem;
+    border-radius: 9999px;
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.18);
+}
+
+.reward-counting-dot--active {
+    background: #22c55e;
+}
+
+.reward-counting-dot--inactive {
+    background: #ef4444;
+}

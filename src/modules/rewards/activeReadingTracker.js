@@ -9,6 +9,7 @@ export class ActiveReadingTracker {
         onIdle,
         onActivityResumed,
         onInterrupted,
+        onHidden,
         getPlaybackActive,
         performanceNow = () => performance.now(),
         documentObject = globalThis.document,
@@ -23,6 +24,7 @@ export class ActiveReadingTracker {
         this.onIdle = onIdle;
         this.onActivityResumed = onActivityResumed;
         this.onInterrupted = onInterrupted;
+        this.onHidden = onHidden;
         this.getPlaybackActive = getPlaybackActive;
         this.performanceNow = performanceNow;
         this.documentObject = documentObject;
@@ -38,7 +40,7 @@ export class ActiveReadingTracker {
         this.idle = false;
         this.timer = null;
         this.continuityBroken = true;
-        this.focusListenersBound = false;
+        this.lifecycleListenersBound = false;
     }
 
     start() {
@@ -47,7 +49,7 @@ export class ActiveReadingTracker {
         this.lastTickAt = now;
         this.lastActivityAt = now;
         this.continuityBroken = !this.isEligible(now);
-        this._bindFocusListeners();
+        this._bindLifecycleListeners();
         this.timer = this.setIntervalFn(() => this.tick(), this.config.tickIntervalMs);
     }
 
@@ -55,7 +57,7 @@ export class ActiveReadingTracker {
         if (this.timer) this.clearIntervalFn(this.timer);
         this.timer = null;
         this.lastTickAt = null;
-        this._unbindFocusListeners();
+        this._unbindLifecycleListeners();
     }
 
     setDocumentOpen(open) {
@@ -96,9 +98,9 @@ export class ActiveReadingTracker {
             this.recordActivity("tts-playback");
             if (this.isEligible()) this.continuityBroken = false;
         } else {
-            // A stopped player is an allowed pause. It freezes the current tree
-            // and prevents a subsequent window blur from resetting its progress.
-            this.continuityBroken = true;
+            // A phrase-level END can arrive while continuous TTS auto-advance
+            // is still active. Only a real playback stop freezes continuity.
+            this.continuityBroken = !this.isPlaybackActive();
         }
     }
 
@@ -169,36 +171,30 @@ export class ActiveReadingTracker {
         this.onInterrupted?.({ reason });
     }
 
-    _bindFocusListeners() {
-        if (this.focusListenersBound) return;
+    _bindLifecycleListeners() {
+        if (this.lifecycleListenersBound) return;
         this.visibilityHandler = () => {
-            if (this.documentObject?.visibilityState === "hidden") this._interrupt("tab-hidden");
-            else this._restartContinuityClock();
+            if (this.documentObject?.visibilityState === "hidden") {
+                this._interrupt("tab-hidden");
+                this.onHidden?.();
+                return;
+            }
+            // Returning to the PWA never resumes TTS automatically.
+            this.lastTickAt = this.performanceNow();
         };
-        // Page Visibility is the interoperable lifecycle signal. Window blur
-        // also fires for browser chrome and focus-management interactions in
-        // browser-specific ways, so it must not invalidate reading.
-        this.blurHandler = () => {};
-        this.focusHandler = () => this._restartContinuityClock();
-        this.pageHideHandler = () => this._interrupt("page-left");
+        this.pageHideHandler = () => {
+            this._interrupt("page-left");
+            this.onHidden?.();
+        };
         this.documentObject?.addEventListener?.("visibilitychange", this.visibilityHandler);
-        this.windowObject?.addEventListener?.("blur", this.blurHandler);
-        this.windowObject?.addEventListener?.("focus", this.focusHandler);
         this.windowObject?.addEventListener?.("pagehide", this.pageHideHandler);
-        this.focusListenersBound = true;
+        this.lifecycleListenersBound = true;
     }
 
-    _unbindFocusListeners() {
-        if (!this.focusListenersBound) return;
+    _unbindLifecycleListeners() {
+        if (!this.lifecycleListenersBound) return;
         this.documentObject?.removeEventListener?.("visibilitychange", this.visibilityHandler);
-        this.windowObject?.removeEventListener?.("blur", this.blurHandler);
-        this.windowObject?.removeEventListener?.("focus", this.focusHandler);
         this.windowObject?.removeEventListener?.("pagehide", this.pageHideHandler);
-        this.focusListenersBound = false;
-    }
-
-    _restartContinuityClock() {
-        this.lastTickAt = this.performanceNow();
-        if (this.isEligible()) this.continuityBroken = false;
+        this.lifecycleListenersBound = false;
     }
 }

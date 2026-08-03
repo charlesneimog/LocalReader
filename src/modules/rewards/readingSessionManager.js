@@ -210,7 +210,7 @@ export class ReadingSessionManager {
                 if (current && [SESSION_STATES.PAUSED, SESSION_STATES.IDLE_TIMEOUT].includes(current.state)) {
                     return await this.resume();
                 }
-                if (current) return current;
+                if (current) return await this._activateRuntimeSession(current);
             }
         }
         return await this.start({
@@ -244,6 +244,17 @@ export class ReadingSessionManager {
         this.tracker.start();
         this.eventBus?.emit(EVENTS.READING_SESSION_RESUMED, this.getCurrentSession());
         return this.getCurrentSession();
+    }
+
+    async _activateRuntimeSession(session) {
+        if (!session || session.state !== SESSION_STATES.ACTIVE) return session;
+        if (!this.lock.sessionId && !this.lock.acquire(session.id)) {
+            throw new Error("Another tab already has an active reading session.");
+        }
+        this.lifecycleState = SESSION_STATES.ACTIVE;
+        this.tracker.setPaused(false);
+        this.tracker.start();
+        return this.getCurrentSession() || session;
     }
 
     async complete() {

@@ -44,6 +44,14 @@ export class RewardsController {
             getPlaybackActive: () => !!(
                 app.state?.isPlaying || app.state?.autoAdvanceActive
             ),
+            onHidden: () => {
+                // Page Visibility is the single boundary for leaving the PWA.
+                // stopPlayback changes the player state synchronously and emits
+                // the normal pause event; returning never auto-resumes it.
+                app.audioManager?.stopPlayback?.(false)?.catch?.((error) => {
+                    console.error("[RewardsController] Failed to pause hidden TTS", error);
+                });
+            },
         });
         this.adapter = new ReadingEventAdapter({ app, tracker: this.tracker });
         this.sessions = new ReadingSessionManager({
@@ -459,6 +467,12 @@ export class RewardsController {
     async mergeRemote(snapshot) {
         const merged = await this.storage.merge(snapshot);
         await this.storage.transaction((state) => this.rewardEngine.recomputeBalance(state));
+        if (
+            (this.app.state?.isPlaying || this.app.state?.autoAdvanceActive) &&
+            this.adapter.getDocumentDescriptor()
+        ) {
+            await this._ensureAutomaticTree();
+        }
         this._refresh();
         return merged;
     }

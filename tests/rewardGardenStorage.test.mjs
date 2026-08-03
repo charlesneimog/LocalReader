@@ -107,6 +107,58 @@ test("reward ledger merges by transaction ID without duplication", () => {
     assert.equal(merged.gardenPlots.length, 1);
 });
 
+test("account sync cannot replace the session currently running on this device", () => {
+    const base = migrateRewardState(null, config, 1);
+    const localSession = {
+        id: "session-live",
+        state: "active",
+        plantId: "plant-live",
+        activeReadingMs: 3000,
+        updatedAt: 10,
+    };
+    const remoteSession = {
+        ...localSession,
+        state: "paused",
+        activeReadingMs: 0,
+        updatedAt: 999999,
+    };
+    const localPlant = {
+        id: "plant-live",
+        speciesId: "minute-sprout",
+        stage: "sprout",
+        growthProgress: 0.25,
+        updatedAt: 10,
+    };
+    const remotePlant = {
+        ...localPlant,
+        stage: "seed",
+        growthProgress: 0,
+        updatedAt: 999999,
+    };
+
+    const merged = mergeRewardStates(
+        {
+            ...base,
+            sessions: [localSession],
+            currentSession: localSession,
+            plants: [localPlant],
+        },
+        {
+            ...base,
+            sessions: [remoteSession],
+            currentSession: remoteSession,
+            plants: [remotePlant],
+        },
+        config,
+        20,
+    );
+
+    assert.equal(merged.currentSession.state, "active");
+    assert.equal(merged.currentSession.activeReadingMs, 3000);
+    assert.equal(merged.sessions.find((session) => session.id === "session-live").state, "active");
+    assert.equal(merged.plants.find((plant) => plant.id === "plant-live").growthProgress, 0.25);
+});
+
 test("a removed tree tombstone wins over an older synced copy", () => {
     const base = migrateRewardState(null, config, 1);
     const remoteTree = {

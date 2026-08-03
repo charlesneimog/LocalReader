@@ -13,7 +13,7 @@ function fixture() {
     const deltas = [];
     let idleCount = 0;
     const interruptions = [];
-    const documentObject = { visibilityState: "visible", hasFocus: () => true };
+    const documentObject = { visibilityState: "visible" };
     const tracker = new ActiveReadingTracker({
         config,
         onDelta: (delta) => deltas.push(delta),
@@ -49,9 +49,8 @@ test("counts active reading but not explicit pause", () => {
     assert.deepEqual(item.deltas, [1000, 1000]);
 });
 
-test("hidden tabs do not count while harmless window blur does", () => {
+test("hidden tabs reset continuity and stop counting", () => {
     const item = fixture();
-    item.tracker.blurHandler();
     assert.equal(item.advance(1000), 1000);
     assert.deepEqual(item.interruptions, []);
 
@@ -61,25 +60,57 @@ test("hidden tabs do not count while harmless window blur does", () => {
     assert.deepEqual(item.interruptions, [{ reason: "tab-hidden" }]);
 });
 
-test("does not reject active Chromium playback because hasFocus polling is stale", () => {
+test("visible playback keeps counting", () => {
     const item = fixture();
-    item.documentObject.hasFocus = () => false;
 
     assert.equal(item.advance(1000), 1000);
     assert.deepEqual(item.interruptions, []);
 });
 
-test("visible mobile reading keeps counting when hasFocus is unreliable", () => {
+test("hiding the PWA requests TTS pause and returning does not resume it", () => {
+    let hiddenCount = 0;
+    let now = 0;
+    const documentObject = {
+        visibilityState: "visible",
+        addEventListener() {},
+        removeEventListener() {},
+    };
+    let tracker;
+    tracker = new ActiveReadingTracker({
+        config,
+        onHidden: () => {
+            hiddenCount++;
+            tracker.setTtsPlaying(false);
+        },
+        performanceNow: () => now,
+        documentObject,
+        windowObject: { addEventListener() {}, removeEventListener() {} },
+        setIntervalFn: () => 1,
+        clearIntervalFn: () => {},
+    });
+    tracker.setPaused(false);
+    tracker.setTtsPlaying(true);
+    tracker.start();
+
+    documentObject.visibilityState = "hidden";
+    tracker.visibilityHandler();
+    assert.equal(hiddenCount, 1);
+
+    documentObject.visibilityState = "visible";
+    tracker.visibilityHandler();
+    assert.equal(hiddenCount, 1);
+    assert.equal(tracker.ttsPlaying, false);
+});
+
+test("visible mobile reading keeps counting", () => {
     let now = 0;
     const interruptions = [];
     const documentObject = {
         visibilityState: "visible",
-        hasFocus: () => false,
         addEventListener() {},
         removeEventListener() {},
     };
     const windowObject = {
-        matchMedia: () => ({ matches: true }),
         addEventListener() {},
         removeEventListener() {},
     };
@@ -100,7 +131,6 @@ test("visible mobile reading keeps counting when hasFocus is unreliable", () => 
 
     now += 1000;
     assert.equal(tracker.tick(now), 1000);
-    tracker.blurHandler();
     assert.deepEqual(interruptions, []);
 
     documentObject.visibilityState = "hidden";
@@ -165,11 +195,9 @@ test("loading and allowed playback pauses do not count or break tree continuity"
     assert.equal(item.advance(30000), 0);
     assert.deepEqual(item.interruptions, []);
 
-    item.documentObject.hasFocus = () => false;
     assert.equal(item.advance(1000), 0);
     assert.deepEqual(item.interruptions, []);
 
-    item.documentObject.hasFocus = () => true;
     item.tracker.setTtsPlaying(true);
     assert.equal(item.advance(1000), 1000);
 });

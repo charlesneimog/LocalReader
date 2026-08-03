@@ -28,13 +28,26 @@ export function mergeRewardStates(localInput, remoteInput, config = {}, now = Da
     const rewardLedger = [...ledger.values()].sort(
         (left, right) => Number(left.timestamp) - Number(right.timestamp) || left.id.localeCompare(right.id),
     );
-    const plants = newestById(local.plants, remote.plants);
+    let plants = newestById(local.plants, remote.plants);
     const gardenPlots = newestById(local.gardenPlots, remote.gardenPlots);
+    const localCurrentSession = local.currentSession;
+    const currentSessionCandidates = [localCurrentSession, remote.currentSession].filter(Boolean);
+    // The session running in this tab is runtime state, not a last-write-wins
+    // entity. Account sync must never swap it for a paused/server session while
+    // its monotonic clock is active. Remote currentSession is adopted only when
+    // this device has no current session.
+    const currentSession = structuredCloneSafe(
+        localCurrentSession || currentSessionCandidates.sort(
+            (left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0),
+        )[0] || null,
+    );
+    let sessions = newestById(local.sessions, remote.sessions);
+    if (localCurrentSession) {
+        sessions = replaceEntity(sessions, localCurrentSession);
+        const localPlant = local.plants.find((plant) => plant.id === localCurrentSession.plantId);
+        if (localPlant) plants = replaceEntity(plants, localPlant);
+    }
     relocateGardenConflicts(plants, gardenPlots);
-    const currentSessionCandidates = [local.currentSession, remote.currentSession].filter(Boolean);
-    const currentSession = currentSessionCandidates.sort(
-        (left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0),
-    )[0] || null;
 
     return migrateRewardState({
         ...local,
@@ -50,7 +63,7 @@ export function mergeRewardStates(localInput, remoteInput, config = {}, now = Da
             Number(remote.timeRewardRemainderMs) || 0,
         ),
         rewardLedger,
-        sessions: newestById(local.sessions, remote.sessions),
+        sessions,
         currentSession,
         gardenPlots,
         plants,
@@ -68,6 +81,12 @@ export function mergeRewardStates(localInput, remoteInput, config = {}, now = Da
         ) || null,
         dailyRewardCaps: mergeDailyCaps(local.dailyRewardCaps, remote.dailyRewardCaps),
     }, config, now);
+}
+
+function replaceEntity(entities, authoritative) {
+    const next = entities.filter((entity) => entity.id !== authoritative.id);
+    next.push(structuredCloneSafe(authoritative));
+    return next;
 }
 
 function mergeMaxMap(left, right) {

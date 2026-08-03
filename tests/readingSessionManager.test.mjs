@@ -236,3 +236,16 @@ test("automatic sessions adopt catalog changes without manual reset", async () =
     assert.equal(synchronized.plantId, item.manager.getCurrentSession().plantId);
     assert.equal(synchronized.goalMs, AUTOMATIC_TREE_GOAL_MS);
 });
+
+test("an active session imported by account sync reactivates the runtime tracker", async () => {
+    const item = await fixture();
+    const session = await item.manager.ensureAutomatic();
+    item.tracker.paused = true;
+    item.lock.sessionId = null;
+
+    const adopted = await item.manager.ensureAutomatic();
+
+    assert.equal(adopted.id, session.id);
+    assert.equal(item.tracker.paused, false);
+    assert.equal(item.lock.sessionId, session.id);
+});

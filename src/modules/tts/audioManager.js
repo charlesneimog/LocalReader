@@ -769,7 +769,7 @@ export class AudioManager {
         audio.style.display = "none";
 
         audio.addEventListener("play", () => {
-            if (this._mediaBridgeSyncing || this.app.state.isPlaying) return;
+            if (audio !== this._mediaBridgeAudio || this._mediaBridgeSyncing || this.app.state.isPlaying) return;
             this.playCurrentSentence().catch((error) => {
                 console.warn("[MediaBridge] Failed to resume playback", error);
             });
@@ -778,7 +778,14 @@ export class AudioManager {
         audio.addEventListener("pause", () => {
             // Natural completion can emit `pause` immediately before `ended` in
             // WebKit. Let `onended` own auto-advance in that case.
-            if (this._mediaBridgeSyncing || audio.ended || !this.app.state.isPlaying) return;
+            if (
+                audio !== this._mediaBridgeAudio ||
+                this._mediaBridgeSyncing ||
+                audio.ended ||
+                !this.app.state.isPlaying
+            ) {
+                return;
+            }
             this.stopPlayback(true).catch((error) => {
                 console.warn("[MediaBridge] Failed to pause playback", error);
             });

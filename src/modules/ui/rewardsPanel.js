@@ -31,6 +31,10 @@ export class RewardsPanel {
                     <img data-current-tree class="h-8" alt="">
                     <span data-counting-dot class="reward-counting-dot reward-counting-dot--inactive" aria-hidden="true"></span>
                 </span>
+                <span data-home-garden class="flex items-center gap-1" aria-hidden="true">
+                    <span class="material-symbols-outlined text-xl">forest</span>
+                    <span data-tree-count class="text-xs">0</span>
+                </span>
                 <span data-progress class="reward-visually-hidden">Garden</span>
             </button>
             <div class="reward-visually-hidden" data-accessible></div>
@@ -41,8 +45,8 @@ export class RewardsPanel {
     }
 
     update({ documentOpen, session, summary, currentPlantStage, activelyCounting = false }) {
-        this.element.classList.toggle("hidden", !documentOpen);
-        this.element.classList.toggle("flex", !!documentOpen);
+        this.element.classList.remove("hidden");
+        this.element.classList.add("flex");
         const gardenButton = this.element.querySelector("[data-garden]");
         gardenButton.disabled = !summary;
         gardenButton.classList.toggle("reward-garden-button--reading", !!documentOpen);
@@ -53,6 +57,10 @@ export class RewardsPanel {
         const showTree = !!documentOpen && !!currentDefinition?.image;
         this.element.querySelector("[data-tree-status]").classList.toggle("hidden", !showTree);
         this.element.querySelector("[data-tree-status]").classList.toggle("flex", showTree);
+        const homeGarden = this.element.querySelector("[data-home-garden]");
+        homeGarden.classList.toggle("hidden", !!documentOpen);
+        homeGarden.classList.toggle("flex", !documentOpen);
+        homeGarden.querySelector("[data-tree-count]").textContent = summary?.maturePlantCount || 0;
         if (image.getAttribute("src") !== (currentDefinition?.image || "")) {
             image.src = currentDefinition?.image || "";
         }

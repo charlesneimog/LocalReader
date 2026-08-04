@@ -40,6 +40,10 @@
     filter: none !important;
 }
 
+.garden-remove-button .material-symbols-outlined {
+    line-height: 1;
+}
+
 .reward-plant-radio {
     accent-color: var(--color-primary);
 }

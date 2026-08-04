@@ -4,6 +4,7 @@ import { CONFIG } from "../src/config.js";
 import { deterministicAvailableCell, GardenManager } from "../src/modules/rewards/gardenManager.js";
 import {
     AUTOMATIC_TREE_DEFINITIONS,
+    getAutomaticTreeDurationSeconds,
     getAutomaticTreeTier,
     getPlantStage,
 } from "../src/modules/rewards/plantDefinitions.js";
@@ -379,7 +380,7 @@ test("a garden tree resolves its saved reading note", () => {
     );
 });
 
-test("automatic tree catalog uses the shared configured duration", () => {
+test("each completed automatic tree adds exactly one second to the next goal", () => {
     const minuteTree = {
         id: "minute-1",
         speciesId: "minute-sprout",
@@ -390,19 +391,21 @@ test("automatic tree catalog uses the shared configured duration", () => {
         speciesId: "reading-sapling",
         stage: "mature",
     };
-    const duration = CONFIG.REWARDS.treePlantingIntervalMinutes;
-    assert.equal(getAutomaticTreeTier([]).definition.durationMinutes, duration);
-    assert.equal(getAutomaticTreeTier([minuteTree]).definition.durationMinutes, duration);
+    const baseSeconds = CONFIG.REWARDS.treePlantingIntervalMinutes * 60;
+    assert.equal(getAutomaticTreeDurationSeconds([]), baseSeconds);
+    assert.equal(getAutomaticTreeDurationSeconds([minuteTree]), baseSeconds + 1);
+    assert.equal(getAutomaticTreeTier([]).definition.durationSeconds, baseSeconds);
+    assert.equal(getAutomaticTreeTier([minuteTree]).definition.durationSeconds, baseSeconds + 1);
     const nextTier = getAutomaticTreeTier([minuteTree, sapling]);
     assert.equal(nextTier.definition.id, "aurora-pine");
-    assert.equal(nextTier.definition.durationMinutes, duration);
+    assert.equal(nextTier.definition.durationSeconds, baseSeconds + 2);
     assert.deepEqual(
         AUTOMATIC_TREE_DEFINITIONS.map((definition) => definition.durationMinutes),
-        Array.from({ length: 25 }, () => duration),
+        Array.from({ length: 25 }, () => CONFIG.REWARDS.treePlantingIntervalMinutes),
     );
 });
 
-test("the final automatic tree repeats at the configured interval", () => {
+test("automatic tree duration stops increasing at ten minutes", () => {
     const completedEarlierTiers = AUTOMATIC_TREE_DEFINITIONS.slice(0, -1).map((definition, index) => ({
         id: `tree-${index}`,
         speciesId: definition.id,
@@ -416,12 +419,15 @@ test("the final automatic tree repeats at the configured interval", () => {
     const secondBuriti = { ...buriti, id: "buriti-2" };
     const thirdBuriti = { ...buriti, id: "buriti-3" };
 
-    const duration = CONFIG.REWARDS.treePlantingIntervalMinutes;
-    assert.equal(getAutomaticTreeTier(completedEarlierTiers).definition.durationMinutes, duration);
-    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti]).definition.durationMinutes, duration);
-    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti]).definition.durationMinutes, duration);
-    assert.equal(
-        getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti, thirdBuriti]).definition.durationMinutes,
-        duration,
-    );
+    assert.equal(getAutomaticTreeTier(completedEarlierTiers).definition.durationSeconds, 324);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti]).definition.durationSeconds, 325);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti]).definition.durationSeconds, 326);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti, thirdBuriti]).definition.durationSeconds, 327);
+
+    const manyCompletedTrees = Array.from({ length: 500 }, (_, index) => ({
+        id: `completed-${index}`,
+        speciesId: "buriti-sun-palm",
+        stage: "mature",
+    }));
+    assert.equal(getAutomaticTreeDurationSeconds(manyCompletedTrees), 600);
 });

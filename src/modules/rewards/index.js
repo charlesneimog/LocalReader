@@ -504,7 +504,10 @@ export class RewardsController {
         this.app.state.rewards.garden = { plots: state.gardenPlots, plants: state.plants };
         this.app.state.rewards.summary = summary;
         this.panel?.update({
-            documentOpen: !!this.adapter.getDocumentDescriptor(),
+            // documentClosed() clears this projection before the document
+            // renderer releases its state. Using only the descriptor here can
+            // leave the tree visible on Home during that teardown window.
+            documentOpen: !!this.app.state.rewards.document && !!this.adapter.getDocumentDescriptor(),
             session,
             summary,
             currentPlantStage: stage,

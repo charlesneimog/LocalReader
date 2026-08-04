@@ -13,24 +13,20 @@ The ladder is defined in
 `assets/rewards/trees/catalog.json`. The first incomplete tier is selected
 deterministically:
 
-| Tier | Cumulative reading time | Active reading per tree |
-| --- | ---: | ---: |
-| Minute Sprout | 5 minutes | 5 minutes |
-| Reading Sapling | 10 minutes | 5 minutes |
-| Aurora Pine | 15 minutes | 5 minutes |
-| Later catalog trees | Each additional 5 minutes | 5 minutes |
-| Buriti Sun Palm | After the catalog is completed | Repeats every 5 minutes |
+The first tree requires 5:00 of active reading. Every completed automatic tree
+adds exactly one second to the next tree's goal: 5:01, 5:02, 5:03, and so on.
+The increase stops at 10:00, and all later trees keep that ten-minute goal.
 
 Growth is based on accumulated verified playback milliseconds. An intentional
 pause freezes the current tree, including while the reader switches away to
 search or take notes. Loading and other non-reading time also freeze it. Losing
 tab or window focus while playback is still active resets the current tree's
-five-minute clock to zero. At 20%, 45%, 75%, and 100%, the tree advances through
+clock to zero. At 20%, 45%, 75%, and 100%, the tree advances through
 its visual stages. When a tree reaches 100%, it is completed and placed
 automatically, and the next tier starts without interrupting reading.
 
 Every completed tree requires the reader to write a paragraph about what they
-read during that five-minute block. Phrase/TTS playback and the next tree's
+read during that tree's timed block. Phrase/TTS playback and the next tree's
 active-reading clock pause while the modal prompt is open. The prompt cannot be
 skipped or dismissed; saving a valid paragraph closes it and resumes reading
 from the current phrase. The paragraph is shown as that tree's reading note in
@@ -45,8 +41,8 @@ boundary or TTS playback finishes. The neutral notification reads:
 Edit `assets/rewards/trees/catalog.json` to change the order, reading duration,
 number of completions needed to advance, display name, rarity, palette, or image
 path. Tree IDs must remain unique. `requiredCompletions: null` makes a tier
-repeat indefinitely, so it is normally used on the last entry. All automatic
-entries currently use the same five-minute duration.
+repeat indefinitely, so it is normally used on the last entry. The initial,
+increment, and maximum durations are configured centrally in `src/config.js`.
 
 `groundAnchor` is the vertical position of the image's ground shadow as a
 fraction of its SVG height. For example, `0.92` means the shadow is 92% down the
@@ -96,10 +92,10 @@ utilities: visually-hidden content, the dialog backdrop/centering rule, Canvas
 filter reset, and radio accent color. Reward dialogs use native modal semantics
 and are centered with `position: fixed`, `inset: 0`, and automatic margins.
 
-The quiet top-right garden button shows only the current tree image. Its name
-remains available to assistive technology.
-There is no ticking timer, moving progress bar, percentage, or second reward
-toolbar over the reader controls. The garden dialog includes the isometric
+The quiet top-right garden button shows the current tree inside a one-pixel
+rounded progress outline. The outline fills with the active-reading fraction of
+the current tree goal, while the exact elapsed and target times remain available
+to assistive technology. The garden dialog includes the isometric
 Canvas, a keyboard-accessible textual list, weekly status, occupancy, and the
 append-only reward history.
 
@@ -156,18 +152,18 @@ relocates garden-cell conflicts.
 
 ## Manual test checklist
 
-1. Open a PDF or EPUB and confirm a five-minute Minute Sprout appears without
+1. Open a PDF or EPUB and confirm a 5:00 Minute Sprout appears without
    clicking Start.
-2. Navigate/read normally and confirm the quiet top-right tree indicator stays
-   visually static.
+2. Navigate/read normally and confirm the quiet top-right outline advances with
+   the current tree's active reading.
 3. Partially grow a tree, then hide the tab, blur the window, open a non-reading
    dialog, close the document, pause, and exceed idle timeout; confirm each
    interruption retains the unfinished tree's progress while counting stops.
-4. Reach five active minutes and confirm the first tree is placed automatically.
+4. Reach 5:00 of active reading and confirm the first tree is placed automatically.
 5. Finish or navigate to the next sentence and confirm one earned-tree notice.
 6. Reload midway through a tree and confirm its partial progress is retained.
-7. Confirm a new, increasingly elaborate tree is planted after every additional
-   five active minutes. Confirm playback pauses at the required paragraph prompt
+7. Confirm each new tree requires exactly one second more than the previous tree,
+   up to the 10:00 cap. Confirm playback pauses at the required paragraph prompt
    and resumes only after the paragraph is saved.
 8. Open the garden in light and dark modes and at narrow/mobile widths; confirm
    the modal remains centered and keyboard cell selection works.

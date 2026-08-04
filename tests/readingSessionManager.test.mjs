@@ -217,7 +217,7 @@ test("automatic reading plants a new tree at the configured interval", async () 
     assert.equal(item.storage.getSnapshot().reflections.length, 0);
 
     const next = await item.manager.ensureAutomatic();
-    assert.equal(next.goalMs, AUTOMATIC_TREE_GOAL_MS);
+    assert.equal(next.goalMs, AUTOMATIC_TREE_GOAL_MS + 1000);
     assert.equal(item.storage.getSnapshot().plants.find(
         (plant) => plant.id === next.plantId,
     ).speciesId, "reading-sapling");

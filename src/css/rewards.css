@@ -59,3 +59,76 @@
 .reward-counting-dot--inactive {
     background: #ef4444;
 }
+
+/* Keep the current tree compact while its outline shows the current goal. */
+.reward-garden-button--reading {
+    position: relative;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-width: 2.5rem;
+    padding: 0.25rem;
+    overflow: hidden;
+    border-color: transparent;
+    background: transparent;
+    backdrop-filter: none;
+    box-shadow: none;
+}
+
+.reward-reading-progress,
+.reward-reading-progress svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.reward-reading-progress.hidden {
+    display: none;
+}
+
+.reward-reading-progress {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+}
+
+.reward-reading-progress__track,
+.reward-reading-progress__value {
+    fill: none;
+    stroke-width: 1;
+}
+
+.reward-reading-progress__track {
+    stroke: rgba(148, 163, 184, 0.38);
+}
+
+.reward-reading-progress__value {
+    stroke: #22c55e;
+    stroke-linecap: round;
+    stroke-dasharray: 0 100;
+    transition: stroke-dasharray 0.35s linear;
+}
+
+html.amoled-mode .reward-garden-button--reading {
+    background: rgba(0, 0, 0, 0.82) !important;
+}
+
+.reward-garden-button--reading [data-tree-status] {
+    position: relative;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    justify-content: center;
+}
+
+.reward-garden-button--reading [data-current-tree] {
+    width: 1.75rem;
+    height: 1.75rem;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.reward-garden-button--reading [data-counting-dot] {
+    display: none;
+}

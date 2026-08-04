@@ -131,7 +131,7 @@ export class ReadingSessionManager {
                 session = {
                     id: sessionId,
                     state: SESSION_STATES.ACTIVE,
-                    goalMs: goal * 60000,
+                    goalMs: Math.round(goal * 60000),
                     activeReadingMs: 0,
                     pointsEarned: 0,
                     document,
@@ -194,7 +194,7 @@ export class ReadingSessionManager {
                     if (current.document?.id !== document.id || current.document?.type !== document.type) {
                         await this.resetContinuousProgress({ reason: "document-changed" });
                     }
-                    const expectedGoalMs = Number(tier.definition.durationMinutes) * 60000;
+                    const expectedGoalMs = Math.round(Number(tier.definition.durationMinutes) * 60000);
                     await this.storage.transaction((draft) => {
                         const stored = draft.sessions.find((candidate) => candidate.id === current.id);
                         const storedPlant = draft.plants.find((candidate) => candidate.id === current.plantId);

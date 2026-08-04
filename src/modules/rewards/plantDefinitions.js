@@ -82,6 +82,35 @@ export function getPlantStage(speciesId, pointsInvested, progressOverride = null
     return { ...stage, progress, percent: Math.floor(progress * 100) };
 }
 
+export function getAutomaticTreeDurationSeconds(plants = []) {
+    const automaticSpecies = new Set(AUTOMATIC_TREE_DEFINITIONS.map((definition) => definition.id));
+    const completedTrees = plants.filter(
+        (candidate) => automaticSpecies.has(candidate.speciesId) && candidate.stage === "mature",
+    ).length;
+    const baseSeconds = Math.max(
+        1,
+        Math.round(Number(CONFIG.REWARDS.treePlantingIntervalMinutes) * 60),
+    );
+    const incrementSeconds = Math.max(
+        0,
+        Number(CONFIG.REWARDS.treePlantingIncrementSeconds) || 0,
+    );
+    const configuredMaximumSeconds = Number(CONFIG.REWARDS.treePlantingMaximumMinutes) * 60;
+    const maximumSeconds = Number.isFinite(configuredMaximumSeconds) && configuredMaximumSeconds > 0
+        ? Math.max(baseSeconds, configuredMaximumSeconds)
+        : Number.POSITIVE_INFINITY;
+    return Math.min(maximumSeconds, baseSeconds + (completedTrees * incrementSeconds));
+}
+
+function withCurrentAutomaticDuration(definition, plants) {
+    const durationSeconds = getAutomaticTreeDurationSeconds(plants);
+    return Object.freeze({
+        ...definition,
+        durationSeconds,
+        durationMinutes: durationSeconds / 60,
+    });
+}
+
 /**
  * Select the first tree tier whose configured completion requirement has not
  * yet been met. The last tier repeats indefinitely when its requirement is null.
@@ -94,20 +123,7 @@ export function getAutomaticTreeTier(plants = []) {
         ).length;
         const required = Number(definition.requiredCompletions);
         if (!Number.isFinite(required) || required <= 0 || completed < required) {
-            const repeatIncrement = Math.max(0, Number(definition.repeatDurationIncrementMinutes) || 0);
-            const configuredMaximum = Number(definition.maximumDurationMinutes);
-            const maximumDuration = Number.isFinite(configuredMaximum) && configuredMaximum > 0
-                ? Math.max(Number(definition.durationMinutes) || 0, configuredMaximum)
-                : Number.POSITIVE_INFINITY;
-            const activeDefinition = repeatIncrement > 0 && completed > 0
-                ? Object.freeze({
-                    ...definition,
-                    durationMinutes: Math.min(
-                        maximumDuration,
-                        definition.durationMinutes + (completed * repeatIncrement),
-                    ),
-                })
-                : definition;
+            const activeDefinition = withCurrentAutomaticDuration(definition, plants);
             return {
                 definition: activeDefinition,
                 index,
@@ -118,7 +134,7 @@ export function getAutomaticTreeTier(plants = []) {
             };
         }
     }
-    const definition = AUTOMATIC_TREE_DEFINITIONS.at(-1);
+    const definition = withCurrentAutomaticDuration(AUTOMATIC_TREE_DEFINITIONS.at(-1), plants);
     return { definition, index: AUTOMATIC_TREE_DEFINITIONS.length - 1, completed: 0, required: null, remaining: null, next: null };
 }
 

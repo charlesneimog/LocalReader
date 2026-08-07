@@ -1,7 +1,65 @@
 import { GardenRenderer } from "../rewards/gardenRenderer.js";
 import { deterministicAvailableCell } from "../rewards/gardenManager.js";
-import { isTimestampInLocalPeriod } from "../rewards/rewardDefinitions.js";
-import { getPlantDefinition, getPlantStage } from "../rewards/plantDefinitions.js";
+import {
+    isTimestampInLocalPeriod,
+    localCalendarPeriodBounds,
+    localDateKey,
+} from "../rewards/rewardDefinitions.js";
+import {
+    getAutomaticTreeTier,
+    getPlantDefinition,
+    getPlantStage,
+} from "../rewards/plantDefinitions.js";
+
+export function activeReadingMillisecondsForPeriod(
+    activeTimeByDay,
+    period,
+    timestamp = Date.now(),
+    weekStartsOn = 1,
+) {
+    const bounds = localCalendarPeriodBounds(period, timestamp, weekStartsOn);
+    const startKey = localDateKey(bounds.start);
+    const endKey = localDateKey(bounds.end);
+    return Object.entries(activeTimeByDay || {}).reduce(
+        (total, [dateKey, milliseconds]) =>
+            dateKey >= startKey && dateKey < endKey
+                ? total + Math.max(0, Number(milliseconds) || 0)
+                : total,
+        0,
+    );
+}
+
+function quantity(value, singular, plural = `${singular}s`) {
+    return `${value} ${value === 1 ? singular : plural}`;
+}
+
+export function gardenReadingTimeMessage(state, timestamp = Date.now(), weekStartsOn = 1) {
+    const intervalSeconds = Math.max(
+        1,
+        Math.round(Number(getAutomaticTreeTier(state?.plants || []).definition.durationSeconds) || 0),
+    );
+    const minutes = Math.floor(intervalSeconds / 60);
+    const seconds = intervalSeconds % 60;
+    const interval = [
+        minutes ? quantity(minutes, "minute") : "",
+        seconds ? quantity(seconds, "second") : "",
+    ].filter(Boolean).join(" and ");
+    const periodMinutes = (period) => Math.floor(
+        activeReadingMillisecondsForPeriod(
+            state?.activeTimeByDay,
+            period,
+            timestamp,
+            weekStartsOn,
+        ) / 60000,
+    );
+
+    return [
+        `You are reading in tree-growing intervals of ${interval}.`,
+        `This week you read ${quantity(periodMinutes("week"), "minute")}.`,
+        `This month you read ${quantity(periodMinutes("month"), "minute")}.`,
+        `This year you read ${quantity(periodMinutes("year"), "minute")}.`,
+    ].join("\n");
+}
 
 export function gardenPlantsForPeriod(
     plants,
@@ -98,6 +156,7 @@ export class GardenDialog {
                     <button type="button" data-period="month" aria-pressed="false">Month</button>
                     <button type="button" data-period="year" aria-pressed="false">Year</button>
                 </div>
+                <p data-reading-time class="rounded-lg bg-primary/10 px-3 py-2 text-left text-xs leading-relaxed text-slate-600 dark:text-slate-300 whitespace-pre-line"></p>
                 <div class="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-black/20">
                     <canvas class="garden-canvas block w-full max-w-full bg-transparent" aria-label="Reading garden grid"></canvas>
                 </div>
@@ -147,6 +206,11 @@ export class GardenDialog {
         this._updatePeriodButtons();
 
         const timestamp = this.now();
+        this.dialog.querySelector("[data-reading-time]").textContent = gardenReadingTimeMessage(
+            state,
+            timestamp,
+            this.weekStartsOn,
+        );
         const periodPlants = gardenPlantsForPeriod(
             state.plants,
             this.period,

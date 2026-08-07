@@ -221,7 +221,7 @@
             "id": "buriti-sun-palm",
             "name": "Buriti Sun Palm",
             "rarity": "legendary",
-            "requiredCompletions": null,
+            "requiredCompletions": 1,
             "image": "./assets/rewards/trees/buriti-sun-palm.svg",
             "groundAnchor": 0.92,
             "palette": ["#e7782f", "#78c96f", "#327e88"]

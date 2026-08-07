@@ -14,6 +14,8 @@ import {
 } from "../src/modules/rewards/rewardMigrations.js";
 import { mergeRewardStates, relocateGardenConflicts } from "../src/modules/rewards/rewardStorage.js";
 import {
+    activeReadingMillisecondsForPeriod,
+    gardenReadingTimeMessage,
     gardenPositionSeedForPlant,
     gardenPlantsForPeriod,
     projectPlantsIntoGarden,
@@ -300,6 +302,35 @@ test("garden period views use local week, month, and year boundaries", () => {
     assert.deepEqual(gardenPlantsForPeriod(plants, "year", now, 1).map((plant) => plant.id), ["year", "month", "week"]);
 });
 
+test("garden popup summarizes the current interval and local reading totals", () => {
+    const now = new Date(2026, 6, 30, 12).getTime();
+    const state = {
+        plants: [{
+            id: "minute-tree",
+            speciesId: "minute-sprout",
+            stage: "mature",
+            completedAt: now - 1000,
+        }],
+        activeTimeByDay: {
+            "2026-07-30": 6 * 60000,
+            "2026-07-20": 4 * 60000,
+            "2026-01-05": 3 * 60000,
+            "2025-12-31": 99 * 60000,
+        },
+    };
+
+    assert.equal(activeReadingMillisecondsForPeriod(state.activeTimeByDay, "week", now, 1), 6 * 60000);
+    assert.equal(
+        gardenReadingTimeMessage(state, now, 1),
+        [
+            "You are reading in tree-growing intervals of 5 minutes and 1 second.",
+            "This week you read 6 minutes.",
+            "This month you read 10 minutes.",
+            "This year you read 13 minutes.",
+        ].join("\n"),
+    );
+});
+
 test("period projections add enough blocks for every visible tree", () => {
     const trees = Array.from({ length: 26 }, (_, index) => ({ id: `tree-${index}` }));
     const projection = projectPlantsIntoGarden(trees, {
@@ -430,4 +461,47 @@ test("automatic tree duration stops increasing at ten minutes", () => {
         stage: "mature",
     }));
     assert.equal(getAutomaticTreeDurationSeconds(manyCompletedTrees), 600);
+});
+
+test("automatic trees rotate through the catalog after every species is earned", () => {
+    const completedCatalog = AUTOMATIC_TREE_DEFINITIONS.map((definition, index) => ({
+        id: `tree-${index}`,
+        speciesId: definition.id,
+        stage: "mature",
+        completedAt: index + 1,
+    }));
+
+    assert.equal(getAutomaticTreeTier(completedCatalog).definition.id, "minute-sprout");
+    assert.equal(
+        getAutomaticTreeTier([
+            ...completedCatalog,
+            {
+                id: "rotated-minute",
+                speciesId: "minute-sprout",
+                stage: "mature",
+                completedAt: completedCatalog.length + 1,
+            },
+        ]).definition.id,
+        "reading-sapling",
+    );
+});
+
+test("existing Buriti repeats recover by restarting the catalog rotation", () => {
+    const completedCatalog = AUTOMATIC_TREE_DEFINITIONS.map((definition, index) => ({
+        id: `tree-${index}`,
+        speciesId: definition.id,
+        stage: "mature",
+        completedAt: index + 1,
+    }));
+    const oldBuritiRepeats = Array.from({ length: 4 }, (_, index) => ({
+        id: `old-buriti-${index}`,
+        speciesId: "buriti-sun-palm",
+        stage: "mature",
+        completedAt: completedCatalog.length + index + 1,
+    }));
+
+    assert.equal(
+        getAutomaticTreeTier([...completedCatalog, ...oldBuritiRepeats]).definition.id,
+        "minute-sprout",
+    );
 });

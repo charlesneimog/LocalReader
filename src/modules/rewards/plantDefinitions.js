@@ -111,10 +111,7 @@ function withCurrentAutomaticDuration(definition, plants) {
     });
 }
 
-/**
- * Select the first tree tier whose configured completion requirement has not
- * yet been met. The last tier repeats indefinitely when its requirement is null.
- */
+/** Select each catalog tree once, then keep rotating in catalog order. */
 export function getAutomaticTreeTier(plants = []) {
     for (let index = 0; index < AUTOMATIC_TREE_DEFINITIONS.length; index++) {
         const definition = AUTOMATIC_TREE_DEFINITIONS[index];
@@ -134,8 +131,30 @@ export function getAutomaticTreeTier(plants = []) {
             };
         }
     }
-    const definition = withCurrentAutomaticDuration(AUTOMATIC_TREE_DEFINITIONS.at(-1), plants);
-    return { definition, index: AUTOMATIC_TREE_DEFINITIONS.length - 1, completed: 0, required: null, remaining: null, next: null };
+
+    const automaticSpecies = new Set(AUTOMATIC_TREE_DEFINITIONS.map((definition) => definition.id));
+    const completedTrees = plants.filter(
+        (candidate) => automaticSpecies.has(candidate.speciesId) && candidate.stage === "mature",
+    );
+    const latestTree = completedTrees.reduce((latest, candidate) => {
+        if (!latest) return candidate;
+        const latestTimestamp = Number(latest.completedAt || latest.plantedAt || latest.updatedAt || 0);
+        const candidateTimestamp = Number(candidate.completedAt || candidate.plantedAt || candidate.updatedAt || 0);
+        return candidateTimestamp >= latestTimestamp ? candidate : latest;
+    }, null);
+    const latestIndex = AUTOMATIC_TREE_DEFINITIONS.findIndex(
+        (definition) => definition.id === latestTree?.speciesId,
+    );
+    const index = (latestIndex + 1) % AUTOMATIC_TREE_DEFINITIONS.length;
+    const definition = withCurrentAutomaticDuration(AUTOMATIC_TREE_DEFINITIONS[index], plants);
+    return {
+        definition,
+        index,
+        completed: completedTrees.filter((candidate) => candidate.speciesId === definition.id).length,
+        required: null,
+        remaining: null,
+        next: AUTOMATIC_TREE_DEFINITIONS[(index + 1) % AUTOMATIC_TREE_DEFINITIONS.length],
+    };
 }
 
 export function availablePlantDefinitions(totalEarnedPoints, unlocks = []) {

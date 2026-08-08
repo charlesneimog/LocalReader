@@ -8,6 +8,13 @@
  * - Error handling and retry mechanisms
  */
 
+export function calculatePdfReadingPercentage(currentPage, totalPages) {
+    const page = Number(currentPage);
+    const total = Number(totalPages);
+    if (!Number.isFinite(page) || !Number.isFinite(total) || total <= 0 || page <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((page / total) * 100)));
+}
+
 export class PDFThumbnailCache {
     constructor(app) {
         this.app = app;
@@ -331,13 +338,13 @@ export class PDFThumbnailCache {
 
         await page.render({ canvasContext: context, viewport }).promise;
 
-        this.populatePdfCard(cardElement, canvas, pdfBlob, pdfName, pdfKey);
+        this.populatePdfCard(cardElement, canvas, pdfBlob, pdfName, pdfKey, pdfDoc.numPages);
 
         // Setup cleanup observer
         this.setupCanvasCleanup(cardElement, canvas);
     }
 
-    populatePdfCard(cardElement, canvas, pdfBlob, pdfName, pdfKey) {
+    populatePdfCard(cardElement, canvas, pdfBlob, pdfName, pdfKey, totalPages) {
         // Update card styling
         cardElement.className =
             "group flex flex-col items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-md shadow-sm hover:shadow-md border border-slate-200 dark:border-slate-700 relative cursor-pointer min-w-0 box-border transition-shadow duration-200";
@@ -363,6 +370,20 @@ export class PDFThumbnailCache {
         const sizeMB = (pdfBlob.size / (1024 * 1024)).toFixed(1);
         size.textContent = `${sizeMB} MB`;
         size.className = "text-[9px] text-text-secondary dark:text-slate-400 text-center";
+
+        const saved = this.app.progressManager.loadSavedPosition(pdfKey, "pdf");
+        const progressPercent = calculatePdfReadingPercentage(saved?.currentPage, totalPages);
+        let progressLabel = cardElement.querySelector("p[data-progress]");
+        if (!progressLabel) {
+            progressLabel = document.createElement("p");
+            progressLabel.dataset.progress = "true";
+            progressLabel.className = "text-[9px] text-primary dark:text-primary text-center";
+            cardElement.appendChild(progressLabel);
+        }
+        progressLabel.textContent = `Progress: ${progressPercent}%`;
+        progressLabel.title = saved?.currentPage
+            ? `Page ${Math.min(saved.currentPage, totalPages)} of ${totalPages}`
+            : `${totalPages} pages`;
 
         // Add close button (visible on hover)
         this.addCloseButton(cardElement, pdfKey, pdfName, canvas, "pdf");

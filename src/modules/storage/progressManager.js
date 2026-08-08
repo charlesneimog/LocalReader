@@ -66,6 +66,14 @@ export class ProgressManager {
             ...existingEntry,
             sentenceIndex: state.currentSentenceIndex,
             totalSentences: state.sentences.length,
+            ...(docType === "pdf"
+                ? {
+                      currentPage: Number.isFinite(state.currentSentence?.pageNumber)
+                          ? state.currentSentence.pageNumber
+                          : 0,
+                      totalPages: Number.isFinite(state.pdf?.numPages) ? state.pdf.numPages : 0,
+                  }
+                : {}),
             updated: Date.now(),
             voice: state.currentPiperVoice,
             title: state.bookTitle || existingEntry.title || null,

@@ -40,6 +40,14 @@ export function deterministicAvailableCell(plot, plants, seed = "") {
     return available[0];
 }
 
+/** Return a square side that also leaves at least one side-length of free spots. */
+export function gardenSquareSideWithFreeSpots(plantCount, minimumSide = 1) {
+    const visiblePlants = Math.max(0, Math.floor(Number(plantCount) || 0));
+    let side = Math.max(1, Math.floor(Number(minimumSide) || 1));
+    while (side * side - visiblePlants < side) side += 1;
+    return side;
+}
+
 /** Pure garden entity creation, investment, and deterministic placement API. */
 export class GardenManager {
     constructor({ randomUUID } = {}) {
@@ -93,17 +101,22 @@ export class GardenManager {
         if (plant.cell) return { placed: true, plotId: plant.plotId, cell: plant.cell };
         const plot = state.gardenPlots[0];
         if (!plot) return { placed: false, reason: "missing-garden" };
-        let cell = deterministicAvailableCell(plot, state.plants, plant.id);
-        let expanded = false;
-        if (!cell) {
-            // Preserve the garden width and add the smallest useful unit: one
-            // row. This keeps every mature tree visible without imposing a
-            // fixed maximum capacity.
-            plot.rows = Math.max(1, Number(plot.rows) || 1) + 1;
+        const maturePlantCount = state.plants.filter(
+            (candidate) => candidate?.stage === "mature" && !candidate.deletedAt,
+        ).length;
+        const requiredSide = gardenSquareSideWithFreeSpots(
+            maturePlantCount,
+            Math.max(Number(plot.rows) || 1, Number(plot.columns) || 1),
+        );
+        const expanded = requiredSide !== Number(plot.rows) || requiredSide !== Number(plot.columns);
+        if (expanded) {
+            // Both dimensions grow together so the isometric plot always
+            // remains square while retaining a side-length of open spots.
+            plot.rows = requiredSide;
+            plot.columns = requiredSide;
             plot.updatedAt = timestamp;
-            expanded = true;
-            cell = deterministicAvailableCell(plot, state.plants, plant.id);
         }
+        const cell = deterministicAvailableCell(plot, state.plants, plant.id);
         if (cell) {
             plant.plotId = plot.id;
             plant.cell = cell;
@@ -115,11 +128,12 @@ export class GardenManager {
 
     createPlot(state, { name, rows, columns, timestamp = Date.now() }) {
         if (state.gardenPlots[0]) return state.gardenPlots[0];
+        const side = Math.max(1, Math.floor(Number(rows) || 1), Math.floor(Number(columns) || 1));
         const plot = {
             id: "garden-1",
             name: String(name || "Reading Garden"),
-            rows: Math.max(1, Math.floor(rows)),
-            columns: Math.max(1, Math.floor(columns)),
+            rows: side,
+            columns: side,
             createdAt: timestamp,
             updatedAt: timestamp,
         };

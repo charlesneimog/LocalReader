@@ -66,6 +66,30 @@ test("historical trees do not become mandatory reflection popups on startup", ()
     assert.deepEqual([...controller.notifiedTreeIds], ["old-tree-without-note"]);
 });
 
+test("a new PDF tree reflection remembers the text position where it was written", () => {
+    const controller = Object.create(RewardsController.prototype);
+    controller.app = {
+        state: {
+            currentDocumentType: "pdf",
+            currentSentenceIndex: 7,
+            sentences: Array.from({ length: 8 }, (_, index) => index === 7
+                ? { pageNumber: 3, text: "The final sentence in this reading block." }
+                : null),
+        },
+    };
+    controller.adapter = {
+        getDocumentDescriptor: () => ({ id: "book-1", type: "pdf" }),
+    };
+
+    assert.deepEqual(controller._captureReflectionAnchor("book-1"), {
+        documentType: "pdf",
+        sentenceIndex: 7,
+        pageNumber: 3,
+        text: "The final sentence in this reading block.",
+    });
+    assert.equal(controller._captureReflectionAnchor("another-book"), null);
+});
+
 test("removing a mature tree creates a sync-safe tombstone and clears pending prompts", async () => {
     const state = {
         plants: [{

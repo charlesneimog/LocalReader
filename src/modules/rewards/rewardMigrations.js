@@ -1,4 +1,5 @@
 import { localDateKey } from "./rewardDefinitions.js";
+import { gardenSquareSideWithFreeSpots } from "./gardenManager.js";
 
 export const REWARD_SCHEMA_VERSION = 2;
 
@@ -23,23 +24,21 @@ export function consolidateGardenPlots(state, config = {}, now = Date.now()) {
                 String(left.id).localeCompare(String(right.id)),
         );
     const preferred = candidates.find((plot) => plot.id === "garden-1") || candidates[0];
-    const columns = Math.max(
+    const minimumSide = Math.max(
+        fallbackRows,
         fallbackColumns,
+        ...candidates.map((plot) => Math.max(1, Number(plot.rows) || 1)),
         ...candidates.map((plot) => Math.max(1, Number(plot.columns) || 1)),
     );
     const visiblePlants = state.plants.filter((plant) => !plant?.deletedAt);
     const maturePlants = visiblePlants.filter((plant) => plant?.stage === "mature");
-    const rows = Math.max(
-        fallbackRows,
-        ...candidates.map((plot) => Math.max(1, Number(plot.rows) || 1)),
-        Math.ceil(maturePlants.length / columns),
-    );
-    const expanded = rows > Math.max(0, Number(preferred?.rows) || 0);
+    const side = gardenSquareSideWithFreeSpots(maturePlants.length, minimumSide);
+    const expanded = side !== Number(preferred?.rows) || side !== Number(preferred?.columns);
     const garden = {
         id: preferred?.id || "garden-1",
         name: "Reading Garden",
-        rows,
-        columns,
+        rows: side,
+        columns: side,
         createdAt: Number(preferred?.createdAt) || now,
         updatedAt: candidates.length > 1 || expanded
             ? now
@@ -93,8 +92,11 @@ export function consolidateGardenPlots(state, config = {}, now = Date.now()) {
 }
 
 export function createInitialRewardState(config = {}, now = Date.now()) {
-    const rows = Math.max(1, Number(config.defaultGardenRows) || 5);
-    const columns = Math.max(1, Number(config.defaultGardenColumns) || 5);
+    const side = Math.max(
+        1,
+        Math.floor(Number(config.defaultGardenRows) || 5),
+        Math.floor(Number(config.defaultGardenColumns) || 5),
+    );
     return {
         schemaVersion: REWARD_SCHEMA_VERSION,
         migrationVersion: REWARD_SCHEMA_VERSION,
@@ -109,8 +111,8 @@ export function createInitialRewardState(config = {}, now = Date.now()) {
         gardenPlots: [{
             id: "garden-1",
             name: "Reading Garden",
-            rows,
-            columns,
+            rows: side,
+            columns: side,
             createdAt: now,
             updatedAt: now,
         }],

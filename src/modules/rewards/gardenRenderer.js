@@ -1,5 +1,52 @@
 import { getPlantDefinition, getPlantStage } from "./plantDefinitions.js";
 
+const MATURE_PLANT_TO_TILE_WIDTH = 0.68;
+const TREE_ASSET_WIDTH = 90;
+const GROUND_FLOWER_POSITIONS = Object.freeze([
+    Object.freeze({ x: -0.31, y: 0.02 }),
+    Object.freeze({ x: 0.31, y: 0.02 }),
+    Object.freeze({ x: -0.23, y: -0.12 }),
+    Object.freeze({ x: 0.23, y: -0.12 }),
+    Object.freeze({ x: -0.20, y: 0.14 }),
+    Object.freeze({ x: 0.20, y: 0.14 }),
+]);
+const GROUND_FLOWER_COLORS = Object.freeze(["#fff3b0", "#f8c9d4", "#dbeafe", "#fff7ed"]);
+
+function decorationHash(x, y, salt = 0) {
+    return (
+        Math.imul(Number(x) + 1, 73856093) ^
+        Math.imul(Number(y) + 1, 19349663) ^
+        Math.imul(salt + 1, 83492791)
+    ) >>> 0;
+}
+
+/** Stable micro-flower positions around a cell's edges, away from its tree. */
+export function gardenSoilFlowers(cell, occupied = false) {
+    const seed = decorationHash(cell?.x || 0, cell?.y || 0);
+    const count = occupied
+        ? seed % 3
+        : 2 + seed % 4;
+    return Array.from({ length: count }, (_, index) => {
+        const variant = decorationHash(cell?.x || 0, cell?.y || 0, index + 1);
+        const position = GROUND_FLOWER_POSITIONS[
+            (variant + index * 3) % GROUND_FLOWER_POSITIONS.length
+        ];
+        return {
+            x: position.x + (((variant >>> 8) % 5) - 2) * 0.008,
+            y: position.y + (((variant >>> 12) % 5) - 2) * 0.006,
+            size: 0.90 + ((variant >>> 16) % 5) * 0.07,
+            color: GROUND_FLOWER_COLORS[(variant >>> 20) % GROUND_FLOWER_COLORS.length],
+        };
+    });
+}
+
+export function gardenPlantScale(tileWidth, progress) {
+    const safeTileWidth = Math.max(1, Number(tileWidth) || 1);
+    const stageProgress = Math.max(0, Math.min(1, Number(progress) || 0));
+    const growthScale = 0.3 + stageProgress * 0.7;
+    return growthScale * safeTileWidth * MATURE_PLANT_TO_TILE_WIDTH / TREE_ASSET_WIDTH;
+}
+
 function pointInDiamond(x, y, area) {
     const halfWidth = area.width / 2;
     const halfHeight = area.height / 2;
@@ -114,8 +161,8 @@ export class GardenRenderer {
         cells.sort((left, right) => left.depth - right.depth || left.y - right.y || left.x - right.x);
         for (const cell of cells) {
             const screen = this._screen(cell.x, cell.y, originX, originY, tileWidth, tileHeight);
-            this._drawTile(screen.x, screen.y, tileWidth, tileHeight, cell);
             const plant = plantsByCell.get(`${cell.x}:${cell.y}`);
+            this._drawTile(screen.x, screen.y, tileWidth, tileHeight, cell, !!plant);
             this.hitAreas.push({
                 cell,
                 plant,
@@ -124,7 +171,7 @@ export class GardenRenderer {
                 width: tileWidth,
                 height: tileHeight,
                 plantBounds: plant
-                    ? this._plantBounds(screen.x, screen.y, tileHeight, plant)
+                    ? this._plantBounds(screen.x, screen.y, tileWidth, tileHeight, plant)
                     : null,
                 plantMask: plant
                     ? this.imageMaskCache.get(getPlantDefinition(plant.speciesId).image)
@@ -150,7 +197,7 @@ export class GardenRenderer {
         };
     }
 
-    _drawTile(x, y, width, height, cell) {
+    _drawTile(x, y, width, height, cell, occupied = false) {
         const context = this.context;
         context.beginPath();
         context.moveTo(x, y - height / 2);
@@ -163,6 +210,42 @@ export class GardenRenderer {
         context.strokeStyle = "rgba(36, 82, 54, .35)";
         context.lineWidth = 1;
         context.stroke();
+        this._drawSoilFlowers(x, y, width, height, cell, occupied);
+    }
+
+    _drawSoilFlowers(x, y, width, height, cell, occupied) {
+        const context = this.context;
+        const flowers = gardenSoilFlowers(cell, occupied);
+        if (!flowers.length) return;
+        const baseRadius = Math.max(0.8, Math.min(1.45, width / 66));
+
+        context.save();
+        context.globalAlpha = occupied ? 0.38 : 0.60;
+        for (const flower of flowers) {
+            const flowerX = x + flower.x * width;
+            const flowerY = y + flower.y * height;
+            const radius = baseRadius * flower.size;
+            context.fillStyle = flower.color;
+            for (let petal = 0; petal < 4; petal++) {
+                const angle = petal * Math.PI / 2;
+                context.beginPath();
+                context.ellipse(
+                    flowerX + Math.cos(angle) * radius,
+                    flowerY + Math.sin(angle) * radius * 0.52,
+                    radius * 0.72,
+                    radius * 0.42,
+                    angle,
+                    0,
+                    Math.PI * 2,
+                );
+                context.fill();
+            }
+            context.fillStyle = "#d6a514";
+            context.beginPath();
+            context.ellipse(flowerX, flowerY, radius * 0.38, radius * 0.24, 0, 0, Math.PI * 2);
+            context.fill();
+        }
+        context.restore();
     }
 
     _drawSoil(originX, originY, tileWidth, tileHeight, depth, plot) {
@@ -243,7 +326,7 @@ export class GardenRenderer {
         const context = this.context;
         const definition = getPlantDefinition(plant.speciesId);
         const stage = getPlantStage(plant.speciesId, plant.pointsInvested, plant.growthProgress);
-        const scale = 0.3 + stage.progress * 0.7;
+        const scale = gardenPlantScale(tileWidth, stage.progress);
         // Keep the planting point just below the cell center. SVGs include
         // padding below their shadow, so the configured shadow line—not the
         // image bounding box—is aligned to this subtle offset.
@@ -305,10 +388,10 @@ export class GardenRenderer {
         context.restore();
     }
 
-    _plantBounds(x, y, tileHeight, plant) {
+    _plantBounds(x, y, tileWidth, tileHeight, plant) {
         const definition = getPlantDefinition(plant.speciesId);
         const stage = getPlantStage(plant.speciesId, plant.pointsInvested, plant.growthProgress);
-        const scale = 0.3 + stage.progress * 0.7;
+        const scale = gardenPlantScale(tileWidth, stage.progress);
         const baseY = y + tileHeight * 0.18;
         if (stage.id === "seed") {
             return { left: x - 8, right: x + 8, top: baseY - 10, bottom: baseY + 3 };

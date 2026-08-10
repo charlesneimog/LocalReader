@@ -1,5 +1,5 @@
 import { GardenRenderer } from "../rewards/gardenRenderer.js";
-import { deterministicAvailableCell } from "../rewards/gardenManager.js";
+import { deterministicAvailableCell, gardenSquareSideWithFreeSpots } from "../rewards/gardenManager.js";
 import {
     isTimestampInLocalPeriod,
     localCalendarPeriodBounds,
@@ -88,13 +88,11 @@ export function gardenPlantsForPeriod(
 }
 
 export function projectPlantsIntoGarden(plants, plot) {
-    const columns = Math.max(1, Number(plot.columns) || 1);
-    const rows = Math.max(
-        1,
-        Number(plot.rows) || 1,
-        Math.ceil(plants.length / columns),
+    const side = gardenSquareSideWithFreeSpots(
+        plants.length,
+        Math.max(1, Number(plot.rows) || 1, Number(plot.columns) || 1),
     );
-    const projectedPlot = { ...plot, rows, columns };
+    const projectedPlot = { ...plot, rows: side, columns: side };
     const positioned = [];
     for (const plant of plants) {
         const cell = deterministicAvailableCell(
@@ -112,6 +110,13 @@ export function projectPlantsIntoGarden(plants, plot) {
         plot: projectedPlot,
         plants: positioned,
     };
+}
+
+export function gardenMinimumSideForPeriod(period, yearMinimumSide = 5) {
+    const yearSide = Math.max(3, Math.floor(Number(yearMinimumSide) || 5));
+    if (period === "week") return Math.max(2, yearSide - 2);
+    if (period === "month") return Math.max(3, yearSide - 1);
+    return yearSide;
 }
 
 export function gardenPositionSeedForPlant(plant) {
@@ -221,9 +226,12 @@ export class GardenDialog {
             ...plant,
             reflectionText: reflectionTextForPlant(plant, state.reflections),
         }));
+        const periodSide = gardenMinimumSideForPeriod(this.period, this.minimumRows);
         const projection = projectPlantsIntoGarden(positionablePlants, {
-            ...plot,
-            rows: this.minimumRows,
+            id: plot.id,
+            name: plot.name,
+            rows: periodSide,
+            columns: periodSide,
         });
         this.renderer.render(projection);
     }

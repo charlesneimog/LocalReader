@@ -13,8 +13,9 @@ The ladder is defined in
 `assets/rewards/trees/catalog.json`. The first incomplete tier is selected
 deterministically:
 
-The first tree requires 5:00 of active reading. Every completed automatic tree
-adds exactly one second to the next tree's goal: 5:01, 5:02, 5:03, and so on.
+The first tree requires 5:00 of active reading. Each group of seven completed
+automatic trees adds one second to the next tree's goal: trees 1–7 use 5:00,
+trees 8–14 use 5:01, trees 15–21 use 5:02, and so on.
 The increase stops at 10:00, and all later trees keep that ten-minute goal.
 
 Growth is based on accumulated verified playback milliseconds. An intentional
@@ -106,8 +107,15 @@ view does not mutate stored tree positions. Trees have separate pointer targets,
 using their visible pixels rather than their transparent image rectangles, and
 selecting one shows the reading note saved when that tree was completed. The
 isometric garden is rendered as a raised grass-and-soil plot. It starts at 25
-blocks (5 by 5) and automatically adds rows as needed; period views likewise
-include enough blocks to show every Week, Month, or Year tree. Within each view,
+blocks (5 by 5) and expands both sides together, always remaining square while
+keeping at least one side-length of spots free. Period views preserve the same
+shape and breathing room while using different compact minimums: Week is 3 by
+3, Month is 4 by 4, and Year is 5 by 5. Any view grows beyond its minimum when
+needed to show all its trees. Trees render
+at about 68% of their garden spot's width. Stable, randomly scattered micro
+flowers decorate the grass near spot edges; occupied spots receive up to two
+muted flowers so this ground detail remains visually behind the trees.
+Within each view,
 trees are scattered deterministically from their saved reading note and tree ID;
 the layout remains stable and duplicate notes cannot cause cell conflicts.
 
@@ -115,6 +123,13 @@ After a tree is planted, its required paragraph is available by selecting the
 tree in the garden. Selecting a tree also exposes a **Remove tree** action. The
 action asks for confirmation and removes the tree from synchronized garden
 views without deleting its reading time, earned points, session, or saved note.
+
+For PDF books, each new paragraph also remembers the sentence where the tree
+was completed. Using the toolbar's save action exports those paragraphs as
+standard PDF note annotations in the right margin beside that sentence, along
+with any saved highlights. Selecting a note icon in a PDF reader opens the full
+paragraph. EPUB tree paragraphs remain available in the garden but are not
+written into an exported file.
 Trees completed before the current application run are never replayed as a
 backlog of mandatory paragraph dialogs when a document is opened.
 
@@ -162,7 +177,7 @@ relocates garden-cell conflicts.
 4. Reach 5:00 of active reading and confirm the first tree is placed automatically.
 5. Finish or navigate to the next sentence and confirm one earned-tree notice.
 6. Reload midway through a tree and confirm its partial progress is retained.
-7. Confirm each new tree requires exactly one second more than the previous tree,
+7. Confirm the goal increases by one second only after each group of seven trees,
    up to the 10:00 cap. Confirm playback pauses at the required paragraph prompt
    and resumes only after the paragraph is saved.
 8. Open the garden in light and dark modes and at narrow/mobile widths; confirm

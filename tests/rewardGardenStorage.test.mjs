@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG } from "../src/config.js";
-import { deterministicAvailableCell, GardenManager } from "../src/modules/rewards/gardenManager.js";
+import {
+    deterministicAvailableCell,
+    GardenManager,
+    gardenSquareSideWithFreeSpots,
+} from "../src/modules/rewards/gardenManager.js";
+import {
+    findGardenHitArea,
+    gardenPlantScale,
+    gardenSoilFlowers,
+} from "../src/modules/rewards/gardenRenderer.js";
 import {
     AUTOMATIC_TREE_DEFINITIONS,
     getAutomaticTreeDurationSeconds,
@@ -15,13 +24,13 @@ import {
 import { mergeRewardStates, relocateGardenConflicts } from "../src/modules/rewards/rewardStorage.js";
 import {
     activeReadingMillisecondsForPeriod,
+    gardenMinimumSideForPeriod,
     gardenReadingTimeMessage,
     gardenPositionSeedForPlant,
     gardenPlantsForPeriod,
     projectPlantsIntoGarden,
     reflectionTextForPlant,
 } from "../src/modules/ui/gardenDialog.js";
-import { findGardenHitArea } from "../src/modules/rewards/gardenRenderer.js";
 
 const config = { defaultGardenRows: 2, defaultGardenColumns: 2 };
 
@@ -54,7 +63,7 @@ test("deterministic placement never overwrites and reports a full garden", () =>
     assert.equal(deterministicAvailableCell(plot, plants), null);
 });
 
-test("placing a tree expands a full garden by one row", () => {
+test("placing a tree expands early enough to preserve free garden spots", () => {
     const manager = new GardenManager();
     const existing = {
         id: "existing", speciesId: "reading-sapling", stage: "mature",
@@ -72,7 +81,49 @@ test("placing a tree expands a full garden by one row", () => {
     assert.equal(result.placed, true);
     assert.equal(result.expanded, true);
     assert.equal(state.gardenPlots[0].rows, 2);
-    assert.deepEqual(newcomer.cell, { x: 0, y: 1 });
+    assert.equal(state.gardenPlots[0].columns, 2);
+    assert.equal(
+        state.gardenPlots[0].rows * state.gardenPlots[0].columns - state.plants.length,
+        2,
+    );
+    assert.notDeepEqual(newcomer.cell, existing.cell);
+    assert.ok(newcomer.cell.x >= 0 && newcomer.cell.x < 2);
+    assert.ok(newcomer.cell.y >= 0 && newcomer.cell.y < 2);
+});
+
+test("garden capacity stays square and reserves one side-length of empty spots", () => {
+    assert.equal(gardenSquareSideWithFreeSpots(0, 5), 5);
+    assert.equal(gardenSquareSideWithFreeSpots(20, 5), 5);
+    assert.equal(gardenSquareSideWithFreeSpots(21, 5), 6);
+    assert.equal(gardenSquareSideWithFreeSpots(26, 5), 6);
+});
+
+test("persisted rectangular gardens are normalized to their larger square side", () => {
+    const migrated = migrateRewardState({
+        gardenPlots: [{ id: "garden-1", rows: 4, columns: 7, createdAt: 1 }],
+        plants: [],
+    }, { defaultGardenRows: 5, defaultGardenColumns: 5 }, 2);
+
+    assert.equal(migrated.gardenPlots[0].rows, 7);
+    assert.equal(migrated.gardenPlots[0].columns, 7);
+});
+
+test("mature trees remain smaller than their isometric garden spots", () => {
+    assert.equal(gardenPlantScale(90, 1), 0.68);
+    assert.ok(gardenPlantScale(52, 1) * 90 < 52);
+    assert.ok(gardenPlantScale(90, 0.45) < gardenPlantScale(90, 1));
+});
+
+test("soil flowers are stable, tiny edge details that defer to trees", () => {
+    const cell = { x: 3, y: 2 };
+    const emptyFlowers = gardenSoilFlowers(cell, false);
+    const occupiedFlowers = gardenSoilFlowers(cell, true);
+    assert.deepEqual(gardenSoilFlowers(cell, false), emptyFlowers);
+    assert.ok(emptyFlowers.length >= 2 && emptyFlowers.length <= 5);
+    assert.ok(occupiedFlowers.length <= 2);
+    assert.ok(emptyFlowers.every((flower) =>
+        Math.abs(flower.x) >= 0.18 && flower.size <= 1.2,
+    ));
 });
 
 test("new trees use stable scattered garden positions", () => {
@@ -269,7 +320,7 @@ test("schema migration expands beyond 25 blocks and places waiting trees", () =>
         plants,
     }, { defaultGardenRows: 5, defaultGardenColumns: 5 }, 100);
     assert.equal(migrated.gardenPlots[0].rows, 6);
-    assert.equal(migrated.gardenPlots[0].columns, 5);
+    assert.equal(migrated.gardenPlots[0].columns, 6);
     assert.equal(migrated.plants.every((plant) => plant.cell), true);
     assert.equal(new Set(migrated.plants.map((plant) => `${plant.cell.x}:${plant.cell.y}`)).size, 26);
 });
@@ -302,6 +353,24 @@ test("garden period views use local week, month, and year boundaries", () => {
     assert.deepEqual(gardenPlantsForPeriod(plants, "year", now, 1).map((plant) => plant.id), ["year", "month", "week"]);
 });
 
+test("week, month, and year gardens use progressively larger square minimums", () => {
+    assert.equal(gardenMinimumSideForPeriod("week", 5), 3);
+    assert.equal(gardenMinimumSideForPeriod("month", 5), 4);
+    assert.equal(gardenMinimumSideForPeriod("year", 5), 5);
+
+    const twoTrees = [{ id: "one" }, { id: "two" }];
+    for (const [period, expectedSide] of [["week", 3], ["month", 4], ["year", 5]]) {
+        const minimumSide = gardenMinimumSideForPeriod(period, 5);
+        const projection = projectPlantsIntoGarden(twoTrees, {
+            id: "garden-1",
+            rows: minimumSide,
+            columns: minimumSide,
+        });
+        assert.equal(projection.plot.rows, expectedSide);
+        assert.equal(projection.plot.columns, expectedSide);
+    }
+});
+
 test("garden popup summarizes the current interval and local reading totals", () => {
     const now = new Date(2026, 6, 30, 12).getTime();
     const state = {
@@ -323,7 +392,7 @@ test("garden popup summarizes the current interval and local reading totals", ()
     assert.equal(
         gardenReadingTimeMessage(state, now, 1),
         [
-            "You are reading in tree-growing intervals of 5 minutes and 1 second.",
+            "You are reading in tree-growing intervals of 5 minutes.",
             "This week you read 6 minutes.",
             "This month you read 10 minutes.",
             "This year you read 13 minutes.",
@@ -337,7 +406,7 @@ test("period projections add enough blocks for every visible tree", () => {
         id: "garden-1", rows: 5, columns: 5,
     });
     assert.equal(projection.plot.rows, 6);
-    assert.equal(projection.plot.columns, 5);
+    assert.equal(projection.plot.columns, 6);
     assert.equal(projection.plants.length, 26);
     assert.equal(projection.plants.every((plant) => plant.cell), true);
 });
@@ -411,7 +480,7 @@ test("a garden tree resolves its saved reading note", () => {
     );
 });
 
-test("each completed automatic tree adds exactly one second to the next goal", () => {
+test("each group of seven automatic trees adds one second to the next goal", () => {
     const minuteTree = {
         id: "minute-1",
         speciesId: "minute-sprout",
@@ -424,12 +493,25 @@ test("each completed automatic tree adds exactly one second to the next goal", (
     };
     const baseSeconds = CONFIG.REWARDS.treePlantingIntervalMinutes * 60;
     assert.equal(getAutomaticTreeDurationSeconds([]), baseSeconds);
-    assert.equal(getAutomaticTreeDurationSeconds([minuteTree]), baseSeconds + 1);
+    assert.equal(getAutomaticTreeDurationSeconds([minuteTree]), baseSeconds);
     assert.equal(getAutomaticTreeTier([]).definition.durationSeconds, baseSeconds);
-    assert.equal(getAutomaticTreeTier([minuteTree]).definition.durationSeconds, baseSeconds + 1);
+    assert.equal(getAutomaticTreeTier([minuteTree]).definition.durationSeconds, baseSeconds);
     const nextTier = getAutomaticTreeTier([minuteTree, sapling]);
     assert.equal(nextTier.definition.id, "aurora-pine");
-    assert.equal(nextTier.definition.durationSeconds, baseSeconds + 2);
+    assert.equal(nextTier.definition.durationSeconds, baseSeconds);
+    const sevenCompletedTrees = AUTOMATIC_TREE_DEFINITIONS.slice(0, 7).map((definition, index) => ({
+        id: `first-group-${index}`,
+        speciesId: definition.id,
+        stage: "mature",
+    }));
+    assert.equal(getAutomaticTreeDurationSeconds(sevenCompletedTrees), baseSeconds + 1);
+    assert.equal(
+        getAutomaticTreeDurationSeconds([...sevenCompletedTrees, ...sevenCompletedTrees.map((tree) => ({
+            ...tree,
+            id: `second-group-${tree.id}`,
+        }))]),
+        baseSeconds + 2,
+    );
     assert.deepEqual(
         AUTOMATIC_TREE_DEFINITIONS.map((definition) => definition.durationMinutes),
         Array.from({ length: 25 }, () => CONFIG.REWARDS.treePlantingIntervalMinutes),
@@ -449,13 +531,15 @@ test("automatic tree duration stops increasing at ten minutes", () => {
     };
     const secondBuriti = { ...buriti, id: "buriti-2" };
     const thirdBuriti = { ...buriti, id: "buriti-3" };
+    const fourthBuriti = { ...buriti, id: "buriti-4" };
 
-    assert.equal(getAutomaticTreeTier(completedEarlierTiers).definition.durationSeconds, 324);
-    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti]).definition.durationSeconds, 325);
-    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti]).definition.durationSeconds, 326);
-    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti, thirdBuriti]).definition.durationSeconds, 327);
+    assert.equal(getAutomaticTreeTier(completedEarlierTiers).definition.durationSeconds, 303);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti]).definition.durationSeconds, 303);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti]).definition.durationSeconds, 303);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti, thirdBuriti]).definition.durationSeconds, 303);
+    assert.equal(getAutomaticTreeTier([...completedEarlierTiers, buriti, secondBuriti, thirdBuriti, fourthBuriti]).definition.durationSeconds, 304);
 
-    const manyCompletedTrees = Array.from({ length: 500 }, (_, index) => ({
+    const manyCompletedTrees = Array.from({ length: 2100 }, (_, index) => ({
         id: `completed-${index}`,
         speciesId: "buriti-sun-palm",
         stage: "mature",

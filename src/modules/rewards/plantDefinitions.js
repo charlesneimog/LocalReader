@@ -95,11 +95,16 @@ export function getAutomaticTreeDurationSeconds(plants = []) {
         0,
         Number(CONFIG.REWARDS.treePlantingIncrementSeconds) || 0,
     );
+    const incrementEveryTrees = Math.max(
+        1,
+        Math.floor(Number(CONFIG.REWARDS.treePlantingIncrementEveryTrees) || 1),
+    );
+    const completedGroups = Math.floor(completedTrees / incrementEveryTrees);
     const configuredMaximumSeconds = Number(CONFIG.REWARDS.treePlantingMaximumMinutes) * 60;
     const maximumSeconds = Number.isFinite(configuredMaximumSeconds) && configuredMaximumSeconds > 0
         ? Math.max(baseSeconds, configuredMaximumSeconds)
         : Number.POSITIVE_INFINITY;
-    return Math.min(maximumSeconds, baseSeconds + (completedTrees * incrementSeconds));
+    return Math.min(maximumSeconds, baseSeconds + (completedGroups * incrementSeconds));
 }
 
 function withCurrentAutomaticDuration(definition, plants) {

@@ -7,8 +7,9 @@ export class ExportManager {
 
     async exportPdfWithHighlights() {
         const { state, config } = this.app;
-        if (!state.currentPdfDescriptor || state.savedHighlights.size === 0) {
-            alert("No highlights to export or no PDF loaded.");
+        const treeNotes = this._getTreeNotesForCurrentPdf();
+        if (!state.currentPdfDescriptor || (state.savedHighlights.size === 0 && treeNotes.length === 0)) {
+            alert("No highlights or Reading Tree notes to export, or no PDF is loaded.");
             return;
         }
         try {
@@ -29,7 +30,25 @@ export class ExportManager {
 
             const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
             const pages = pdfDoc.getPages();
-            const { PDFName, PDFString, PDFNumber, PDFArray } = PDFLib;
+            const { PDFName, PDFString, PDFHexString, PDFNumber, PDFArray } = PDFLib;
+
+            const appendAnnotation = (page, annotationDict) => {
+                const annotationRef = pdfDoc.context.register(annotationDict);
+                const annotsKey = PDFName.of("Annots");
+                let annots = page.node.get(annotsKey);
+                let annotsArray;
+
+                if (!annots) {
+                    annotsArray = PDFArray.withContext(pdfDoc.context);
+                    const annotsRef = pdfDoc.context.register(annotsArray);
+                    page.node.set(annotsKey, annotsRef);
+                } else if (annots instanceof PDFArray) {
+                    annotsArray = annots;
+                } else {
+                    annotsArray = pdfDoc.context.lookup(annots, PDFArray);
+                }
+                annotsArray.push(annotationRef);
+            };
 
             const clamp01 = (n) => Math.min(1, Math.max(0, n));
             const highlightOpacity = clamp01(
@@ -164,29 +183,49 @@ export class ExportManager {
                     M: PDFString.fromDate(modifiedAt),
                 });
 
-                const highlightRef = pdfDoc.context.register(highlightDict);
+                appendAnnotation(page, highlightDict);
+            }
 
-                const annotsKey = PDFName.of("Annots");
-                let annots = page.node.get(annotsKey);
-                let annotsArray;
-
-                if (!annots) {
-                    annotsArray = PDFArray.withContext(pdfDoc.context);
-                    const annotsRef = pdfDoc.context.register(annotsArray);
-                    page.node.set(annotsKey, annotsRef);
-                } else if (annots instanceof PDFArray) {
-                    annotsArray = annots;
-                } else {
-                    annotsArray = pdfDoc.context.lookup(annots, PDFArray);
-                }
-
-                annotsArray.push(highlightRef);
+            // Tree reflections become ordinary PDF Text annotations. PDF
+            // readers display these as note icons and open the saved paragraph
+            // when the icon is selected.
+            const noteRowsByPage = new Map();
+            for (const note of treeNotes) {
+                const sentence = this._resolveTreeNoteSentence(note);
+                const pageNum = Number(sentence?.pageNumber || note.anchor?.pageNumber);
+                if (!Number.isInteger(pageNum) || pageNum < 1 || pageNum > pages.length) continue;
+                const page = pages[pageNum - 1];
+                const rect = this._getTreeNoteRect(page, pageNum, sentence, noteRowsByPage);
+                const createdAt = note.createdAt ? new Date(note.createdAt) : new Date();
+                const treeLabel = note.speciesId
+                    ? `Reading Tree — ${String(note.speciesId)
+                        .replace(/-/g, " ")
+                        .replace(/\b\w/g, (character) => character.toUpperCase())}`
+                    : "Reading Tree note";
+                const uniqueId = `tree-note-${note.id || `${pageNum}-${createdAt.getTime()}`}`;
+                const noteDict = pdfDoc.context.obj({
+                    Type: PDFName.of("Annot"),
+                    Subtype: PDFName.of("Text"),
+                    P: page.ref,
+                    Rect: pdfDoc.context.obj(rect),
+                    F: PDFNumber.of(4),
+                    Name: PDFName.of("Note"),
+                    NM: PDFString.of(uniqueId),
+                    // UTF-16 hex strings preserve accents, non-Latin scripts,
+                    // and emoji in user-authored reading notes.
+                    T: PDFHexString.fromText(treeLabel),
+                    Contents: PDFHexString.fromText(String(note.text).slice(0, 4096)),
+                    Subj: PDFString.of("Reading Tree note"),
+                    CreationDate: PDFString.fromDate(createdAt),
+                    M: PDFString.fromDate(new Date(note.updatedAt || note.createdAt || Date.now())),
+                });
+                appendAnnotation(page, noteDict);
             }
 
             const originalName = state.currentPdfDescriptor.name || "document";
             const baseName = originalName.replace(/\.pdf$/i, "");
             const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-            const filename = `${baseName}_highlighted_${timestamp}.pdf`;
+            const filename = `${baseName}_annotated_${timestamp}.pdf`;
 
             const highlightedPdfBytes = await pdfDoc.save();
             const blob = new Blob([highlightedPdfBytes], { type: "application/pdf" });
@@ -202,5 +241,86 @@ export class ExportManager {
             this.app.ui.showInfo("Export failed: " + error.message);
             alert("Failed to export PDF: " + error.message);
         }
+    }
+
+    _getTreeNotesForCurrentPdf() {
+        const { state } = this.app;
+        const documentId = state.currentPdfKey;
+        const rewards = this.app.rewards?.storage?.getSnapshot?.();
+        if (!documentId || !rewards) return [];
+
+        const plantsByReflection = new Map(
+            (rewards.plants || [])
+                .filter((plant) => plant?.reflectionId)
+                .map((plant) => [plant.reflectionId, plant]),
+        );
+        return (rewards.reflections || []).flatMap((reflection) => {
+            if (reflection?.documentId !== documentId || !String(reflection.text || "").trim()) return [];
+            const plant = plantsByReflection.get(reflection.id);
+            if (plant?.deletedAt) return [];
+            return [{
+                ...reflection,
+                speciesId: plant?.speciesId || null,
+            }];
+        });
+    }
+
+    _resolveTreeNoteSentence(note) {
+        const sentences = this.app.state.sentences || [];
+        const anchor = note.anchor || {};
+        const candidates = [anchor.sentenceIndex, note.sentenceIndex]
+            .map(Number)
+            .filter(Number.isInteger);
+        for (const index of candidates) {
+            const sentence = sentences[index];
+            if (!sentence) continue;
+            const pageMatches = !anchor.pageNumber || Number(sentence.pageNumber) === Number(anchor.pageNumber);
+            const textMatches = !anchor.text || String(sentence.text || "").trim().startsWith(anchor.text);
+            if (pageMatches && textMatches) return sentence;
+        }
+
+        if (anchor.pageNumber && anchor.text) {
+            const exactPageMatch = sentences.find((sentence) =>
+                Number(sentence?.pageNumber) === Number(anchor.pageNumber) &&
+                String(sentence?.text || "").trim().startsWith(anchor.text),
+            );
+            if (exactPageMatch) return exactPageMatch;
+        }
+        return null;
+    }
+
+    _getTreeNoteRect(page, pageNum, sentence, noteRowsByPage) {
+        const { width, height } = page.getSize();
+        const viewport = this.app.state.viewportDisplayByPage.get(pageNum);
+        const renderer = this.app.pdfRenderer;
+        let anchorY = null;
+        if (sentence && viewport) {
+            const words = Array.isArray(sentence.readableWords) && sentence.readableWords.length
+                ? sentence.readableWords
+                : sentence.words;
+            const lineRects = renderer?.getMergedLineRects?.(words || [], pageNum, {
+                offsetYDisplay: 0,
+                yTolerance: 3,
+            }) || [];
+            const lastLine = [...lineRects].sort((left, right) => left.y - right.y || left.x - right.x).at(-1);
+            if (lastLine) {
+                const point = typeof viewport.convertToPdfPoint === "function"
+                    ? viewport.convertToPdfPoint(lastLine.x + lastLine.width, lastLine.y)
+                    : [0, height - (lastLine.y * height / viewport.height)];
+                anchorY = Number(point?.[1]);
+            }
+        }
+        if (!Number.isFinite(anchorY)) anchorY = height - 40;
+
+        const iconSize = 18;
+        const margin = 8;
+        let bottom = Math.max(margin, Math.min(height - margin - iconSize, anchorY - iconSize));
+        const usedRows = noteRowsByPage.get(pageNum) || [];
+        while (usedRows.some((used) => Math.abs(used - bottom) < iconSize + 3) && bottom > margin) {
+            bottom = Math.max(margin, bottom - iconSize - 3);
+        }
+        usedRows.push(bottom);
+        noteRowsByPage.set(pageNum, usedRows);
+        return [width - margin - iconSize, bottom, width - margin, bottom + iconSize];
     }
 }

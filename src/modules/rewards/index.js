@@ -382,6 +382,7 @@ export class RewardsController {
         if (!session || meaningfulCharacterCount(text) < this.config.reflectionMinimumCharacters) {
             throw new Error("The reflection is too short.");
         }
+        const anchor = this._captureReflectionAnchor(session.document?.id);
         let reflection = null;
         await this.storage.transaction((state) => {
             const eligible = state.sessions.find(
@@ -394,6 +395,7 @@ export class RewardsController {
                 sessionId: session.id,
                 documentId: eligible.document.id,
                 text: String(text).trim(),
+                anchor,
                 createdAt: timestamp,
                 updatedAt: timestamp,
             };
@@ -419,6 +421,27 @@ export class RewardsController {
         this.app.eventBus.emit(EVENTS.REFLECTION_SAVED, reflection);
         this._refresh();
         return reflection;
+    }
+
+    _captureReflectionAnchor(documentId) {
+        const descriptor = this.adapter?.getDocumentDescriptor?.();
+        if (!descriptor?.id || descriptor.id !== documentId) return null;
+
+        const sentenceIndex = Math.max(0, Number(this.app.state?.currentSentenceIndex) || 0);
+        const sentence = this.app.state?.sentences?.[sentenceIndex];
+        const documentType = this.app.state?.currentDocumentType || descriptor.type;
+        const anchor = {
+            documentType,
+            sentenceIndex,
+        };
+
+        if (documentType === "pdf" && Number.isFinite(Number(sentence?.pageNumber))) {
+            anchor.pageNumber = Number(sentence.pageNumber);
+            // This small text fingerprint lets export reject a stale sentence
+            // index if parsing rules change between reading and exporting.
+            anchor.text = String(sentence.text || "").trim().slice(0, 240);
+        }
+        return anchor;
     }
 
     async rewardAnnotation(payload) {

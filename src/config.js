@@ -28,7 +28,7 @@ export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 44,
     VERSION_PATCH: 1,
-    VERSION_BUILD: 0,
+    VERSION_BUILD: 1,
 
     // Rendering
     ENABLE_WORD_HIGHLIGHT: true,
@@ -134,7 +134,7 @@ export const CONFIG = {
         maxAcceptedDeltaMs: 5000,
         checkpointIntervalMs: 15000,
         syncDebounceMs: 30000,
-        treePlantingIntervalMinutes: 0.3,
+        treePlantingIntervalMinutes: 5,
         treePlantingIncrementSeconds: 1,
         treePlantingIncrementEveryTrees: 7,
         treePlantingMaximumMinutes: 10,

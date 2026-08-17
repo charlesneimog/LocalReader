@@ -6,12 +6,12 @@ export class ReflectionDialog {
         this.session = null;
         this.dialog = document.createElement("dialog");
         this.dialog.className =
-            "rewards-dialog w-[94vw] max-w-sm rounded-xl border " +
+            "rewards-dialog reflection-dialog w-[94vw] max-w-sm rounded-xl border " +
             "border-slate-200 dark:border-slate-700 bg-background-light dark:bg-background-dark " +
             "p-4 text-left text-slate-800 dark:text-slate-200 shadow-lg";
         this.dialog.setAttribute("aria-labelledby", "reading-note-title");
         this.dialog.innerHTML = `
-            <form class="grid gap-3">
+            <form class="reflection-dialog__form grid gap-3">
                 <header class="flex items-start gap-3">
                     <span class="material-symbols-outlined mt-1 text-primary" aria-hidden="true">park</span>
                     <div class="min-w-0 flex-1">
@@ -19,6 +19,10 @@ export class ReflectionDialog {
                         <p data-summary class="mt-1 text-xs text-slate-500 dark:text-slate-400"></p>
                     </div>
                 </header>
+                <section data-highlights class="reflection-dialog__highlights grid gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-gray-900 p-3">
+                    <h3 class="text-xs font-semibold text-slate-700 dark:text-slate-300">Your highlights from this reading session</h3>
+                    <div data-highlight-list class="reflection-dialog__highlight-list grid gap-2 text-xs text-slate-600 dark:text-slate-300"></div>
+                </section>
                 <label class="grid gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
                     Write what you were reading
                     <textarea rows="4" data-text required placeholder="What did you read during these five minutes?"
@@ -61,16 +65,47 @@ export class ReflectionDialog {
         return this.dialog.open;
     }
 
-    open(session, summary = "") {
+    open(session, summary = "", highlights = []) {
         if (!session || this.isOpen()) return false;
         this.session = session;
         this.dialog.querySelector("[data-summary]").textContent = summary;
+        this._renderHighlights(highlights);
         const area = this.dialog.querySelector("[data-text]");
         area.value = "";
         area.dispatchEvent(new Event("input"));
         this.dialog.showModal();
         area.focus();
         return true;
+    }
+
+    _renderHighlights(highlights) {
+        const list = this.dialog.querySelector("[data-highlight-list]");
+        list.replaceChildren();
+        const items = Array.isArray(highlights)
+            ? highlights.map((value) => {
+                const item = value && typeof value === "object" ? value : { text: value };
+                return {
+                    text: String(item.text || "").trim(),
+                    color: typeof item.color === "string" ? item.color.trim() : "",
+                };
+            }).filter((item) => item.text)
+            : [];
+        if (!items.length) {
+            const empty = document.createElement("p");
+            empty.className = "italic text-slate-500 dark:text-slate-400";
+            empty.textContent = "You did not add any highlights during this session.";
+            list.appendChild(empty);
+            return;
+        }
+        for (const item of items) {
+            const quote = document.createElement("blockquote");
+            quote.className = "border-l-2 border-primary/50 pl-3 whitespace-pre-wrap";
+            if (item.color && globalThis.CSS?.supports?.("color", item.color)) {
+                quote.style.borderLeftColor = item.color;
+            }
+            quote.textContent = item.text;
+            list.appendChild(quote);
+        }
     }
 
     close() {

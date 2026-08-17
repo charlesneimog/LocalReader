@@ -184,6 +184,58 @@ test("a reading boundary waits for tree completion before opening its reflection
     assert.deepEqual(lifecycle, ["tree-finalized", "prompt-opened"]);
 });
 
+test("a tree reflection includes only highlights created during its reading session", () => {
+    const controller = Object.create(RewardsController.prototype);
+    controller.adapter = {
+        getDocumentDescriptor: () => ({ id: "book-1", type: "pdf" }),
+    };
+    controller.app = {
+        state: {
+            sentences: [
+                { text: "An old passage." },
+                { text: "First session passage." },
+                { text: "Second session passage." },
+                { text: "A later passage." },
+            ],
+            savedHighlights: new Map([
+                [0, { text: "An old passage.", timestamp: 99 }],
+                [2, { sentenceText: "Second session passage.", color: "#81c784", timestamp: 180 }],
+                [1, { text: "First session passage.", color: "#ffda76", timestamp: 120 }],
+                [3, { text: "A later passage.", timestamp: 201 }],
+            ]),
+        },
+    };
+
+    const highlights = controller._getSessionHighlights({
+        document: { id: "book-1", type: "pdf" },
+        startedAt: 100,
+        completedAt: 200,
+    });
+
+    assert.deepEqual(highlights, [
+        { text: "First session passage.", color: "#ffda76" },
+        { text: "Second session passage.", color: "#81c784" },
+    ]);
+});
+
+test("a tree reflection does not borrow highlights from another open document", () => {
+    const controller = Object.create(RewardsController.prototype);
+    controller.adapter = {
+        getDocumentDescriptor: () => ({ id: "book-2", type: "pdf" }),
+    };
+    controller.app = {
+        state: {
+            savedHighlights: new Map([[0, { text: "Wrong book.", timestamp: 150 }]]),
+        },
+    };
+
+    assert.deepEqual(controller._getSessionHighlights({
+        document: { id: "book-1", type: "pdf" },
+        startedAt: 100,
+        completedAt: 200,
+    }), []);
+});
+
 test("earned-tree prompt pauses reading and playback until the required paragraph is saved", async () => {
     const announcements = [];
     const notePrompts = [];

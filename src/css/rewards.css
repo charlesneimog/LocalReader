@@ -21,6 +21,32 @@
     margin: auto;
 }
 
+/* Keep the reflection controls fixed while only its reference quotes scroll. */
+.reflection-dialog {
+    max-height: 50vh;
+    max-height: 50dvh;
+    overflow: hidden;
+}
+
+.reflection-dialog__form {
+    max-height: calc(50vh - 2rem);
+    max-height: calc(50dvh - 2rem);
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+}
+
+.reflection-dialog__highlights {
+    min-height: 0;
+    overflow: hidden;
+    grid-template-rows: auto minmax(0, 1fr);
+}
+
+.reflection-dialog__highlight-list {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
 /* Keep the garden anchored while selected notes change its content height. */
 .rewards-dialog.garden-dialog {
     --garden-dialog-top: clamp(0.5rem, 2vh, 1.25rem);

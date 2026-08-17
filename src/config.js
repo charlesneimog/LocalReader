@@ -27,7 +27,7 @@ export function normalizeInferenceBackend(value, fallback = INFERENCE_BACKENDS.W
 export const CONFIG = {
     VERSION_MAJOR: 0,
     VERSION_MINOR: 44,
-    VERSION_PATCH: 0,
+    VERSION_PATCH: 1,
     VERSION_BUILD: 0,
 
     // Rendering
@@ -134,7 +134,7 @@ export const CONFIG = {
         maxAcceptedDeltaMs: 5000,
         checkpointIntervalMs: 15000,
         syncDebounceMs: 30000,
-        treePlantingIntervalMinutes: 5,
+        treePlantingIntervalMinutes: 0.3,
         treePlantingIncrementSeconds: 1,
         treePlantingIncrementEveryTrees: 7,
         treePlantingMaximumMinutes: 10,

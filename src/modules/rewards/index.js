@@ -298,8 +298,48 @@ export class RewardsController {
             this.reflectionDialog?.open(
                 session,
                 `${definition.name} was added to your garden. Reading is paused until you save its paragraph.`,
+                this._getSessionHighlights(session),
             );
         }
+    }
+
+    _getSessionHighlights(session) {
+        const descriptor = this.adapter?.getDocumentDescriptor?.();
+        if (!session?.document?.id || descriptor?.id !== session.document.id) return [];
+
+        const startedAt = Number(session.startedAt);
+        const completedAt = Number(session.completedAt);
+        if (!Number.isFinite(startedAt) || !Number.isFinite(completedAt)) return [];
+
+        const highlights = this.app.state?.savedHighlights;
+        if (!(highlights instanceof Map)) return [];
+
+        const entries = [];
+        for (const [sentenceIndex, highlight] of highlights.entries()) {
+            const timestamp = Number(highlight?.timestamp);
+            if (!Number.isFinite(timestamp) || timestamp < startedAt || timestamp > completedAt) continue;
+            const fallback = this.app.state?.sentences?.[Number(sentenceIndex)]?.text;
+            const text = String(highlight?.text || highlight?.sentenceText || fallback || "")
+                .trim()
+                .replace(/\s+/g, " ");
+            if (text) entries.push({
+                text,
+                color: typeof highlight?.color === "string" ? highlight.color : "",
+                timestamp,
+                sentenceIndex: Number(sentenceIndex),
+            });
+        }
+        entries.sort((left, right) =>
+            left.timestamp - right.timestamp || left.sentenceIndex - right.sentenceIndex,
+        );
+        const seen = new Set();
+        return entries
+            .filter((entry) => {
+                if (seen.has(entry.text)) return false;
+                seen.add(entry.text);
+                return true;
+            })
+            .map(({ text, color }) => ({ text, color }));
     }
 
     _rememberHistoricalTrees() {

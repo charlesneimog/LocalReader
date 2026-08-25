@@ -1,4 +1,4 @@
-const APP_VERSION = "0.44.1+1";
+const APP_VERSION = "0.44.1+3";
 const IDB_VERSION = 1;
 const cacheName = `PocketReader-v${APP_VERSION}`;
 const runtimeCache = `PocketReader-runtime-v${APP_VERSION}`;
@@ -525,14 +525,14 @@ const fetchHandler = async (e) => {
                     });
                 }
 
-                // Never let the SW interfere with API calls (same-origin or cross-origin).
-                // Return the fetch Promise directly so network/CORS failures surface as-is.
+                // Never let the SW cache API calls. Await the request so the
+                // outer handler can convert network/CORS rejections to a Response.
                 if (urlObj.pathname === "/api" || urlObj.pathname.startsWith("/api/")) {
-                    return fetch(request);
+                    return await fetch(request);
                 }
 
                 if (request.cache === "no-store") {
-                    return fetch(request);
+                    return await fetch(request);
                 }
 
                 // Strategy 1: Network First for app shell assets to avoid stale UI.

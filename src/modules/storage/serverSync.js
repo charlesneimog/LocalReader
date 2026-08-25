@@ -729,7 +729,7 @@ export class ServerSync {
         return "pt";
     }
 
-    async _translateTextWithGoogleFallback(text, { target = null } = {}) {
+    async _translateTextWithGoogle(text, { target = null, signal = null } = {}) {
         const payloadText = (text || "").trim();
         if (!payloadText) return null;
 
@@ -738,7 +738,7 @@ export class ServerSync {
             "https://translate.googleapis.com/translate_a/single" +
             `?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(payloadText)}`;
 
-        const res = await fetch(url);
+        const res = await fetch(url, signal ? { signal } : undefined);
         if (!res.ok) return null;
 
         const data = await res.json().catch(() => null);
@@ -757,13 +757,16 @@ export class ServerSync {
         };
     }
 
-    async translateText(text, { target = null } = {}) {
+    async translateText(text, { target = null, silent = false, signal = null } = {}) {
         const payloadText = (text || "").trim();
         if (!payloadText) return null;
         const effectiveTarget = this._resolveTranslationTarget(target);
 
         try {
-            const googleResult = await this._translateTextWithGoogleFallback(payloadText, { target: effectiveTarget });
+            const googleResult = await this._translateTextWithGoogle(payloadText, {
+                target: effectiveTarget,
+                signal,
+            });
             if (googleResult?.translatedText) return googleResult;
         } catch {
             // Fall back to the configured Python server below.
@@ -777,18 +780,36 @@ export class ServerSync {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: payloadText, target: effectiveTarget }),
+                ...(signal ? { signal } : {}),
             });
 
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
                 const msg = data?.error || `Translate failed: ${response.status} ${response.statusText}`;
-                this.app.ui?.showInfo?.(msg);
+                if (!silent) this.app.ui?.showInfo?.(msg);
                 return null;
             }
             return data;
         } catch (e) {
-            this.app.ui?.showInfo?.("⚠️ Translate request failed");
+            if (!silent) this.app.ui?.showInfo?.("⚠️ Translate request failed");
             return null;
+        }
+    }
+
+    async checkTranslationAvailability(target = "en", { timeoutMs = 5000 } = {}) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const result = await this.translateText("ok", {
+                target,
+                silent: true,
+                signal: controller.signal,
+            });
+            return !!result?.translatedText;
+        } catch {
+            return false;
+        } finally {
+            clearTimeout(timeoutId);
         }
     }
 

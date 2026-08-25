@@ -366,31 +366,14 @@ export class PDFTTSApp {
             return this._translationAvailabilityCache.available;
         }
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2500);
         const targetLang = this._normalizeTranslationTarget(target || "en");
-        const url =
-            "https://translate.googleapis.com/translate_a/single" +
-            `?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=ok`;
-
-        let available = false;
-        try {
-            const response = await fetch(url, {
-                cache: "no-store",
-                signal: controller.signal,
-            });
-            available = response.ok;
-        } catch {
-            available = false;
-        } finally {
-            clearTimeout(timeoutId);
-        }
+        const available = await this.serverSync?.checkTranslationAvailability?.(targetLang, { timeoutMs: 5000 });
 
         this._translationAvailabilityCache = {
-            available,
+            available: !!available,
             checkedAt: Date.now(),
         };
-        return available;
+        return !!available;
     }
 
     _normalizeTranslationMode(mode) {

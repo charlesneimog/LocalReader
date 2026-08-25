@@ -71,6 +71,7 @@ export class SyncManager {
     clearAuthToken(...args) { return this.server.clearAuthToken(...args); }
     pingServer(...args) { return this.server.pingServer(...args); }
     translateText(...args) { return this.server.translateText(...args); }
+    checkTranslationAvailability(...args) { return this.server.checkTranslationAvailability(...args); }
     connectGoogleDrive(...args) { return this.drive.connect(...args); }
     disconnectGoogleDrive(...args) { return this.drive.disconnect(...args); }
     isGoogleDriveConnected() { return this.drive.isConnected(); }

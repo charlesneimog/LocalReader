@@ -3,7 +3,6 @@ import json
 import re
 import os
 import asyncio
-import inspect
 import base64
 import hashlib
 import hmac
@@ -52,6 +51,36 @@ mimetypes.add_type("font/otf", ".otf")
 STATIC_ROOT = os.environ.get("STATIC_ROOT") or os.path.dirname(os.path.abspath(__file__))
 STATIC_ROOT = os.path.abspath(STATIC_ROOT)
 PUBLIC_APP_URL = (os.environ.get("PUBLIC_APP_URL") or "").strip()
+
+
+async def translate_text_for_api(text, target, translator_factory=None):
+    """Translate through Google's GTX endpoint and fail on upstream errors.
+
+    googletrans normally returns its input text as dummy data when Google
+    responds with an error. Using raise_exception=True is essential here:
+    otherwise the API reports HTTP 200 and the Portuguese Piper voice receives
+    the original English sentence.
+    """
+    if translator_factory is None:
+        from googletrans import Translator
+
+        translator_factory = Translator
+
+    async with translator_factory(
+        service_urls=["translate.googleapis.com"],
+        raise_exception=True,
+    ) as translator:
+        result = await translator.translate(text, src="auto", dest=target)
+
+    translated = str(getattr(result, "text", "") or "").strip()
+    if not translated:
+        raise RuntimeError("Translation provider returned empty text")
+
+    return {
+        "translatedText": translated,
+        "detectedSource": getattr(result, "src", None),
+        "target": getattr(result, "dest", None) or target,
+    }
 
 
 def _read_version_from_frontend_config(static_root: str) -> str:
@@ -948,32 +977,21 @@ class APIHandler(BaseHTTPRequestHandler):
                 return
 
             try:
-                from googletrans import Translator
-
-                async def _do_translate():
-                    translator = Translator()
-                    maybe_result = translator.translate(text, dest=target)
-                    if inspect.isawaitable(maybe_result):
-                        return await maybe_result
-                    return maybe_result
-
-                result = asyncio.run(_do_translate())
-
-                translated = getattr(result, "text", "")
-                detected = getattr(result, "src", None)
-                self._send_json(
-                    200,
-                    {
-                        "translatedText": translated,
-                        "detectedSource": detected,
-                        "target": target,
-                    },
+                translation = asyncio.run(translate_text_for_api(text, target))
+                logger.info(
+                    "Translate success: owner=%s source=%s target=%s input_chars=%d output_chars=%d",
+                    user_email,
+                    translation.get("detectedSource") or "unknown",
+                    translation.get("target") or target,
+                    len(text),
+                    len(translation.get("translatedText") or ""),
                 )
+                self._send_json(200, translation)
                 return
             except ImportError:
                 self._send_error(
                     501,
-                    "Translation support not installed on server. Install googletrans (googletrans==4.0.0-rc1).",
+                    "Translation support not installed on server. Install googletrans==4.0.2.",
                 )
                 return
             except Exception as e:

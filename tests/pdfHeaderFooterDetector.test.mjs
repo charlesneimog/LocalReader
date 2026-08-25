@@ -235,6 +235,26 @@ test("uses separately translated layout entries for speech and popup timing", as
     assert.deepEqual(entries, sentence.readTranslationPhraseEntries);
 });
 
+test("uses translated speech even when layout block metadata is not ready", async () => {
+    globalThis.window = globalThis.window || {};
+    const { TTSEngine } = await import("../src/modules/tts/ttsEngine.js");
+    const engine = Object.create(TTSEngine.prototype);
+    engine.app = {
+        state: { currentDocumentType: "pdf" },
+        config: { SPLIT_PDF_AUDIO_ON_LAYOUT_BLOCKS: true },
+        isReadTranslationEnabled: () => true,
+    };
+    const sentence = {
+        readTranslationPhraseEntries: [
+            { blockKey: null, text: "Parágrafo traduzido" },
+        ],
+    };
+
+    const entries = await engine._getSpeechPhraseEntries(sentence, "Original English paragraph");
+
+    assert.deepEqual(entries, sentence.readTranslationPhraseEntries);
+});
+
 test("queues the selected PDF sentence before scheduling TTS prefetch", async () => {
     const events = [];
     const sentence = {

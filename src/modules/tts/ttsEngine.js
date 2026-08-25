@@ -377,7 +377,7 @@ export class TTSEngine {
 
         if (this.app.isReadTranslationEnabled?.() && Array.isArray(sentence?.readTranslationPhraseEntries)) {
             const translatedEntries = sentence.readTranslationPhraseEntries.filter(
-                (entry) => hasUsableSpeechText(entry?.text) && entry?.blockKey,
+                (entry) => hasUsableSpeechText(entry?.text),
             );
             if (translatedEntries.length) return translatedEntries;
         }

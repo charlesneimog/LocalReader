@@ -15,6 +15,11 @@ export class ServerSync {
         this._serverAvailabilityPromise = null;
         this._serverUnavailableNoticeShown = false;
 
+        // Translation uses a session-level circuit breaker. Google is tried
+        // initially; after its first failure, all later phrases go directly to
+        // the server API instead of repeating a request known to be blocked.
+        this._translationBackend = "google";
+
         this._autoSyncEnabled = false;
         this._autoSyncListeners = [];
 
@@ -762,14 +767,19 @@ export class ServerSync {
         if (!payloadText) return null;
         const effectiveTarget = this._resolveTranslationTarget(target);
 
-        try {
-            const googleResult = await this._translateTextWithGoogle(payloadText, {
-                target: effectiveTarget,
-                signal,
-            });
-            if (googleResult?.translatedText) return googleResult;
-        } catch (error) {
-            console.debug("[Translation] Google request failed; trying server API", error);
+        if (this._translationBackend !== "server") {
+            try {
+                const googleResult = await this._translateTextWithGoogle(payloadText, {
+                    target: effectiveTarget,
+                    signal,
+                });
+                if (googleResult?.translatedText) return googleResult;
+            } catch (error) {
+                console.debug("[Translation] Google request failed", error);
+            }
+
+            this._translationBackend = "server";
+            console.info("[Translation] Google unavailable; using server API for the rest of this session");
         }
 
         const serverUrl = this.getServerUrl();

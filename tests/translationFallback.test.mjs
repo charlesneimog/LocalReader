@@ -13,6 +13,7 @@ const makeSync = () => {
     const sync = Object.create(ServerSync.prototype);
     sync.app = { ui: { showInfo() {} } };
     sync.getServerUrl = () => null;
+    sync._translationBackend = "google";
     return sync;
 };
 
@@ -78,6 +79,48 @@ test("falls back to the configured server API when Google fails", async () => {
             target: "pt",
         });
         assert.equal(result.translatedText, "Olá amigos");
+    } finally {
+        globalThis.localStorage = previousStorage;
+        globalThis.fetch = previousFetch;
+    }
+});
+
+test("keeps using the server after the first Google failure", async () => {
+    const previousStorage = globalThis.localStorage;
+    const previousFetch = globalThis.fetch;
+    globalThis.localStorage = makeStorage();
+
+    let googleRequests = 0;
+    globalThis.fetch = async () => {
+        googleRequests += 1;
+        return { ok: false, status: 503, statusText: "Service Unavailable" };
+    };
+
+    const sync = makeSync();
+    sync.getServerUrl = () => "https://reader.example";
+    const serverTexts = [];
+    sync._fetch = async (_url, options) => {
+        const body = JSON.parse(options.body);
+        serverTexts.push(body.text);
+        return {
+            ok: true,
+            json: async () => ({
+                translatedText: `pt:${body.text}`,
+                detectedSource: "en",
+                target: "pt",
+            }),
+        };
+    };
+
+    try {
+        const first = await sync.translateText("First", { target: "pt" });
+        const second = await sync.translateText("Second", { target: "pt" });
+
+        assert.equal(first.translatedText, "pt:First");
+        assert.equal(second.translatedText, "pt:Second");
+        assert.equal(googleRequests, 1);
+        assert.deepEqual(serverTexts, ["First", "Second"]);
+        assert.equal(sync._translationBackend, "server");
     } finally {
         globalThis.localStorage = previousStorage;
         globalThis.fetch = previousFetch;

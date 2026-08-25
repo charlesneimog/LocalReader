@@ -72,6 +72,7 @@ test("falls back to the configured server API when Google fails", async () => {
         const result = await sync.translateText("Hello friends", { target: "pt" });
         assert.equal(serverRequest.url, "https://reader.example/api/translate");
         assert.equal(serverRequest.options.method, "POST");
+        assert.equal(serverRequest.options.skipAvailabilityGate, true);
         assert.deepEqual(JSON.parse(serverRequest.options.body), {
             text: "Hello friends",
             target: "pt",

@@ -768,12 +768,15 @@ export class ServerSync {
                 signal,
             });
             if (googleResult?.translatedText) return googleResult;
-        } catch {
-            // Fall back to the configured Python server below.
+        } catch (error) {
+            console.debug("[Translation] Google request failed; trying server API", error);
         }
 
         const serverUrl = this.getServerUrl();
-        if (!serverUrl) return null;
+        if (!serverUrl) {
+            console.warn("[Translation] Google returned no translation and no server URL is configured");
+            return null;
+        }
 
         try {
             const response = await this._fetch(`${serverUrl}/api/translate`, {
@@ -781,16 +784,28 @@ export class ServerSync {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: payloadText, target: effectiveTarget }),
                 ...(signal ? { signal } : {}),
+                // The translation request is itself an availability probe. Do
+                // not let a stale background-sync health result suppress it.
+                skipAvailabilityGate: true,
             });
 
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
                 const msg = data?.error || `Translate failed: ${response.status} ${response.statusText}`;
+                console.warn("[Translation] Server fallback rejected the request", {
+                    status: response.status,
+                    statusText: response.statusText,
+                    message: msg,
+                });
                 if (!silent) this.app.ui?.showInfo?.(msg);
                 return null;
             }
+            if (data?.translatedText) {
+                console.debug("[Translation] Server fallback succeeded");
+            }
             return data;
         } catch (e) {
+            console.warn("[Translation] Server fallback request failed", e);
             if (!silent) this.app.ui?.showInfo?.("⚠️ Translate request failed");
             return null;
         }
